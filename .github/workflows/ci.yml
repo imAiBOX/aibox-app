@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  # ── 常规：Linux 跑 aibox-net 单测 + 前端 typecheck/build ──
+  # ── 常规：Linux 跑 Rust 原语单测 + 前端 typecheck/build ──
   test-linux:
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
@@ -43,8 +43,58 @@ jobs:
         with:
           workspaces: "."
 
-      - name: aibox-net unit tests (offline)
-        run: cargo test -p aibox-net
+      # net / netdoctor / core 全部可脱离 Tauri 单测（不跑 --workspace：
+      # src-tauri 壳在 Linux 需要 gtk/webkit 系统库，由 tauri-check job 负责）
+      - name: Rust primitive tests (offline)
+        run: cargo test -p aibox-net -p aibox-netdoctor -p aibox-core
+
+  # ── 壳（src-tauri）Rust 编译检查：Linux + GTK/WebKit 系统库（tauri v2 官方依赖表）──
+  tauri-check:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libdbus-1-dev \
+            librsvg2-dev
+
+      # cargo check = debug → tauri-codegen 走 devUrl 分支；dist 兜底建一个空目录
+      - name: Check shell crate (Linux)
+        run: |
+          mkdir -p dist
+          cargo check -p aibox-app
+
+  # ── 壳的 cfg(windows) 分支（winreg/windows-sys/netstat 路径）必须也被编译验证 ──
+  tauri-check-windows:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      - name: Check shell crate (Windows)
+        shell: bash
+        run: |
+          mkdir -p dist
+          cargo check -p aibox-app
 
   # ── 打 tag v*：Windows 出 portable 单文件 exe → GitHub Release ──
   release-windows:

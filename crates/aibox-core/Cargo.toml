@@ -1,0 +1,26 @@
+[package]
+name = "aibox-core"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+description = "AiBOX stable primitives: download/verify/exec/probe/fs/diag-zip/registry/scan — fully testable without Tauri"
+
+[dependencies]
+# 网络原语直接复用 aibox-net（下载降级/探测/哈希），不重造
+aibox-net = { path = "../aibox-net" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 探测 expect 与诊断脱敏扫描（regex 1.x 纯 Rust，已在 workspace lock）
+regex = "1"
+# HTTP：与 aibox-net 同款 ureq（rustls，无系统 C 库）——registry 多源交叉 / VERIFY 真实请求 / update_check
+ureq = { version = "2", default-features = false, features = ["tls"] }
+# C5 JSON5 合并（openclaw.json5 带注释/尾逗号；json5→pest 纯 Rust）
+json5 = "0.4"
+# 诊断包 zip（default-features 关闭：只要 deflate；flate2→miniz_oxide/zlib-rs 纯 Rust）
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Windows 系统信息读取（GetDiskFreeSpaceExW / GlobalMemoryStatusEx）——windows-sys 纯绑定无 C 构建
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation", "Win32_Storage_FileSystem"] }
+# Windows 区域信号（locale/Geo/时区）只读注册表（netdoctor 同款依赖，winreg 纯 Rust）
+winreg = "0.56"

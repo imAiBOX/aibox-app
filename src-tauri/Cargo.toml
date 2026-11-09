@@ -3,7 +3,7 @@ name = "aibox-app"
 version = "0.0.1"
 edition = "2021"
 license = "MIT"
-description = "AiBOX portable installer shell"
+description = "AiBOX portable installer shell: thin Tauri commands over aibox-core"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -11,8 +11,13 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 aibox-net = { path = "../crates/aibox-net" }
+aibox-core = { path = "../crates/aibox-core" }
+aibox-netdoctor = { path = "../crates/aibox-netdoctor" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# SQLite（断点续装，TS 侧读写；只注册）。sqlx→libsqlite3-sys 走
+# bundled SQLite，不依赖系统 sqlite 库（GitHub runner / 本机 gcc 均可编）
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 
 # 可执行文件名 = AiBOX.exe（Release 资产按版本号重命名的源文件）
 [[bin]]
