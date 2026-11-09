@@ -464,6 +464,24 @@ pub async fn verify_send(
 
 // ── 诊断与更新 ───────────────────────────────────────────────────────
 
+/// TS 侧在 PLAN_READY/CONFIRM 时写入最后计划 → `~/.aibox/cache/last-plan.json`
+/// （diagzip::default_inputs 已收录该文件，诊断包无需额外接线）。
+#[tauri::command]
+pub async fn save_plan(plan: Value) -> Cmd<String> {
+    blocking(move || {
+        let dir = paths::aibox_root().join("cache");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| CoreError::new("SAVE_PLAN", format!("create cache dir: {e}")))?;
+        let file = dir.join("last-plan.json");
+        let text = serde_json::to_string_pretty(&plan)
+            .map_err(|e| CoreError::new("SAVE_PLAN", format!("serialize plan: {e}")))?;
+        std::fs::write(&file, text)
+            .map_err(|e| CoreError::new("SAVE_PLAN", format!("write last-plan: {e}")))?;
+        Ok(file.to_string_lossy().into_owned())
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn diag_export(app: AppHandle) -> Cmd<String> {
     let outcome = blocking(move || {

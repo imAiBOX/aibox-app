@@ -71,7 +71,7 @@ describe("mock 场景开关覆盖", () => {
     const probes = mockNetProbe();
     expect(probes.find((p) => p.channel === "github.com")?.ok).toBe(false);
     expect(mockExecInstall({ taskId: "t", cmd: "x", args: [] }).code).toBe(1);
-    expect(mockNetdoctorRun().items.find((i) => i.id === "D4")?.status).toBe("fail");
+    expect(mockNetdoctorRun().items.find((i) => i.item === "D4")?.status).toBe("fail");
   });
 
   it("verify_fail：VERIFY 收不到模型文本", () => {

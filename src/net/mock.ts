@@ -8,6 +8,7 @@ import type {
   ConfigWriteInput,
   ConfigWriteResult,
   DiagReport,
+  DiagReportItem,
   DownloadTask,
   ExecTask,
   ProbeResult,
@@ -168,13 +169,38 @@ export function mockNetProbe(): ProbeResult[] {
 }
 
 export function mockNetdoctorRun(): DiagReport {
+  const now = Date.now();
+  const row = (
+    item: string,
+    status: "ok" | "warn" | "fail",
+    en: string,
+    zh: string,
+    fixes: string[] = [],
+    detail?: string,
+  ): DiagReportItem => ({
+    item,
+    status,
+    summary: { en, "zh-CN": zh },
+    detail,
+    timestampMs: now,
+    fixes,
+  });
   return {
+    schema: "aibox.diag.v1",
+    generatedAtMs: now,
     items: [
-      { id: "D0", name: "DNS 解析", status: "ok", conclusionKey: "diag.D0.ok" },
-      { id: "D1", name: "DoH 可用", status: "ok", conclusionKey: "diag.D1.ok" },
-      { id: "D2", name: "代理检测", status: "warn", conclusionKey: "diag.D2.warn" },
-      { id: "D3", name: "证书链", status: "ok", conclusionKey: "diag.D3.ok" },
-      { id: "D4", name: "通道测速", status: scenario === "net_dead" ? "fail" : "ok", conclusionKey: "diag.D4.ok" },
+      row("D0", "ok", "DNS resolves normally", "DNS 解析正常"),
+      row("D1", "ok", "Encrypted DNS works", "加密 DNS 可用"),
+      row("D2", "warn", "Proxy detected but not required", "检测到代理但非必需", ["R1"]),
+      row("D3", "ok", "Certificates are valid", "证书链有效"),
+      row(
+        "D4",
+        scenario === "net_dead" ? "fail" : "ok",
+        scenario === "net_dead" ? "No download source reachable" : "Download sources reachable",
+        scenario === "net_dead" ? "下载源全部不可达" : "下载源可达",
+        scenario === "net_dead" ? ["R1", "R2"] : [],
+        scenario === "net_dead" ? "github.com: timeout; ghfast.top: timeout" : undefined,
+      ),
     ],
   };
 }

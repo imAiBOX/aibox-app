@@ -1,24 +1,27 @@
 /**
  * ERROR 覆盖层（失败态 +）：红色横幅 + 人话原因 + 三按钮
  * （重试 / 跳过或换源 / 导出诊断）。ERROR 是覆盖层，不占主流程屏幕。
+ * 导出走 DiagExport 共用控件：loading → zip 路径 + 一键新建 GitHub Issue。
  */
 import { useTranslation } from "react-i18next";
 import { errorActions, type MachineState } from "../state";
+import DiagExport from "./DiagExport";
 
 export default function ErrorOverlay({
   state,
   onRetry,
   onSkip,
-  onExportDiag,
+  onExported,
   onDismiss,
 }: {
   state: MachineState;
   onRetry: () => void;
   onSkip: () => void;
-  onExportDiag: () => void;
+  /** 诊断包导出成功（zip 路径）；调用方据此 dispatch EXPORT_DIAG */
+  onExported: (zipPath: string) => void;
   onDismiss: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const err = state.error;
   if (!err) return null;
   const acts = errorActions(state);
@@ -51,8 +54,8 @@ export default function ErrorOverlay({
         </p>
 
         {/* 三按钮：主（重试）右对齐；危险/次要左对齐 */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex gap-2">
+        <div className="flex items-end justify-between gap-3">
+          <div className="flex flex-col gap-2">
             {acts.skip && (
               <button
                 type="button"
@@ -62,13 +65,14 @@ export default function ErrorOverlay({
                 {t("err.skip")}
               </button>
             )}
-            <button
-              type="button"
-              onClick={onExportDiag}
-              className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-xs text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
-            >
-              {t("err.export")}
-            </button>
+            {/* 导出诊断：loading → zip 路径 + 一键建 Issue */}
+            <DiagExport
+              compact
+              lang={i18n.resolvedLanguage}
+              errorCode={err.code}
+              symptom={t(err.messageKey)}
+              onExported={onExported}
+            />
           </div>
           <div className="flex gap-2">
             <button

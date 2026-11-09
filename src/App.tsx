@@ -6,12 +6,15 @@ import { hotLoadInto } from "./i18n/loader";
 import i18n from "./i18n";
 import {
   createInitialState,
-  memoryPersistence,
+  createPersistence,
+  e1Reduce,
+  createE1State,
   reduce,
   screenFor,
   type Plan,
 } from "./state";
-import { api, isMock, onEvent, type AiboxEvent, type AppIndex } from "./net/client";
+import { api, getMockScenario, isMock, type AppIndex } from "./net/client";
+import { channelToast, feedLogFromEvents, feedToastFromEvents, startTauriEvents } from "./net/events";
 import { AppShell, type BarAction } from "./screens/Shell";
 import S1Idle from "./screens/S1Idle";
 import S2Scan from "./screens/S2Scan";
@@ -25,6 +28,7 @@ import SettingsNetwork from "./screens/SettingsNetwork";
 import SmartScreen from "./screens/SmartScreen";
 import { useUpdateBanner } from "./hooks/useUpdateBanner";
 import { useSessionResume } from "./hooks/useSessionResume";
+import E1DiagPanel from "./screens/E1DiagPanel";
 import { runVerify } from "./config/flow";
 import type { ConfigCreds } from "./screens/S5Config";
 
@@ -45,7 +49,12 @@ export default function App() {
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [verifyPending, setVerifyPending] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const persistence = useRef(memoryPersistence()).current;
+  // 断点续装：真 Tauri → SQLite（sessions/kv），mock/浏览器 → memory（persistence-sqlite 工厂）
+  const persistence = useRef(createPersistence()).current;
+  // E1 内嵌诊断面板（同一任务连败 2 次触发；纯 reducer 可测）
+  const [e1, rawE1] = useReducer(e1Reduce, createE1State());
+  /** 导出成功后关闭 → 用 EXPORT_DIAG 语义恢复（与 RETRY 同转移，保留事件契约） */
+  const exportedRef = useRef(false);
   const banner = useUpdateBanner();
   const resume = useSessionResume(persistence, dispatch, state);
 
@@ -74,18 +83,52 @@ export default function App() {
     };
   }, []);
 
-  // 通道切换 toast（自动消失，不打断流程，S4）
-  useEffect(
-    () =>
-      onEvent((e: AiboxEvent) => {
-        if (e.event !== "channel_switched") return;
-        const { from, to } = e.payload;
-        setToast(t("s4.switched", { from, to }));
-        const timer = setTimeout(() => setToast(null), 4000);
-        return () => clearTimeout(timer);
-      }),
-    [t],
-  );
+  // 真事件桥（download_progress/task_phase/channel_switched/log_line → 统一事件总线；mock 已内建推送）
+  useEffect(() => {
+    const stopBridge = startTauriEvents();
+    const offToast = feedToastFromEvents(channelToast, (p) =>
+      t("s4.switched", { from: p.from, to: p.to }),
+    );
+    const offLog = feedLogFromEvents();
+    return () => {
+      offToast();
+      offLog();
+      stopBridge();
+    };
+  }, [t]);
+
+  // 通道切换 toast：3s 自动消失（不打断流程）
+  useEffect(() => channelToast.subscribe(setToast), []);
+
+  // E1 触发源：EXECUTE 中同一任务连败 2 次（RETRY 后再败即计 2）
+  useEffect(() => {
+    if (state.status === "ERROR" && state.error?.from === "EXECUTE" && state.error.taskId) {
+      rawE1({ type: "FAIL", taskId: state.error.taskId });
+    }
+  }, [state.status, state.error]);
+  // 任务成功 → 连败链断裂
+  useEffect(() => {
+    if (state.status !== "EXECUTE") return;
+    const cur = state.tasks[state.currentTaskIndex];
+    if (cur?.status === "done") rawE1({ type: "SUCCESS", taskId: cur.id });
+  }, [state.status, state.tasks, state.currentTaskIndex]);
+
+  // 断点续装写入时机：状态机关键转移（每任务完成在下方 runTask 内单独写）
+  useEffect(() => {
+    if (!state.appId || state.tasks.length === 0) return;
+    const KEY_PHASES = ["EXECUTE", "CONFIG", "VERIFY", "ERROR"] as const;
+    if (!(KEY_PHASES as readonly string[]).includes(state.status)) return;
+    void persistence.saveSnapshot({
+      appId: state.appId,
+      doneTaskIds: state.tasks.filter((x) => x.status === "done").map((x) => x.id),
+      savedAt: Date.now(),
+    });
+  }, [state.status, state.tasks, state.appId, persistence]);
+
+  // 完成安装 → 清会话（下次启动不再问「继续上次安装？」）
+  useEffect(() => {
+    if (state.status === "DONE") void persistence.clearSession();
+  }, [state.status, persistence]);
 
   // ── 主流程编排（mock 数据驱动状态机；换真 invoke）──
   const startInstall = useCallback(() => {
@@ -127,6 +170,8 @@ export default function App() {
           estMinutes: 6,
         };
         dispatch({ type: "PLAN_READY", plan });
+        // 诊断包收录最后计划：写 ~/.aibox/cache/last-plan.json，失败不阻塞
+        void api.savePlan(plan).catch(() => undefined);
       })
       .catch(() => dispatch({ type: "ERROR", code: "REGISTRY_FETCH", messageKey: "err.registry" }));
   }, [selectedId]);
@@ -144,12 +189,24 @@ export default function App() {
       const phases = ["download", "verify", "install", "probe"] as const;
       for (const phase of phases) {
         if (cancelled) return;
+        // mock 场景失败注入（C 档/B 档分支）：失败 → ERROR（带 taskId，E1 连败计数源）
+        if (isMock()) {
+          const sc = getMockScenario();
+          if (sc === "net_dead" && phase === "download") {
+            dispatch({ type: "ERROR", code: "NET_ALL_CHANNELS_DEAD", messageKey: "err.netDead", taskId: task.id });
+            return;
+          }
+          if (sc === "hash_mismatch" && phase === "verify") {
+            dispatch({ type: "ERROR", code: "HASH_MISMATCH", messageKey: "err.hashMismatch", taskId: task.id });
+            return;
+          }
+        }
         dispatch({ type: "TASK_PHASE", taskId: task.id, phase });
         await new Promise((r) => setTimeout(r, isMock() ? 180 : 60));
       }
       if (cancelled) return;
       dispatch({ type: "TASK_DONE", taskId: task.id });
-      // 断点续装快照（persistence 可 mock；换 SQLite）
+      // 断点续装快照（EXECUTE 每任务完成即写；真 Tauri → SQLite sessions 表）
       const snap = {
         appId: state.appId ?? task.id,
         doneTaskIds: state.tasks.slice(0, idx + 1).map((x) => x.id),
@@ -366,19 +423,34 @@ export default function App() {
           </div>
         )}
 
-        {/* ERROR 覆盖层（任意态进入） */}
-        {state.status === "ERROR" && (
+        {/* ERROR 覆盖层（任意态进入；E1 面板打开时让位，避免双层遮罩） */}
+        {state.status === "ERROR" && !e1.open && (
           <ErrorOverlay
             state={state}
             onRetry={() => dispatch({ type: "RETRY" })}
             onSkip={() => dispatch({ type: "SKIP" })}
-            onExportDiag={() => {
-              void api.diagExport().catch(() => undefined);
-              dispatch({ type: "EXPORT_DIAG" });
+            onExported={() => {
+              exportedRef.current = true;
             }}
-            onDismiss={() => dispatch({ type: "RETRY" })}
+            onDismiss={() => {
+              dispatch({ type: exportedRef.current ? "EXPORT_DIAG" : "RETRY" });
+              exportedRef.current = false;
+            }}
           />
         )}
+
+        {/* E1 内嵌诊断面板（同一任务连败 2 次 → 从右滑出；关闭/重试回到 S4） */}
+        <E1DiagPanel
+          open={e1.open}
+          onClose={() => {
+            rawE1({ type: "ACK" });
+            dispatch({ type: "RETRY" });
+          }}
+          onRetry={() => {
+            rawE1({ type: "ACK" });
+            dispatch({ type: "RETRY" });
+          }}
+        />
       </AppShell>
 
       {/* 语言切换（右下角常驻） */}

@@ -1,12 +1,13 @@
 /**
  * S4 EXECUTE：当前任务大字 + 蓝色进度条 + 进度条上方通道徽章
- * + 已完成折叠列表（灰）+ 右下「查看日志」抽屉。
+ * + 已完成折叠列表（灰）+ 右下「查看日志」抽屉（等宽只读，log_line 环形缓冲 4KB）。
  * 失败态：红色横幅 + 人话原因 + 三按钮（重试/换源/导出诊断）由 ErrorOverlay 承载。
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { completedTasks, currentTask, progress, type MachineState } from "../state";
 import { useDownloadProgress } from "../hooks/useDownloadProgress";
+import { appLog, onEvent } from "../net/events";
 
 const PHASE_KEYS: Record<string, string> = {
   download: "s4.phaseDownload",
@@ -18,10 +19,20 @@ const PHASE_KEYS: Record<string, string> = {
 export default function S4Execute({ state }: { state: MachineState }) {
   const { t } = useTranslation();
   const [logsOpen, setLogsOpen] = useState(false);
+  const [logLines, setLogLines] = useState<string[]>([]);
   const task = currentTask(state);
   const prog = progress(state);
   const done = completedTasks(state);
   const dl = useDownloadProgress();
+
+  // 日志抽屉：订阅 log_line → 环形缓冲（4KB 截断），只读展示
+  useEffect(
+    () =>
+      onEvent((e) => {
+        if (e.event === "log_line") setLogLines(appLog.lines());
+      }),
+    [],
+  );
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -105,9 +116,11 @@ export default function S4Execute({ state }: { state: MachineState }) {
       </div>
       {logsOpen && (
         <div className="max-h-44 overflow-auto rounded-[6px] border border-aibox-line bg-aibox-bg p-3 font-mono text-[11px] leading-relaxed text-aibox-text2">
-          <p>[12:01:03] task={task?.id ?? "-"} phase={task?.phase ?? "-"}</p>
-          <p>[12:01:04] download channel={dl.channel || "ghfast.top"}</p>
-          <p>[12:01:09] verify sha256 ok</p>
+          {logLines.length === 0 ? (
+            <p className="text-aibox-text2/60">{t("s4.logEmpty")}</p>
+          ) : (
+            logLines.map((line, i) => <p key={i}>{line}</p>)
+          )}
           <p className="text-aibox-text2/60">{t("s4.logNote")}</p>
         </div>
       )}

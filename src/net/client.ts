@@ -24,10 +24,13 @@ import {
   mockConfigWrite,
   mockDownloadStart,
   mockDownloadCancel,
+  getMockScenario,
 } from "./mock";
 import type { ProviderId, ProviderMeta } from "../config/types";
 
 export type { ProviderId, ProviderMeta };
+/** mock 场景开关读取（App 的 EXECUTE 失败注入用；真分支不读） */
+export { getMockScenario };
 
 export const isMock = (): boolean => {
   const metaEnv =
@@ -83,8 +86,19 @@ export interface ProbeSpec {
   cmd: string;
   args: string[];
 }
+export interface DiagReportItem {
+  /** 'D0'..'D4'（冻结） */
+  item: string;
+  status: "ok" | "warn" | "fail";
+  summary: { en: string; "zh-CN": string };
+  detail?: string;
+  timestampMs: number;
+  fixes?: string[]; // 'R1'|'R2'|'R3'
+}
 export interface DiagReport {
-  items: { id: string; name: string; status: "ok" | "warn" | "fail"; conclusionKey: string }[];
+  schema?: string;
+  generatedAtMs?: number;
+  items: DiagReportItem[];
 }
 export interface ProbeResult {
   channel: string;
@@ -185,6 +199,8 @@ function mockDispatch<T>(cmd: string, a?: unknown): T {
       return mockVerifySend(a as VerifyInput) as T;
     case "diag_export":
       return mockDiagExport() as T;
+    case "save_plan":
+      return "~/.aibox/cache/last-plan.json" as T;
     case "update_check":
       return mockUpdateCheck() as T;
     case "locales_load":
@@ -214,6 +230,8 @@ export const api = {
   verifySend: (input: VerifyInput) =>
     invoke<{ ok: boolean; text?: string; error?: string }>("verify_send", input),
   diagExport: () => invoke<string>("diag_export"),
+  /** 写入最后计划到 ~/.aibox/cache/last-plan.json（诊断包收录） */
+  savePlan: (plan: unknown) => invoke<string>("save_plan", { plan }),
   updateCheck: () => invoke<UpdateInfo>("update_check"),
   localesLoad: (lang: string) => invoke<Record<string, string>>("locales_load", { lang }),
 };

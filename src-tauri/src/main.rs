@@ -48,6 +48,7 @@ fn main() {
             commands::config_write,
             commands::verify_send,
             // 诊断与更新
+            commands::save_plan,
             commands::diag_export,
             commands::update_check,
             commands::locales_load,

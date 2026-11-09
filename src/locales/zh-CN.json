@@ -86,6 +86,7 @@
     "allDone": "全部任务完成。",
     "doneList": "已完成",
     "viewLog": "查看日志",
+    "logEmpty": "还没有日志。",
     "logNote": "日志只读，key 已脱敏。",
     "switched": "{{from}} 超时，已切换 {{to}}"
   },
@@ -179,7 +180,9 @@
     "close": "关闭",
     "cancelled": "你取消了安装，系统没有改动。",
     "registry": "应用列表拉不到，检查网络后重试。",
-    "scanFailed": "体检没跑成，重试或导出诊断。"
+    "scanFailed": "体检没跑成，重试或导出诊断。",
+    "netDead": "所有下载源都超时了。检查网络后重试。",
+    "hashMismatch": "下载文件校验对不上，可能被篡改了。换个下载源再试。"
   },
   "resume": {
     "title": "继续上次安装？",
@@ -204,7 +207,34 @@
     "doctorTitle": "立即体检",
     "doctorDesc": "测一下 DNS、代理和下载源。",
     "doctorRun": "体检一下",
-    "doctorPending": "完整体检在下一批接入，会出人话结论报告。"
+    "doctorRunning": "体检中…",
+    "doctorFail": "体检没跑成，检查网络后重试。",
+    "doctorDone": "体检完成",
+    "doctorPending": "完整体检在下一批接入，会出人话结论报告。",
+    "status": {
+      "ok": "正常",
+      "warn": "注意",
+      "fail": "失败"
+    },
+    "fixHint": {
+      "R1": "自动修复：后台自动处理，无需操作",
+      "R2": "建议修复：确认后我们帮你处理",
+      "R3": "高级修复：需要你明确授权"
+    },
+    "detailToggle": "详情",
+    "diagTitle": "导出诊断",
+    "diagDesc": "把日志、体检报告和计划打包成 zip（不含 key）。",
+    "diagSymptom": "从网络设置页导出。"
+  },
+  "e1": {
+    "title": "网络好像有问题",
+    "desc": "这个任务连续失败了 2 次。最近一次网络体检：",
+    "close": "关闭",
+    "retry": "重试",
+    "r2Tag": "建议修复",
+    "r2Advice": "可能走了代理或被网络过滤。去 设置 → 网络 把地区切成「国际」，或打开代理开关，然后重试。",
+    "failHint": "部分下载源暂时不可达，安装器会继续尝试其他镜像。",
+    "symptom": "安装任务连续失败 2 次。"
   },
   "update": {
     "banner": "发现新版本 {{version}}",
@@ -267,6 +297,12 @@
     }
   },
   "diag": {
+    "export": "导出诊断",
+    "exporting": "导出中…",
+    "fail": "导出失败",
+    "failHint": "诊断包没导出来，再试一次。",
+    "issue": "一键新建 Issue",
+    "issueNote": "会打开预填好的 Issue——版本、系统、错误码都在，绝不含你的 key。",
     "D0": { "ok": "DNS 解析正常" },
     "D1": { "ok": "加密 DNS 可用" },
     "D2": { "warn": "检测到代理但非必需" },
