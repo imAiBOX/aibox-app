@@ -512,7 +512,7 @@ pub async fn locales_load(lang: String) -> Cmd<std::collections::BTreeMap<String
 // ── 保留：壳 ↔ net 最小链路 ──────────────────────────────────
 
 #[tauri::command]
-fn channel_types() -> Vec<&'static str> {
+pub fn channel_types() -> Vec<&'static str> {
     aibox_net::ChannelType::all()
         .iter()
         .map(|c| c.as_str())
