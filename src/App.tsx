@@ -25,6 +25,8 @@ import SettingsNetwork from "./screens/SettingsNetwork";
 import SmartScreen from "./screens/SmartScreen";
 import { useUpdateBanner } from "./hooks/useUpdateBanner";
 import { useSessionResume } from "./hooks/useSessionResume";
+import { runVerify } from "./config/flow";
+import type { ConfigCreds } from "./screens/S5Config";
 
 type Overlay = "none" | "settings" | "smartscreen";
 
@@ -37,6 +39,8 @@ export default function App() {
   const [appIndex, setAppIndex] = useState<AppIndex | null>(null);
   const [indexLoading, setIndexLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** C5 写入成功后的凭据（内存态，仅供 VERIFY；不进持久化） */
+  const [creds, setCreds] = useState<ConfigCreds | null>(null);
   const [verifyResult, setVerifyResult] = useState<{ text: string; ms: number } | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [verifyPending, setVerifyPending] = useState(false);
@@ -178,22 +182,27 @@ export default function App() {
     setVerifyPending(true);
     setVerifyError(null);
     const started = Date.now();
-    api
-      .verifySend({ provider: state.configPathId ?? "openrouter", apiKey: "sk-mock", model: "auto" })
+    // 真实请求：C5 已写入的配置即被真实使用；弱判定（无文本）由 runVerify 拒绝
+    runVerify({
+      provider: (creds?.provider ?? state.configPathId ?? "openrouter") as ConfigCreds["provider"],
+      apiKey: creds?.apiKey,
+      model: creds?.model,
+    })
       .then((r) => {
         setVerifyPending(false);
         if (r.ok && r.text) {
-          setVerifyResult({ text: r.text, ms: Date.now() - started });
+          setVerifyResult({ text: r.text, ms: r.latencyMs ?? Date.now() - started });
           dispatch({ type: "VERIFY_OK" });
         } else {
-          setVerifyError(r.error ?? t("s6.failGeneric"));
+          const human = r.errorKey ? t(r.errorKey) : t("s6.failGeneric");
+          setVerifyError(r.detail ? `${human}（${r.detail}）` : human);
         }
       })
       .catch(() => {
         setVerifyPending(false);
         setVerifyError(t("s6.failGeneric"));
       });
-  }, [state.configPathId, t]);
+  }, [creds, state.configPathId, t]);
 
   // ── 底部操作条（按状态出按钮；主右危险左）──
   const bar: BarAction[] = useMemo(() => {
@@ -309,9 +318,13 @@ export default function App() {
           <S4Execute state={state} />
         ) : screen === "S5Config" ? (
           <S5Config
+            appId={state.appId}
             selectedPathId={state.configPathId}
             onSelectPath={(id) => dispatch({ type: "CONFIG_SELECT", pathId: id })}
-            onWritten={(id) => dispatch({ type: "CONFIG_WRITTEN", pathId: id })}
+            onWritten={(id, c) => {
+              setCreds(c);
+              dispatch({ type: "CONFIG_WRITTEN", pathId: id });
+            }}
           />
         ) : screen === "S6Verify" ? (
           <S6Verify

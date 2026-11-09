@@ -96,9 +96,45 @@
     "rebate": "我们可能获得返佣",
     "todo": "即将上线",
     "todoNote": "这条路线还没好，先选上面的。",
+    "todoTitle": "还没做好",
+    "todoDetail": "这条路线会在后续版本开放。现在先选上面三条完整路线，一样能用。",
+    "nav1": "1 选路",
+    "nav2": "2 弄 key",
+    "nav3": "3 粘 key",
+    "nav4": "4 选模型",
+    "nav5": "5 写入",
+    "guideTitle": "去哪弄 key",
+    "openSite": "打开官网",
+    "stepReg": "在官网注册个账号（邮箱就行）。",
+    "stepTopup": "充值一点金额，够起步用就行。",
+    "stepCreateKey": "创建 API key，整段复制下来。",
+    "shotNote": "步骤截图位（用官网构建期静态资源）",
+    "safetyTitle": "key 安全三条",
+    "safety1": "任何情况下不把 key 发给任何人（包括我们）。",
+    "safety2": "截图里记得给 key 打码。",
+    "safety3": "泄露了就去服务商后台立刻吊销。",
+    "pasteTitle": "粘贴 key",
+    "pasteHint": "API key（一长串专属密码，谁拿到都能花你的钱）会先在本地校验格式，不会离开你的电脑。",
     "keyLabel": "API key",
     "keyOk": "格式看起来没错",
-    "write": "写入"
+    "c4Title": "选个模型",
+    "modelsEmpty": "没拉到模型清单，先用内置默认。",
+    "writeTitle": "写入配置",
+    "writeNote": "会先备份原文件再合并写入，你已有的设置都保留。",
+    "write": "写入",
+    "writing": "写入中…",
+    "writeFail": "写入没成功，原文件没动过，重试一次。",
+    "backupOk": "已备份原文件",
+    "backupLabel": "备份文件",
+    "written": "配置写好了。下一步：发一条真实测试消息。",
+    "toVerify": "发测试",
+    "price": {
+      "low": "便宜",
+      "mid": "中等",
+      "high": "偏贵",
+      "free": "免费",
+      "included": "订阅内"
+    }
   },
   "s6": {
     "title": "发一条真实消息",
@@ -106,7 +142,10 @@
     "pending": "等回复…",
     "retry": "再试一次",
     "success": "它真的能用。",
-    "failGeneric": "模型没回话，检查 key 后再试。"
+    "failGeneric": "模型没回话，检查 key 后再试。",
+    "errKey": "服务商说这个 key 无效（401），去他们后台核对一下。",
+    "errNet": "网络没通，请求根本没发出去。检查网络后再试。",
+    "errWeak": "有响应但没有正文，这不算通过——我们要真收到模型回的文字。"
   },
   "s7": {
     "title": "装好了。它真的能用。",
@@ -193,7 +232,9 @@
     "key": {
       "empty": "先把 key 粘进来",
       "pastedPage": "你粘的像是复制了整个网页，只复制 key 就行",
-      "badFormat": "格式看着不对，key 一般以 sk- 开头"
+      "badFormat": "格式看着不对，key 一般以 sk- 开头",
+      "tooShort": "太短了，key 是很长一串随机字符",
+      "wrongPrefix": "不是 {{prefix}} 开头的，是不是复制错 key 了？"
     },
     "p": {
       "openrouter": {

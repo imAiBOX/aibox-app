@@ -25,10 +25,20 @@ import {
   mockDownloadStart,
   mockDownloadCancel,
 } from "./mock";
+import type { ProviderId, ProviderMeta } from "../config/types";
 
-export const isMock = (): boolean =>
-  typeof import.meta !== "undefined" &&
-  (import.meta as { env?: Record<string, string> }).env?.VITE_AIBOX_MOCK === "1";
+export type { ProviderId, ProviderMeta };
+
+export const isMock = (): boolean => {
+  const metaEnv =
+    typeof import.meta !== "undefined"
+      ? (import.meta as { env?: Record<string, string> }).env
+      : undefined;
+  if (metaEnv?.VITE_AIBOX_MOCK === "1") return true;
+  // 测试环境（vitest vi.stubEnv 只写 process.env）与 node 侧兑底
+  const proc = (globalThis as { process?: { env?: Record<string, string> } }).process;
+  return proc?.env?.VITE_AIBOX_MOCK === "1";
+};
 
 /* ── 类型（与一致） ── */
 export interface ScanReport {
@@ -54,6 +64,8 @@ export interface AppManifest {
   name: string;
   tasks: { id: string; name: string; version: string }[];
   routes: Record<string, string[]>;
+  /** registry modelProviders（C3 keyFormat / C4 recommendedModels 真源；可缺省→本地回落） */
+  modelProviders?: Record<string, ProviderMeta>;
 }
 export interface DownloadTask {
   taskId: string;
@@ -80,14 +92,25 @@ export interface ProbeResult {
   ttfbMs: number;
 }
 export interface VerifyInput {
-  provider: string;
-  apiKey: string;
-  model: string;
+  /** 冻结：provider 联合 + 可选字段 */
+  provider: ProviderId;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
 }
 export interface ConfigWriteInput {
-  provider: string;
-  apiKey: string;
-  model: string;
+  /** appId 必填，其余可选（缺省用 registry configTarget 展开） */
+  appId: string;
+  provider: ProviderId;
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  targetPath?: string;
+}
+export interface ConfigWriteResult {
+  backupPath: string;
+  ok: boolean;
+  mergedKeys?: string[];
 }
 export interface UpdateInfo {
   hasUpdate: boolean;
@@ -187,7 +210,7 @@ export const api = {
   execInstall: (task: ExecTask) => invoke<{ code: number; out: string }>("exec_install", task),
   probeRun: (spec: ProbeSpec) => invoke<{ version: string }>("probe_run", spec),
   configWrite: (input: ConfigWriteInput) =>
-    invoke<{ backupPath: string; ok: boolean }>("config_write", input),
+    invoke<ConfigWriteResult>("config_write", input),
   verifySend: (input: VerifyInput) =>
     invoke<{ ok: boolean; text?: string; error?: string }>("verify_send", input),
   diagExport: () => invoke<string>("diag_export"),

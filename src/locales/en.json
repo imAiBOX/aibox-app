@@ -96,9 +96,45 @@
     "rebate": "We may earn a commission",
     "todo": "Coming soon",
     "todoNote": "This path is not ready yet. Pick one of the paths above.",
+    "todoTitle": "Not ready yet",
+    "todoDetail": "This path arrives in a later phase. For now, pick one of the three ready paths above — they work today.",
+    "nav1": "1 Path",
+    "nav2": "2 Get key",
+    "nav3": "3 Paste key",
+    "nav4": "4 Model",
+    "nav5": "5 Save",
+    "guideTitle": "Where to get a key",
+    "openSite": "Open official site",
+    "stepReg": "Sign up on the official site (email is fine).",
+    "stepTopup": "Top up your balance — a small amount is enough to start.",
+    "stepCreateKey": "Create an API key and copy the whole string.",
+    "shotNote": "Step screenshot goes here (from the official guide).",
+    "safetyTitle": "Key safety — three rules",
+    "safety1": "Never send your key to anyone, including us.",
+    "safety2": "Blur it out in any screenshot.",
+    "safety3": "If it leaks, revoke it in the provider dashboard right away.",
+    "pasteTitle": "Paste your key",
+    "pasteHint": "An API key is a long secret string that lets apps use your account. It is checked here and never leaves your machine.",
     "keyLabel": "API key",
     "keyOk": "Format looks right",
-    "write": "Save"
+    "c4Title": "Pick a model",
+    "modelsEmpty": "No model list — using built-in defaults.",
+    "writeTitle": "Save config",
+    "writeNote": "We back up your original file first, then merge — your existing settings are kept.",
+    "write": "Save",
+    "writing": "Saving…",
+    "writeFail": "Could not save. Your original file is untouched — try again.",
+    "backupOk": "Original file backed up",
+    "backupLabel": "Backup",
+    "written": "Config saved. Next: send one real test message.",
+    "toVerify": "Send test",
+    "price": {
+      "low": "cheap",
+      "mid": "mid",
+      "high": "pricey",
+      "free": "free",
+      "included": "in plan"
+    }
   },
   "s6": {
     "title": "Real test message",
@@ -106,7 +142,10 @@
     "pending": "Waiting for reply…",
     "retry": "Try again",
     "success": "It works.",
-    "failGeneric": "No reply from the model. Check your key and try again."
+    "failGeneric": "No reply from the model. Check your key and try again.",
+    "errKey": "The provider says this key is not valid (401). Check it in their dashboard.",
+    "errNet": "Network problem — the request never went out. Check your connection and retry.",
+    "errWeak": "A response came back with no text — that does not count. We need a real model reply."
   },
   "s7": {
     "title": "Installed. Really usable.",
@@ -193,7 +232,9 @@
     "key": {
       "empty": "Paste your key first",
       "pastedPage": "That looks like you copied a whole web page — copy only the key",
-      "badFormat": "Format does not look right. Keys usually start with sk-"
+      "badFormat": "Format does not look right. Keys usually start with sk-",
+      "tooShort": "That is too short — keys are long random strings",
+      "wrongPrefix": "This does not start with {{prefix}} — did you copy the right key?"
     },
     "p": {
       "openrouter": {

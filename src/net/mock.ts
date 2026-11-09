@@ -6,6 +6,7 @@ import type {
   AppIndex,
   AppManifest,
   ConfigWriteInput,
+  ConfigWriteResult,
   DiagReport,
   DownloadTask,
   ExecTask,
@@ -22,7 +23,10 @@ export type MockScenario =
   | "disk_low" // 磁盘不足 → PLAN 前 ERROR
   | "hash_mismatch" // C 档：镜像篡改 → EXECUTE ERROR
   | "net_dead" // 全通道挂 → NET_ALL_CHANNELS_DEAD
-  | "verify_fail" // VERIFY 收不到模型文本
+  | "verify_fail" // VERIFY：模型拒绝（401，非网络因）
+  | "verify_net" // VERIFY：网络挂（请求发不出）
+  | "verify_weak" // VERIFY：弱判定（ok 但无文本 → TS 侧拒绝）
+  | "config_write_fail" // C5：备份失败（如无写权限）
   | "update_available"; // 升级黄条
 
 let scenario: MockScenario = "normal";
@@ -106,6 +110,40 @@ export function mockRegistryApp(id: string): AppManifest {
       { id: "openclaw", name: "OpenClaw", version: "2026.11.2" },
       { id: "hub", name: "OpenClaw Windows Hub", version: "v2026.11.1" },
     ],
+    // C3 keyFormat / C4 recommendedModels 真源兑底（与 aibox-registry app.json 同构）
+    modelProviders: {
+      openrouter: {
+        authType: "api-key",
+        keyFormat: "^sk-or-v1-[A-Za-z0-9]{64}$",
+        configTarget: "~/.config/openclaw/openclaw.json5",
+        getKeyUrl: "https://openrouter.ai/keys",
+        recommendedModels: [
+          { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", note: "聪明均衡，日常首选", priceHint: "中等" },
+          { id: "openai/gpt-5", name: "GPT-5", note: "复杂任务更强", priceHint: "偏高" },
+          { id: "google/gemini-2.5-flash", name: "Gemini 2.5 Flash", note: "便宜快速", priceHint: "低" },
+        ],
+      },
+      anthropic: {
+        authType: "api-key",
+        keyFormat: "^sk-ant-[A-Za-z0-9_-]{40,}$",
+        configTarget: "~/.config/openclaw/openclaw.json5",
+        getKeyUrl: "https://console.anthropic.com/settings/keys",
+        recommendedModels: [
+          { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", note: "性价比均衡", priceHint: "中等" },
+          { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", note: "快而便宜", priceHint: "低" },
+        ],
+      },
+      openai: {
+        authType: "api-key",
+        keyFormat: "^sk-(proj-)?[A-Za-z0-9_-]{20,}$",
+        configTarget: "~/.config/openclaw/openclaw.json5",
+        getKeyUrl: "https://platform.openai.com/api-keys",
+        recommendedModels: [
+          { id: "gpt-5.1", name: "GPT-5.1", note: "默认推荐", priceHint: "中等" },
+          { id: "gpt-5-mini", name: "GPT-5 mini", note: "省预算", priceHint: "低" },
+        ],
+      },
+    },
   };
 }
 
@@ -202,16 +240,32 @@ export function mockProbeRun(spec: ProbeSpec): { version: string } {
 }
 
 /* ── CONFIG / VERIFY ── */
-export function mockConfigWrite(input: ConfigWriteInput): { backupPath: string; ok: boolean } {
+export function mockConfigWrite(input: ConfigWriteInput): ConfigWriteResult {
+  // disk_low：磁盘满备份写不进；config_write_fail：无写权限等备份失败
+  if (scenario === "disk_low" || scenario === "config_write_fail") {
+    return { backupPath: "", ok: false };
+  }
   void input;
-  if (scenario === "disk_low") return { backupPath: "", ok: false };
-  return { backupPath: "C:\\Users\\dev\\.config\\openclaw\\openclaw.json5.bak.20261109", ok: true };
+  return {
+    backupPath: "C:\\Users\\dev\\.config\\openclaw\\openclaw.json5.bak.20261109-120000",
+    ok: true,
+    mergedKeys: ["models", "providers"],
+  };
 }
 
 export function mockVerifySend(input: VerifyInput): { ok: boolean; text?: string; error?: string } {
   void input;
   if (scenario === "verify_fail") {
-    return { ok: false, error: "provider rejected key (401)" };
+    // 模型侧拒绝：key 无效（非弱判定——有明确 error）
+    return { ok: false, error: "provider rejected key (401 unauthorized)" };
+  }
+  if (scenario === "verify_net") {
+    // 网络挂：请求根本没发出去
+    return { ok: false, error: "network unreachable: connection timed out" };
+  }
+  if (scenario === "verify_weak") {
+    // 弱判定：ok 但无文本 → TS 侧 runVerify 必须拒绝
+    return { ok: true };
   }
   return { ok: true, text: "OK", error: undefined };
 }

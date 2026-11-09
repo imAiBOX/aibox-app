@@ -52,7 +52,10 @@ describe("mock 场景开关覆盖", () => {
     expect(r.diskFreeGb).toBeLessThan(5);
     expect(r.items.find((i) => i.id === "disk")?.ok).toBe(false);
     // disk_low 下 config_write 备份写不进 → ok:false
-    expect(mockConfigWrite({ provider: "openrouter", apiKey: "sk-x", model: "auto" }).ok).toBe(
+    expect(
+      mockConfigWrite({ appId: "openclaw", provider: "openrouter", apiKey: "sk-x", model: "auto" })
+        .ok,
+    ).toBe(
       false,
     );
   });
@@ -92,6 +95,34 @@ describe("mock 场景开关覆盖", () => {
     setMockScenario("normal");
     expect(mockUpdateCheck().hasUpdate).toBe(false);
   });
+
+  it("config_write：备份成功（normal）/ 失败（config_write_fail）", () => {
+    const ok = mockConfigWrite({ appId: "openclaw", provider: "openrouter" });
+    expect(ok.ok).toBe(true);
+    expect(ok.backupPath).toContain(".bak.");
+    expect(ok.mergedKeys?.length).toBeGreaterThan(0);
+    setMockScenario("config_write_fail");
+    const fail = mockConfigWrite({ appId: "openclaw", provider: "openrouter" });
+    expect(fail.ok).toBe(false);
+    expect(fail.backupPath).toBe("");
+  });
+
+  it("verify_send：成功 / 模型拒绝（401）/ 网络挂 / 弱判定（无文本）", () => {
+    const input = { provider: "openrouter", apiKey: "sk-test-000" } as const;
+    // 成功
+    expect(mockVerifySend(input)).toEqual({ ok: true, text: "OK", error: undefined });
+    // 模型拒绝
+    setMockScenario("verify_fail");
+    expect(mockVerifySend(input).error).toContain("401");
+    // 网络挂
+    setMockScenario("verify_net");
+    expect(mockVerifySend(input).error).toContain("timed out");
+    // 弱判定：ok 但无文本 → TS 侧拒绝
+    setMockScenario("verify_weak");
+    const weak = mockVerifySend(input);
+    expect(weak.ok).toBe(true);
+    expect(weak.text).toBeUndefined();
+  });
 });
 
 describe("mock 基础数据", () => {
@@ -104,10 +135,17 @@ describe("mock 基础数据", () => {
     expect(idx.apps.every((a) => a.difficulty >= 1 && a.difficulty <= 5)).toBe(true);
   });
 
-  it("registry_app 返回 4 任务队列（PLAN 可用）", () => {
+  it("registry_app 返回 4 任务队列（PLAN 可用）+ modelProviders（C3/C4 真源）", () => {
     const m = mockRegistryApp("openclaw");
     expect(m.tasks).toHaveLength(4);
     expect(m.routes.global.length).toBeGreaterThan(0);
+    // C3 keyFormat + C4 recommendedModels（registry 数据 mock 兑底）
+    const or = m.modelProviders?.openrouter;
+    expect(or?.keyFormat).toBe("^sk-or-v1-[A-Za-z0-9]{64}$");
+    expect(or?.recommendedModels).toHaveLength(3);
+    expect(or?.recommendedModels?.[0]).toHaveProperty("priceHint");
+    expect(m.modelProviders?.anthropic?.recommendedModels?.length).toBeGreaterThan(0);
+    expect(m.modelProviders?.openai?.recommendedModels?.length).toBeGreaterThan(0);
   });
 
   it("locales_load：未知语言抛错（loader 回落 en）", () => {
