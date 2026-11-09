@@ -1,102 +1,390 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import { setLang, type Lang } from "./i18n";
+import { hotLoadInto } from "./i18n/loader";
+import i18n from "./i18n";
+import {
+  createInitialState,
+  memoryPersistence,
+  reduce,
+  screenFor,
+  type Plan,
+} from "./state";
+import { api, isMock, onEvent, type AiboxEvent, type AppIndex } from "./net/client";
+import { AppShell, type BarAction } from "./screens/Shell";
+import S1Idle from "./screens/S1Idle";
+import S2Scan from "./screens/S2Scan";
+import S3Plan from "./screens/S3Plan";
+import S4Execute from "./screens/S4Execute";
+import S5Config from "./screens/S5Config";
+import S6Verify from "./screens/S6Verify";
+import S7Done from "./screens/S7Done";
+import ErrorOverlay from "./screens/ErrorOverlay";
+import SettingsNetwork from "./screens/SettingsNetwork";
+import SmartScreen from "./screens/SmartScreen";
+import { useUpdateBanner } from "./hooks/useUpdateBanner";
+import { useSessionResume } from "./hooks/useSessionResume";
 
-/** 像素方块母题：8×8 机器人脸（1=主绿点亮，0=暗格），母题 */
-const FACE = [
-  "00111100",
-  "01111110",
-  "11011011",
-  "11111111",
-  "10111101",
-  "11000011",
-  "01111110",
-  "00100100",
-];
+type Overlay = "none" | "settings" | "smartscreen";
 
 export default function App() {
-  const { t, i18n } = useTranslation();
+  const { t, i18n: i18next } = useTranslation();
+  const [state, rawDispatch] = useReducer(reduce, undefined, createInitialState);
+  const dispatch = rawDispatch;
+  const [overlay, setOverlay] = useState<Overlay>("none");
   const [version, setVersion] = useState(__APP_VERSION__);
+  const [appIndex, setAppIndex] = useState<AppIndex | null>(null);
+  const [indexLoading, setIndexLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [verifyResult, setVerifyResult] = useState<{ text: string; ms: number } | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifyPending, setVerifyPending] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const persistence = useRef(memoryPersistence()).current;
+  const banner = useUpdateBanner();
+  const resume = useSessionResume(persistence, dispatch, state);
 
-  // 版本号优先取 Tauri 壳（与 tauri.conf.json 同源），失败回落构建期注入值
+  // 版本号：Tauri 壳优先，失败回落构建期注入
   useEffect(() => {
     getVersion()
       .then(setVersion)
-      .catch(() => {
-        /* 非 Tauri 环境（纯 vite dev）→ 保留 __APP_VERSION__ */
-      });
+      .catch(() => undefined);
   }, []);
 
-  const isZh = (i18n.resolvedLanguage ?? i18n.language ?? "en").startsWith("zh");
-  const toggleLang = () => setLang((isZh ? "en" : "zh-CN") as Lang);
+  // 启动热加载 registry locales（失败静默回落内置 en）
+  useEffect(() => {
+    void hotLoadInto(i18n, i18next.resolvedLanguage ?? "en");
+  }, [i18next.resolvedLanguage]);
+
+  // 应用目录（IDLE 拉 registry_index；mock 模式即内存数据）
+  useEffect(() => {
+    let alive = true;
+    api
+      .registryIndex()
+      .then((idx) => alive && setAppIndex(idx))
+      .catch(() => alive && setAppIndex({ apps: [] }))
+      .finally(() => alive && setIndexLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // 通道切换 toast（自动消失，不打断流程，S4）
+  useEffect(
+    () =>
+      onEvent((e: AiboxEvent) => {
+        if (e.event !== "channel_switched") return;
+        const { from, to } = e.payload;
+        setToast(t("s4.switched", { from, to }));
+        const timer = setTimeout(() => setToast(null), 4000);
+        return () => clearTimeout(timer);
+      }),
+    [t],
+  );
+
+  // ── 主流程编排（mock 数据驱动状态机；换真 invoke）──
+  const startInstall = useCallback(() => {
+    if (!selectedId) return;
+    dispatch({ type: "START_INSTALL" });
+    api
+      .scanSystem()
+      .then((report) => dispatch({ type: "SCAN_DONE", report }))
+      .catch((_e: unknown) =>
+        dispatch({
+          type: "ERROR",
+          code: "SCAN_FAILED",
+          messageKey: "err.scanFailed",
+        }),
+      );
+    // 扫描期间预取 manifest，PLAN 态直接可用
+    api
+      .registryApp(selectedId)
+      .then((m) => {
+        const plan: Plan = {
+          appId: m.id,
+          nodes: m.tasks.map((task, i) => ({
+            id: task.id,
+            name: task.name,
+            versionRange: task.version,
+            kind: i === m.tasks.length - 1 ? ("target" as const) : ("install" as const),
+            children: [],
+          })).map((n, i, arr) => ({ ...n, children: i + 1 < arr.length ? [arr[i + 1].id] : [] })),
+          tasks: m.tasks.map((task) => ({
+            id: task.id,
+            name: task.name,
+            version: task.version,
+            phase: "download" as const,
+            status: "pending" as const,
+          })),
+          route: m.routes.global?.[0] ?? "direct",
+          channel: "ghfast.top",
+          diskMb: 760,
+          estMinutes: 6,
+        };
+        dispatch({ type: "PLAN_READY", plan });
+      })
+      .catch(() => dispatch({ type: "ERROR", code: "REGISTRY_FETCH", messageKey: "err.registry" }));
+  }, [selectedId]);
+
+  // EXECUTE：mock 阶段推进（每任务 download→verify→install→probe→快照持久化）
+  const execRunning = useRef(false);
+  useEffect(() => {
+    if (state.status !== "EXECUTE" || execRunning.current) return;
+    execRunning.current = true;
+    let cancelled = false;
+
+    const runTask = async (idx: number): Promise<void> => {
+      if (cancelled || idx >= state.tasks.length) return;
+      const task = state.tasks[idx];
+      const phases = ["download", "verify", "install", "probe"] as const;
+      for (const phase of phases) {
+        if (cancelled) return;
+        dispatch({ type: "TASK_PHASE", taskId: task.id, phase });
+        await new Promise((r) => setTimeout(r, isMock() ? 180 : 60));
+      }
+      if (cancelled) return;
+      dispatch({ type: "TASK_DONE", taskId: task.id });
+      // 断点续装快照（persistence 可 mock；换 SQLite）
+      const snap = {
+        appId: state.appId ?? task.id,
+        doneTaskIds: state.tasks.slice(0, idx + 1).map((x) => x.id),
+        savedAt: Date.now(),
+      };
+      await persistence.saveSnapshot(snap);
+    };
+
+    void (async () => {
+      for (let i = 0; i < state.tasks.length; i++) {
+        if (cancelled) return;
+        // 用最新 tasks 状态判断（跳过的任务不重复执行）
+        const current = state.tasks[i];
+        if (current.status === "done" || current.status === "skipped") continue;
+        await runTask(i);
+      }
+      if (!cancelled) dispatch({ type: "ALL_DONE" });
+      execRunning.current = false;
+    })();
+
+    return () => {
+      cancelled = true;
+      execRunning.current = false;
+    };
+    // 依赖 state.tasks.length / status；单次进入 EXECUTE 跑一轮
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status, state.tasks.length]);
+
+  const sendVerify = useCallback(() => {
+    setVerifyPending(true);
+    setVerifyError(null);
+    const started = Date.now();
+    api
+      .verifySend({ provider: state.configPathId ?? "openrouter", apiKey: "sk-mock", model: "auto" })
+      .then((r) => {
+        setVerifyPending(false);
+        if (r.ok && r.text) {
+          setVerifyResult({ text: r.text, ms: Date.now() - started });
+          dispatch({ type: "VERIFY_OK" });
+        } else {
+          setVerifyError(r.error ?? t("s6.failGeneric"));
+        }
+      })
+      .catch(() => {
+        setVerifyPending(false);
+        setVerifyError(t("s6.failGeneric"));
+      });
+  }, [state.configPathId, t]);
+
+  // ── 底部操作条（按状态出按钮；主右危险左）──
+  const bar: BarAction[] = useMemo(() => {
+    switch (state.status) {
+      case "IDLE":
+        return [
+          {
+            labelKey: "btn.startInstall",
+            primary: true,
+            disabled: !selectedId,
+            onClick: startInstall,
+          },
+        ];
+      case "SCAN":
+        return [{ labelKey: "btn.scanning", disabled: true, onClick: () => undefined }];
+      case "PLAN":
+        return [
+          { labelKey: "btn.back", onClick: () => dispatch({ type: "BACK" }) },
+          { labelKey: "btn.confirm", primary: true, onClick: () => dispatch({ type: "CONFIRM" }) },
+        ];
+      case "CONFIRM":
+        return [
+          { labelKey: "btn.back", onClick: () => dispatch({ type: "BACK" }) },
+          { labelKey: "btn.begin", primary: true, onClick: () => dispatch({ type: "BEGIN" }) },
+        ];
+      case "EXECUTE":
+        return [
+          {
+            labelKey: "btn.cancel",
+            danger: true,
+            onClick: () =>
+              dispatch({ type: "ERROR", code: "USER_CANCELLED", messageKey: "err.cancelled" }),
+          },
+          {
+            labelKey: "btn.viewLog",
+            onClick: () => setOverlay("settings"),
+          },
+        ];
+      case "CONFIG":
+        return [{ labelKey: "btn.skipConfig", onClick: () => dispatch({ type: "CONFIG_WRITTEN", pathId: "none" }) }];
+      case "VERIFY":
+        return [
+          { labelKey: "btn.reVerify", onClick: sendVerify },
+          { labelKey: "btn.verify", primary: true, disabled: verifyPending, onClick: sendVerify },
+        ];
+      case "DONE":
+        return [
+          { labelKey: "btn.again", onClick: () => dispatch({ type: "RESTART" }) },
+          { labelKey: "btn.docs", primary: true, onClick: () => window.open("https://aibox.im/docs", "_blank") },
+        ];
+      case "ERROR":
+        return [];
+      default:
+        return [];
+    }
+  }, [state.status, selectedId, startInstall, sendVerify, verifyPending]);
+
+  const screen = screenFor(state.status);
+  const isOverlay = overlay !== "none";
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 bg-aibox-bg px-6 text-center">
-      <header className="absolute inset-x-0 top-0 flex items-center justify-between px-5 py-4">
-        <span className="font-display text-sm font-bold tracking-[0.3em] text-aibox-cream">
-          AiBOX
-        </span>
-        <button
-          type="button"
-          onClick={toggleLang}
-          className="rounded-[4px] border border-aibox-line bg-aibox-raised px-3 py-1.5 font-mono text-xs text-aibox-text2 transition-colors hover:border-aibox-green hover:text-aibox-green"
-          aria-label="switch language"
-        >
-          {t("app.langSwitch")}
-        </button>
-      </header>
+    <>
+      <AppShell
+        status={state.status}
+        errorFrom={state.error?.from}
+        bar={isOverlay ? [] : bar}
+        onOpenSettings={() => setOverlay("settings")}
+        onOpenSmartScreen={() => setOverlay("smartscreen")}
+        banner={
+          banner.visible ? (
+            <div className="flex items-center justify-between bg-[#f5c518] px-5 py-2 text-sm text-aibox-bg">
+              <span>
+                {t("update.banner", { version: banner.version ?? "?" })}
+              </span>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  className="font-semibold underline"
+                  onClick={() => window.open(banner.url, "_blank")}
+                >
+                  {t("update.download")}
+                </button>
+                <button type="button" className="font-mono text-xs" onClick={banner.dismiss}>
+                  {t("update.later")}
+                </button>
+              </div>
+            </div>
+          ) : toast ? (
+            <div className="bg-aibox-info/15 px-5 py-2 font-mono text-xs text-aibox-info">{toast}</div>
+          ) : undefined
+        }
+      >
+        {isOverlay ? (
+          overlay === "settings" ? (
+            <SettingsNetwork onClose={() => setOverlay("none")} />
+          ) : (
+            <SmartScreen onClose={() => setOverlay("none")} />
+          )
+        ) : screen === "S1Idle" ? (
+          <S1Idle
+            index={appIndex}
+            scan={state.scan}
+            loading={indexLoading}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onOpenDoctor={() => setOverlay("settings")}
+          />
+        ) : screen === "S2Scan" ? (
+          <S2Scan report={state.scan} plan={state.plan} />
+        ) : screen === "S3Plan" ? (
+          <S3Plan plan={state.plan} status={state.status} />
+        ) : screen === "S4Execute" ? (
+          <S4Execute state={state} />
+        ) : screen === "S5Config" ? (
+          <S5Config
+            selectedPathId={state.configPathId}
+            onSelectPath={(id) => dispatch({ type: "CONFIG_SELECT", pathId: id })}
+            onWritten={(id) => dispatch({ type: "CONFIG_WRITTEN", pathId: id })}
+          />
+        ) : screen === "S6Verify" ? (
+          <S6Verify
+            result={verifyResult?.text ?? null}
+            pending={verifyPending}
+            latencyMs={verifyResult?.ms ?? null}
+            error={verifyError}
+            onRetry={sendVerify}
+          />
+        ) : (
+          <S7Done state={state} onRestart={() => dispatch({ type: "RESTART" })} />
+        )}
 
-      <main className="flex flex-col items-center gap-6">
-        {/* 像素方块母题（loading 方块逐个点亮的静态版） */}
-        <div className="grid grid-cols-8 gap-1.5" aria-hidden="true">
-          {FACE.flatMap((row, r) =>
-            row.split("").map((cell, c) => (
-              <span
-                key={`${r}-${c}`}
-                className={[
-                  "h-3.5 w-3.5 rounded-[3px]",
-                  cell === "1"
-                    ? "bg-aibox-green animate-pulse"
-                    : "bg-aibox-line",
-                ].join(" ")}
-              />
-            )),
-          )}
-        </div>
+        {/* 断点续装询问弹层 */}
+        {resume.asking && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
+            <div className="w-full max-w-sm rounded-[6px] border border-aibox-green bg-aibox-raised p-5">
+              <h2 className="mb-2 font-display text-base font-semibold text-aibox-cream">
+                {t("resume.title")}
+              </h2>
+              <p className="mb-4 text-sm text-aibox-text2">{t("resume.desc")}</p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={resume.dismiss}
+                  className="rounded-[4px] border border-aibox-line px-4 py-2 font-mono text-xs text-aibox-text2"
+                >
+                  {t("resume.no")}
+                </button>
+                <button
+                  type="button"
+                  onClick={resume.resume}
+                  className="rounded-[4px] bg-aibox-green px-4 py-2 font-display text-sm font-semibold text-aibox-bg"
+                >
+                  {t("resume.yes")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
-        <h1 className="font-display text-6xl font-bold tracking-tight text-aibox-cream sm:text-7xl">
-          AiBOX
-        </h1>
+        {/* ERROR 覆盖层（任意态进入） */}
+        {state.status === "ERROR" && (
+          <ErrorOverlay
+            state={state}
+            onRetry={() => dispatch({ type: "RETRY" })}
+            onSkip={() => dispatch({ type: "SKIP" })}
+            onExportDiag={() => {
+              void api.diagExport().catch(() => undefined);
+              dispatch({ type: "EXPORT_DIAG" });
+            }}
+            onDismiss={() => dispatch({ type: "RETRY" })}
+          />
+        )}
+      </AppShell>
 
-        <p className="font-display text-lg font-medium text-aibox-green sm:text-xl">
-          {t("app.tagline")}
-        </p>
+      {/* 语言切换（右下角常驻） */}
+      <button
+        type="button"
+        onClick={() => {
+          const isZh = (i18next.resolvedLanguage ?? "en").startsWith("zh");
+          setLang((isZh ? "en" : "zh-CN") as Lang);
+        }}
+        className="fixed bottom-14 right-3 z-30 rounded-[4px] border border-aibox-line bg-aibox-raised px-2.5 py-1 font-mono text-[11px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
+        aria-label="switch language"
+      >
+        {t("app.langSwitch")}
+      </button>
 
-        <p className="max-w-md text-sm leading-relaxed text-aibox-text2">
-          {t("app.phaseNote")}
-        </p>
-
-        <div className="flex flex-wrap items-center justify-center gap-2 font-mono text-[11px] text-aibox-text2">
-          <span className="rounded-[4px] border border-aibox-line bg-aibox-raised px-2 py-1">
-            v{version}
-          </span>
-          <span className="rounded-[4px] border border-aibox-line px-2 py-1">
-            {t("app.phase")}
-          </span>
-          <span className="rounded-[4px] border border-aibox-line px-2 py-1">
-            {t("app.portable")}
-          </span>
-          <span className="rounded-[4px] border border-aibox-line px-2 py-1">
-            {t("app.platform")}
-          </span>
-        </div>
-      </main>
-
-      <footer className="absolute inset-x-0 bottom-0 flex items-center justify-between px-5 py-4 font-mono text-[11px] text-aibox-text2">
-        <span>{t("app.dataSource")}</span>
-        <span className="text-aibox-green-d">AiBOX.im</span>
-      </footer>
-    </div>
+      {/* 版本角标（信任细节：关于页可扩展） */}
+      <span className="fixed bottom-14 left-20 z-30 font-mono text-[10px] text-aibox-text2/60">
+        v{version}
+      </span>
+    </>
   );
 }

@@ -6,6 +6,230 @@
     "portable": "便携版 · 免安装",
     "platform": "Windows · macOS",
     "dataSource": "数据源：GitHub（唯一事实源）",
-    "langSwitch": "EN"
+    "langSwitch": "EN",
+    "openclaw": {
+      "summary": "常驻你本机的 AI 助手，装完就能用。"
+    },
+    "hermes": {
+      "summary": "多智能体协作编排，配置稍重。"
+    },
+    "openclawOld": {
+      "summary": "上一版本，为兼容保留。"
+    }
+  },
+  "nav": {
+    "idle": "应用",
+    "scan": "体检",
+    "plan": "计划",
+    "execute": "安装",
+    "config": "配置",
+    "verify": "验证",
+    "settings": "设置",
+    "smartscreen": "SmartScreen 帮助"
+  },
+  "btn": {
+    "startInstall": "开始安装",
+    "scanning": "体检中…",
+    "back": "返回",
+    "confirm": "下一步",
+    "begin": "开始安装",
+    "cancel": "取消安装",
+    "viewLog": "查看日志",
+    "skipConfig": "跳过配置",
+    "verify": "发送测试",
+    "reVerify": "再测一次",
+    "again": "再装一个",
+    "docs": "看教程"
+  },
+  "s1": {
+    "title": "选择应用",
+    "subtitle": "数据来自 GitHub registry",
+    "loading": "正在加载应用列表…",
+    "empty": "没找到应用，检查下网络",
+    "difficulty": "难度",
+    "statusInstallable": "可安装",
+    "statusInstalled": "已装",
+    "statusChecking": "版本核对中",
+    "doctorTitle": "本机体检",
+    "doctorDesc": "装之前先快速看看你的电脑。",
+    "doctorOpen": "打开体检"
+  },
+  "s2": {
+    "title": "体检报告",
+    "running": "正在检查你的电脑…",
+    "expand": "看解释",
+    "previewTitle": "将要安装的东西",
+    "planPending": "正在生成安装计划…",
+    "note": "红灯项点一下有人话解释。这一页不改动你的系统。"
+  },
+  "s3": {
+    "title": "安装计划",
+    "building": "正在生成安装计划…",
+    "legendReuse": "已满足",
+    "legendInstall": "将安装",
+    "legendSkip": "无需",
+    "confirmTitle": "确认",
+    "route": "路线",
+    "channel": "通道",
+    "disk": "占磁盘",
+    "est": "预计",
+    "confirmNote": "点「开始安装」才会真正动手。"
+  },
+  "s4": {
+    "title": "安装中",
+    "phaseDownload": "下载中",
+    "phaseVerify": "校验中",
+    "phaseInstall": "安装中",
+    "phaseProbe": "探测中",
+    "channelIdle": "连接中…",
+    "units": "步",
+    "allDone": "全部任务完成。",
+    "doneList": "已完成",
+    "viewLog": "查看日志",
+    "logNote": "日志只读，key 已脱敏。",
+    "switched": "{{from}} 超时，已切换 {{to}}"
+  },
+  "s5": {
+    "title": "连接模型",
+    "subtitle": "选一条路线，之后可以换。",
+    "recommended": "推荐",
+    "rebate": "我们可能获得返佣",
+    "todo": "即将上线",
+    "todoNote": "这条路线还没好，先选上面的。",
+    "keyLabel": "API key",
+    "keyOk": "格式看起来没错",
+    "write": "写入"
+  },
+  "s6": {
+    "title": "发一条真实消息",
+    "subtitle": "真发一条请求，真收到回复才算通。",
+    "pending": "等回复…",
+    "retry": "再试一次",
+    "success": "它真的能用。",
+    "failGeneric": "模型没回话，检查 key 后再试。"
+  },
+  "s7": {
+    "title": "装好了。它真的能用。",
+    "subtitle": "下面这些已经在你电脑上了。",
+    "listTitle": "已装清单",
+    "listEmpty": "暂无记录。",
+    "nextTitle": "下一步",
+    "nextDesc": "绑定 Telegram / WhatsApp 等渠道，让 AI 找得到你。",
+    "nextCta": "打开教程",
+    "again": "再装一个",
+    "feedback": "反馈",
+    "share": "分享"
+  },
+  "ss": {
+    "title": "Windows 提示「未知发布者」？",
+    "back": "返回",
+    "intro": "首次运行下载的应用，Windows 会拦一下，很正常。四步就过：",
+    "step1": "蓝屏上点「更多信息」。",
+    "step2": "点底部「仍要运行」。",
+    "step3": "若询问，点「是」确认。",
+    "step4": "安装器打开了，完事。",
+    "shotPlaceholder": "截图位",
+    "note": "目前是免签名便携版。等预算够了会买证书签名——任何时候都别把 key 发给任何人。"
+  },
+  "err": {
+    "title": "出了点问题",
+    "code": "错误码",
+    "retry": "重试",
+    "skip": "跳过这项",
+    "export": "导出诊断",
+    "close": "关闭",
+    "cancelled": "你取消了安装，系统没有改动。",
+    "registry": "应用列表拉不到，检查网络后重试。",
+    "scanFailed": "体检没跑成，重试或导出诊断。"
+  },
+  "resume": {
+    "title": "继续上次安装？",
+    "desc": "上次安装没走完，可以从断点接着来。",
+    "yes": "继续",
+    "no": "重新开始"
+  },
+  "net": {
+    "title": "网络设置",
+    "back": "返回",
+    "regionTitle": "地区",
+    "region": {
+      "auto": "自动",
+      "cn": "国内",
+      "global": "国际"
+    },
+    "regionHint": "自动会帮你选更快的路。",
+    "proxyTitle": "使用系统代理",
+    "proxyAddr": "代理地址",
+    "customTitle": "自定义下载前缀",
+    "customPrefix": "下载前缀",
+    "doctorTitle": "立即体检",
+    "doctorDesc": "测一下 DNS、代理和下载源。",
+    "doctorRun": "体检一下",
+    "doctorPending": "完整体检在下一批接入，会出人话结论报告。"
+  },
+  "update": {
+    "banner": "发现新版本 {{version}}",
+    "download": "去下载",
+    "later": "稍后"
+  },
+  "scan": {
+    "os": "系统版本",
+    "arch": "架构",
+    "disk": "磁盘剩余",
+    "mem": "内存",
+    "node": "Node.js",
+    "git": "Git",
+    "wsl": "WSL",
+    "port": "端口 18789",
+    "installed": "已装版本",
+    "hint": {
+      "disk": "至少要剩 5GB 空间。清一清再来，没别的毛病。",
+      "node": "还没装 Node.js。我们会静默装好，不需要管理员权限。",
+      "wsl": "没装 WSL。只有部分应用用得上，不需要会自动跳过。",
+      "port": "另一个 AI 助手正在占用这个端口。不影响安装，装完后大不了换个入口。"
+    }
+  },
+  "config": {
+    "key": {
+      "empty": "先把 key 粘进来",
+      "pastedPage": "你粘的像是复制了整个网页，只复制 key 就行",
+      "badFormat": "格式看着不对，key 一般以 sk- 开头"
+    },
+    "p": {
+      "openrouter": {
+        "name": "OpenRouter",
+        "desc": "一个 key 通吃所有模型，支持人民币卡。",
+        "models": "自动选模型：聊天够便宜，难题够聪明。"
+      },
+      "anthropic": {
+        "name": "Anthropic 官方",
+        "desc": "Claude 官方 API，长文写作最稳。",
+        "models": "Sonnet 价格聪明兼顾，Haiku 最便宜。"
+      },
+      "openai": {
+        "name": "OpenAI 官方",
+        "desc": "GPT 官方 API，生态最大。",
+        "models": "mini 系列便宜快，大模型更会想。"
+      },
+      "google": {
+        "name": "Google AI Studio",
+        "desc": "有免费额度，即将上线。"
+      },
+      "claudeOAuth": {
+        "name": "Claude 订阅复用",
+        "desc": "用已有订阅登录，免 key，即将上线。"
+      },
+      "ollama": {
+        "name": "本地 Ollama",
+        "desc": "完全免费离线，需 8GB+ 内存，即将上线。"
+      }
+    }
+  },
+  "diag": {
+    "D0": { "ok": "DNS 解析正常" },
+    "D1": { "ok": "加密 DNS 可用" },
+    "D2": { "warn": "检测到代理但非必需" },
+    "D3": { "ok": "证书链有效" },
+    "D4": { "ok": "下载源可达" }
   }
 }

@@ -6,6 +6,230 @@
     "portable": "Portable · no install",
     "platform": "Windows · macOS",
     "dataSource": "Data source: GitHub (single source of truth)",
-    "langSwitch": "中文"
+    "langSwitch": "中文",
+    "openclaw": {
+      "summary": "Your always-on AI assistant that runs on your own machine."
+    },
+    "hermes": {
+      "summary": "Multi-agent orchestrator. Heavier setup."
+    },
+    "openclawOld": {
+      "summary": "Previous release, kept for compatibility."
+    }
+  },
+  "nav": {
+    "idle": "Apps",
+    "scan": "Checkup",
+    "plan": "Plan",
+    "execute": "Install",
+    "config": "Configure",
+    "verify": "Verify",
+    "settings": "Settings",
+    "smartscreen": "SmartScreen help"
+  },
+  "btn": {
+    "startInstall": "Start install",
+    "scanning": "Checking…",
+    "back": "Back",
+    "confirm": "Next",
+    "begin": "Install now",
+    "cancel": "Cancel install",
+    "viewLog": "View log",
+    "skipConfig": "Skip setup",
+    "verify": "Send test",
+    "reVerify": "Test again",
+    "again": "Install another",
+    "docs": "Open guide"
+  },
+  "s1": {
+    "title": "Pick an app",
+    "subtitle": "Data from GitHub registry",
+    "loading": "Loading app list…",
+    "empty": "No apps found. Check your network.",
+    "difficulty": "Difficulty",
+    "statusInstallable": "Ready",
+    "statusInstalled": "Installed",
+    "statusChecking": "Checking version",
+    "doctorTitle": "System checkup",
+    "doctorDesc": "A quick look at your machine before installing.",
+    "doctorOpen": "Open checkup"
+  },
+  "s2": {
+    "title": "Checkup report",
+    "running": "Checking your system…",
+    "expand": "explain",
+    "previewTitle": "About to install",
+    "planPending": "Building install plan…",
+    "note": "Red items are explained in plain words when you tap them. Nothing here changes your system."
+  },
+  "s3": {
+    "title": "Install plan",
+    "building": "Building install plan…",
+    "legendReuse": "Already have it",
+    "legendInstall": "Will install",
+    "legendSkip": "Not needed",
+    "confirmTitle": "Confirm",
+    "route": "Route",
+    "channel": "Source",
+    "disk": "Disk",
+    "est": "Estimated",
+    "confirmNote": "Nothing runs until you press Install now."
+  },
+  "s4": {
+    "title": "Installing",
+    "phaseDownload": "Downloading",
+    "phaseVerify": "Verifying",
+    "phaseInstall": "Installing",
+    "phaseProbe": "Checking it runs",
+    "channelIdle": "connecting…",
+    "units": "steps",
+    "allDone": "All tasks finished.",
+    "doneList": "Finished",
+    "viewLog": "View log",
+    "logNote": "Log is read-only. Keys are masked.",
+    "switched": "{{from}} timed out, switched to {{to}}"
+  },
+  "s5": {
+    "title": "Connect your model",
+    "subtitle": "Pick one path. You can change it later.",
+    "recommended": "Recommended",
+    "rebate": "We may earn a commission",
+    "todo": "Coming soon",
+    "todoNote": "This path is not ready yet. Pick one of the paths above.",
+    "keyLabel": "API key",
+    "keyOk": "Format looks right",
+    "write": "Save"
+  },
+  "s6": {
+    "title": "Real test message",
+    "subtitle": "We send one real request. A real reply means it works.",
+    "pending": "Waiting for reply…",
+    "retry": "Try again",
+    "success": "It works.",
+    "failGeneric": "No reply from the model. Check your key and try again."
+  },
+  "s7": {
+    "title": "Installed. Really usable.",
+    "subtitle": "Everything below is on your machine now.",
+    "listTitle": "Installed items",
+    "listEmpty": "Nothing recorded.",
+    "nextTitle": "Next step",
+    "nextDesc": "Bind Telegram / WhatsApp and other channels so your AI can reach you.",
+    "nextCta": "Open the guide",
+    "again": "Install another",
+    "feedback": "Feedback",
+    "share": "Share"
+  },
+  "ss": {
+    "title": "Windows says “unknown publisher”?",
+    "back": "Back",
+    "intro": "Windows SmartScreen shows this the first time you run a downloaded app. It is normal. Four taps and it is gone:",
+    "step1": "Click “More info” on the blue screen.",
+    "step2": "Click “Run anyway” at the bottom.",
+    "step3": "If asked, confirm with “Yes”.",
+    "step4": "The installer opens. You are done.",
+    "shotPlaceholder": "Screenshot here",
+    "note": "We are an unsigned portable app for now. Signing arrives when we can afford a certificate — never send your key to anyone."
+  },
+  "err": {
+    "title": "Something went wrong",
+    "code": "Code",
+    "retry": "Retry",
+    "skip": "Skip this",
+    "export": "Export diagnostics",
+    "close": "Close",
+    "cancelled": "You cancelled the install. Nothing was changed.",
+    "registry": "Could not reach the app list. Check your network and retry.",
+    "scanFailed": "Could not check your system. Retry, or export diagnostics."
+  },
+  "resume": {
+    "title": "Continue last install?",
+    "desc": "Your previous install did not finish. You can pick up where you left off.",
+    "yes": "Continue",
+    "no": "Start over"
+  },
+  "net": {
+    "title": "Network settings",
+    "back": "Back",
+    "regionTitle": "Region",
+    "region": {
+      "auto": "Auto",
+      "cn": "China",
+      "global": "Global"
+    },
+    "regionHint": "Auto picks the faster route for you.",
+    "proxyTitle": "Use system proxy",
+    "proxyAddr": "Proxy address",
+    "customTitle": "Custom download prefix",
+    "customPrefix": "Download prefix",
+    "doctorTitle": "Run checkup now",
+    "doctorDesc": "Test DNS, proxy and download sources.",
+    "doctorRun": "Check now",
+    "doctorPending": "Checkup lands in the next batch — full report with plain-language results."
+  },
+  "update": {
+    "banner": "New version {{version}} available",
+    "download": "Download",
+    "later": "Later"
+  },
+  "scan": {
+    "os": "OS version",
+    "arch": "Architecture",
+    "disk": "Free disk space",
+    "mem": "Memory",
+    "node": "Node.js",
+    "git": "Git",
+    "wsl": "WSL",
+    "port": "Port 18789",
+    "installed": "Installed version",
+    "hint": {
+      "disk": "You need at least 5 GB free. Free up some space and try again — nothing else is wrong.",
+      "node": "Node.js is missing. We will install it for you silently, no admin rights needed.",
+      "wsl": "WSL is not installed. Only needed by some apps; the plan will skip it if not required.",
+      "port": "Another AI assistant is already using this port. It does not block installing; you may just pick a different entry later."
+    }
+  },
+  "config": {
+    "key": {
+      "empty": "Paste your key first",
+      "pastedPage": "That looks like you copied a whole web page — copy only the key",
+      "badFormat": "Format does not look right. Keys usually start with sk-"
+    },
+    "p": {
+      "openrouter": {
+        "name": "OpenRouter",
+        "desc": "One key for every model. Works with Chinese cards.",
+        "models": "Auto picks a model; cheap for chat, smart for hard tasks."
+      },
+      "anthropic": {
+        "name": "Anthropic API",
+        "desc": "Official Claude API. Best for long writing.",
+        "models": "Sonnet balances price and brains; Haiku is cheapest."
+      },
+      "openai": {
+        "name": "OpenAI API",
+        "desc": "Official GPT API. Huge ecosystem.",
+        "models": "Mini models are cheap and fast; big models think harder."
+      },
+      "google": {
+        "name": "Google AI Studio",
+        "desc": "Free tier available. Coming soon."
+      },
+      "claudeOAuth": {
+        "name": "Claude subscription",
+        "desc": "Log in with your existing plan, no key needed. Coming soon."
+      },
+      "ollama": {
+        "name": "Local Ollama",
+        "desc": "Free and offline. Needs 8 GB+ RAM. Coming soon."
+      }
+    }
+  },
+  "diag": {
+    "D0": { "ok": "DNS resolves normally" },
+    "D1": { "ok": "Encrypted DNS works" },
+    "D2": { "warn": "Proxy detected but not required" },
+    "D3": { "ok": "Certificates are valid" },
+    "D4": { "ok": "Download sources reachable" }
   }
 }

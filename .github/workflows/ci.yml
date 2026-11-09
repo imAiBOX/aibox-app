@@ -28,6 +28,12 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      - name: i18n key parity (en ↔ zh-CN)
+        run: node scripts/check-i18n.mjs
+
+      - name: Unit tests (vitest)
+        run: pnpm test
+
       - name: Frontend typecheck + build
         run: pnpm build
 
