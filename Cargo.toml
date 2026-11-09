@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/aibox-net"]
+members = ["src-tauri", "crates/aibox-net", "crates/aibox-netdoctor"]
 
 [workspace.package]
 version = "0.0.1"

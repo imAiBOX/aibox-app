@@ -34,7 +34,18 @@ version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2",
  "ureq",
+]
+
+[[package]]
+name = "aibox-netdoctor"
+version = "0.0.1"
+dependencies = [
+ "aibox-net",
+ "serde",
+ "serde_json",
+ "winreg",
 ]
 
 [[package]]
