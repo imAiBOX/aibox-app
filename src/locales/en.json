@@ -1,0 +1,11 @@
+{
+  "app": {
+    "tagline": "Installed until it works.",
+    "phaseNote": "portable shell. The installer state machine and network layer land in  .",
+    "phase": "· empty shell",
+    "portable": "Portable · no install",
+    "platform": "Windows · macOS",
+    "dataSource": "Data source: GitHub (single source of truth)",
+    "langSwitch": "中文"
+  }
+}

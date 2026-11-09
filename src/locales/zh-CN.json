@@ -1,0 +1,11 @@
+{
+  "app": {
+    "tagline": "装到能用为止",
+    "phaseNote": "便携空壳。安装状态机与网络层将在接入。",
+    "phase": "· 空壳",
+    "portable": "便携版 · 免安装",
+    "platform": "Windows · macOS",
+    "dataSource": "数据源：GitHub（唯一事实源）",
+    "langSwitch": "EN"
+  }
+}

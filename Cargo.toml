@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/aibox-net"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+
+# 便携单文件 exe，strip 减体积；不上 LTO（Windows CI 构建时长风险）
+[profile.release]
+strip = true
+codegen-units = 1

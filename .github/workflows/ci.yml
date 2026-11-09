@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 常规：Linux 跑 aibox-net 单测 + 前端 typecheck/build ──
+  test-linux:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend typecheck + build
+        run: pnpm build
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      - name: aibox-net unit tests (offline)
+        run: cargo test -p aibox-net
+
+  # ── 打 tag v*：Windows 出 portable 单文件 exe → GitHub Release ──
+  release-windows:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      # bundle.active=false + --no-bundle：只要 exe（Win10+ 自带 WebView2，
+      # 双击即跑的 portable），不做 NSIS/MSI 安装包
+      - name: Build portable exe
+        shell: bash
+        run: pnpm exec tauri build --no-bundle
+
+      - name: Rename asset (AiBOX-vX.Y.Z-windows-x64.exe)
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          DST="AiBOX-v${VERSION}-windows-x64.exe"
+          SRC="target/release/AiBOX.exe"
+          if [ ! -f "$SRC" ]; then
+            SRC="$(find . -path ./node_modules -prune -o -name 'AiBOX.exe' -print | head -n 1)"
+          fi
+          if [ ! -f "$SRC" ]; then
+            echo "::error::AiBOX.exe not found under target/release"
+            find target -maxdepth 3 -type f -name '*.exe' || true
+            exit 1
+          fi
+          cp "$SRC" "$DST"
+          echo "ASSET_NAME=$DST" >> "$GITHUB_ENV"
+          ls -la "$DST"
+
+      - name: Publish GitHub Release (tag = release)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET_NAME }}
+          generate_release_notes: true
