@@ -10,3 +10,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # rustls 系 TLS（无 native-tls / 无系统 C 库依赖）；sync API，测试不依赖 tokio 运行时
 ureq = { version = "2", default-features = false, features = ["tls"] }
+# 纯 Rust SHA-256（S1 全通道哈希零豁免；无系统 C 库，已在 lock 中随依赖链存在）
+sha2 = "0.10"
