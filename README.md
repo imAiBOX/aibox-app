@@ -63,6 +63,7 @@ cargo check -p aibox-app                                   # 壳编译检查
 |---|---|---|
 | push / PR（main） | ubuntu-latest | `check-i18n` + `pnpm test` + `pnpm build` + `cargo test -p aibox-net -p aibox-netdoctor -p aibox-core` |
 | push / PR（main） | ubuntu / windows-latest | `cargo check -p aibox-app`（壳 + cfg(windows) 分支） |
+| push / PR（main） | ubuntu-latest | `sanitization`：全历史内部引用扫描（`fetch-depth: 0`） |
 | tag `v*` | windows-latest | `pnpm exec tauri build --no-bundle` → 重命名为 `AiBOX-vX.Y.Z-windows-x64.exe` → 上传 GitHub Release（tag 即 release） |
 
 **不打 NSIS/MSI 安装包**（`bundle.active=false` + `--no-bundle`），只要单文件 portable exe。

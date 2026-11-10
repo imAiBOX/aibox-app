@@ -154,3 +154,15 @@ jobs:
         with:
           files: ${{ env.ASSET_NAME }}
           generate_release_notes: true
+
+  # ── 脱敏复检：全历史 + 工作树内部引用/凭据扫描（scripts/prepush-scan.mjs）──
+  sanitization:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan history for internal references
+        run: node scripts/prepush-scan.mjs --history
