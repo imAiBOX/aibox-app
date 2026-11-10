@@ -11,6 +11,15 @@ import { DOT_CLASS, mapDiagRows, worstStatus } from "../net/diagmap";
 import { DEFAULT_NET_SETTINGS, netSettingsStore, type NetLocalSettings } from "../state/settings";
 import DiagExport from "./DiagExport";
 
+/** detail 是 JSON 字符串（Rust 侧 stringify 下发）→ 美化展示；非 JSON 原样返回 */
+function fmtDetail(detail: string): string {
+  try {
+    return JSON.stringify(JSON.parse(detail), null, 2);
+  } catch {
+    return detail;
+  }
+}
+
 type Region = "auto" | "cn" | "global";
 
 export default function SettingsNetwork({ onClose }: { onClose: () => void }) {
@@ -215,7 +224,7 @@ export default function SettingsNetwork({ onClose }: { onClose: () => void }) {
                       {t("net.detailToggle")}
                     </summary>
                     <p className="mt-1 break-all whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-aibox-text2">
-                      {r.detail}
+                      {fmtDetail(r.detail)}
                     </p>
                   </details>
                 )}

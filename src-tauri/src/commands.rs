@@ -172,7 +172,8 @@ fn diag_report_to_contract(r: &aibox_netdoctor::DiagReport) -> Value {
                 "item": c.item.as_str(),
                 "status": c.status,
                 "summary": { "en": c.summary.en, "zh-CN": c.summary.zh },
-                "detail": c.detail,
+                // detail：内部是 JSON 对象；契约定为 string → 序列化后下发（TS 按 string 渲染）
+                "detail": c.detail.to_string(),
                 "timestampMs": c.timestamp_ms,
                 "fixes": c.fixes.iter().map(|f| json!(f.level)).collect::<Vec<Value>>(),
             })
