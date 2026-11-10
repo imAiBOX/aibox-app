@@ -20,7 +20,7 @@ pub fn loc(zh: impl Into<String>, en: impl Into<String>) -> Localized {
     }
 }
 
-/// 诊断项编号（D0-D4；D5/D6 属）。
+/// 诊断项编号（D0-D6）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DiagCode {
     D0,
@@ -28,11 +28,21 @@ pub enum DiagCode {
     D2,
     D3,
     D4,
+    D5,
+    D6,
 }
 
 impl DiagCode {
-    pub fn all() -> [DiagCode; 5] {
-        [DiagCode::D0, DiagCode::D1, DiagCode::D2, DiagCode::D3, DiagCode::D4]
+    pub fn all() -> [DiagCode; 7] {
+        [
+            DiagCode::D0,
+            DiagCode::D1,
+            DiagCode::D2,
+            DiagCode::D3,
+            DiagCode::D4,
+            DiagCode::D5,
+            DiagCode::D6,
+        ]
     }
 
     pub fn as_str(&self) -> &'static str {
@@ -42,6 +52,8 @@ impl DiagCode {
             DiagCode::D2 => "D2",
             DiagCode::D3 => "D3",
             DiagCode::D4 => "D4",
+            DiagCode::D5 => "D5",
+            DiagCode::D6 => "D6",
         }
     }
 
@@ -53,11 +65,13 @@ impl DiagCode {
             "D2" => Some(DiagCode::D2),
             "D3" => Some(DiagCode::D3),
             "D4" => Some(DiagCode::D4),
+            "D5" => Some(DiagCode::D5),
+            "D6" => Some(DiagCode::D6),
             _ => None,
         }
     }
 
-    /// 规范顺序（D0→D4），报告输出按此排序。
+    /// 规范顺序（D0→D6），报告输出按此排序。
     pub fn order(&self) -> usize {
         match self {
             DiagCode::D0 => 0,
@@ -65,6 +79,8 @@ impl DiagCode {
             DiagCode::D2 => 2,
             DiagCode::D3 => 3,
             DiagCode::D4 => 4,
+            DiagCode::D5 => 5,
+            DiagCode::D6 => 6,
         }
     }
 
@@ -79,6 +95,8 @@ impl DiagCode {
             DiagCode::D2 => loc("DNS 健康检测", "DNS health check"),
             DiagCode::D3 => loc("hosts 审计", "Hosts file audit"),
             DiagCode::D4 => loc("通道实测", "Channel speed test"),
+            DiagCode::D5 => loc("阻断层定位", "Blockage layer probe"),
+            DiagCode::D6 => loc("证书异常统计", "Certificate anomaly stats"),
         }
     }
 }
@@ -159,7 +177,7 @@ impl Fix {
     }
 }
 
-/// 单张体检卡（D0-D4 之一）。
+/// 单张体检卡（D0-D6 之一）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiagCard {
     pub item: DiagCode,
@@ -181,7 +199,7 @@ pub struct DiagCard {
 pub struct DiagReport {
     pub schema: String,
     pub generated_at_ms: u64,
-    /// 按 D0→D4 规范顺序排列。
+    /// 按 D0→D6 规范顺序排列。
     pub items: Vec<DiagCard>,
 }
 
@@ -242,7 +260,7 @@ mod tests {
         codes.sort_by_key(|c| c.order());
         assert_eq!(
             codes.map(|c| c.as_str()),
-            ["D0", "D1", "D2", "D3", "D4"]
+            ["D0", "D1", "D2", "D3", "D4", "D5", "D6"]
         );
     }
 

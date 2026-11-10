@@ -61,8 +61,10 @@ name = "aibox-netdoctor"
 version = "0.0.1"
 dependencies = [
  "aibox-net",
+ "rustls",
  "serde",
  "serde_json",
+ "webpki-roots 0.26.11",
  "winreg",
 ]
 

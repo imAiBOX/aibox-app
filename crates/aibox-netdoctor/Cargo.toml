@@ -3,12 +3,18 @@ name = "aibox-netdoctor"
 version = "0.0.1"
 edition = "2021"
 license = "MIT"
-description = "AiBOX Network Doctor: D0-D4 diagnostics + DiagReport, injectable transports, offline-testable (usable without Tauri)"
+description = "AiBOX Network Doctor: D0-D6 diagnostics + DiagReport, injectable transports, offline-testable (usable without Tauri)"
 
 [dependencies]
 aibox-net = { path = "../aibox-net" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# D5/D6 TLS 探测（手写 rustls 客户端）：与 aibox-net 的 ureq 同一 rustls 0.23
+# 依赖图、同 features（ring 后端）→ 复用 Cargo.lock 既有条目；纯 Rust、
+# 无系统 C 库（红线），不引入 aws-lc-sys。
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+# 证书根（webpki-roots 0.26 = 指向 1.x 的 semver trick，lock 中已有）
+webpki-roots = "0.26"
 
 # 注册表读取仅 Windows 需要；Linux CI 不编译该依赖（无系统 C 库，winreg 纯 Rust）
 [target.'cfg(windows)'.dependencies]

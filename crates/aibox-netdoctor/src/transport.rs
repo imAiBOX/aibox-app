@@ -128,6 +128,51 @@ impl TcpProbe for StdTcpProbe {
 }
 
 // ---------------------------------------------------------------------------
+// TLS / HTTPS 探测（D5 阻断层定位 / D6 证书异常统计）
+// ---------------------------------------------------------------------------
+
+/// 一次 HTTPS（TLS）HEAD 探测结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsAttempt {
+    /// 收到合法 HTTP 响应（TLS 握手 + 证书校验均通过；任意状态码都算成功）。
+    pub success: bool,
+    pub status: Option<u16>,
+    /// 连接 / TLS 握手 / 证书校验失败原因（可交给 `d6::classify_tls_error` 分类）。
+    pub error: Option<String>,
+    /// HTTP `Date` 头原文（D6 时钟偏差检查用；未收到为 None）。
+    pub date: Option<String>,
+}
+
+impl TlsAttempt {
+    pub fn ok(status: u16, date: Option<String>) -> Self {
+        TlsAttempt {
+            success: true,
+            status: Some(status),
+            error: None,
+            date,
+        }
+    }
+
+    pub fn fail(error: impl Into<String>) -> Self {
+        TlsAttempt {
+            success: false,
+            status: None,
+            error: Some(error.into()),
+            date: None,
+        }
+    }
+}
+
+/// HTTPS 探测原语（D5/D6；单测注入 mock，生产用 `tls::RustlsHeadProbe`）。
+pub trait TlsProbe: Send + Sync {
+    /// 对 `host` 发一次 HTTPS HEAD：
+    /// - `ip = Some(..)`：**固定连接该 IP**，但 SNI / Host / 证书校验仍用 `host`
+    ///   —— D5「DoH 结果 IP 直连」的关键（绕过被污染的系统 DNS，保持 HTTPS 语义正确）；
+    /// - `ip = None`：走系统解析（D6 关键域证书 / `Date` 头检查）。
+    fn head_tls(&self, host: &str, ip: Option<IpAddr>, timeout: Duration) -> TlsAttempt;
+}
+
+// ---------------------------------------------------------------------------
 // 域名解析（D2 三路比对）
 // ---------------------------------------------------------------------------
 
@@ -376,6 +421,7 @@ fn winhttp_settings() -> Vec<ProxySetting> {
 /// Network Doctor 全部可注入依赖。单测逐字段替换成 mock；生产用 `Default`。
 pub struct DoctorDeps {
     pub http: Box<dyn HttpProbe>,
+    pub tls: Box<dyn TlsProbe>,
     pub tcp: Box<dyn TcpProbe>,
     pub system_resolve: Box<dyn Resolve>,
     pub doh_ali: Box<dyn Resolve>,
@@ -392,6 +438,7 @@ impl Default for DoctorDeps {
     fn default() -> Self {
         DoctorDeps {
             http: Box::new(HeadProbe),
+            tls: Box::new(crate::tls::RustlsHeadProbe),
             tcp: Box::new(StdTcpProbe),
             system_resolve: Box::new(SystemResolve),
             doh_ali: Box::new(DohResolve::aliyun()),

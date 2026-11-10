@@ -9,6 +9,8 @@
 //! - [`d2`] D2 DNS 健康检测（系统 vs DoH 阿里 vs DoH 腾讯 三路比对 + 污染特征）
 //! - [`d3`] D3 hosts 审计（关键域条目分类；**不自动修改**）
 //! - [`d4`] D4 通道实测（矩阵并发测速表；矩阵由调用方传入）
+//! - [`d5`] D5 阻断层定位（DoH 结果 IP 固定直连，区分 DNS 污染 vs IP 阻断）
+//! - [`d6`] D6 证书异常统计（时钟偏差 + TLS 错误分类 + 运行时统计 API）
 //!
 //! 修复分级：报告只产出 R1（自动）/ R2（建议）/ R3（需授权）建议引用，
 //! **本 crate 不执行任何系统级修改**；主流程只依赖 R1。
@@ -23,7 +25,10 @@ pub mod d1;
 pub mod d2;
 pub mod d3;
 pub mod d4;
+pub mod d5;
+pub mod d6;
 pub mod report;
+pub mod tls;
 pub mod transport;
 
 pub use d0::{classify_env, D0Config, D0Thresholds, EnvClass};
@@ -31,22 +36,38 @@ pub use d1::{classify_proxy_health, parse_proxy_endpoint, D1Config, ProxyHealth,
 pub use d2::{pollution_verdict, sets_agree, DnsVerdict, DomainDns};
 pub use d3::{classify_entry, parse_hosts, ClassifyRules, CriticalClass, EntryVerdict, HostsEntry};
 pub use d4::{probe_matrix, sort_rows, ChannelRow, ChannelTarget};
+pub use d5::{classify_blockage, BlockageLayer, DirectResults};
+pub use d6::{
+    classify_tls_error, clock_skew_ms, parse_http_date_ms, record_tls_failure, skew_exceeds,
+    tls_failures, clear_tls_failures, TlsErrorKind, TlsFailure, CLOCK_SKEW_THRESHOLD_MS,
+};
 pub use report::{
     loc, DiagCard, DiagCode, DiagReport, DiagStatus, Fix, FixLevel, Localized,
 };
+pub use tls::RustlsHeadProbe;
 pub use transport::{
     default_hosts_path, DefaultProxySource, DoctorDeps, DohResolve, FileHosts, HeadProbe,
     HostsSource, HttpProbe, ProxySource, Resolve, StdTcpProbe, SystemResolve, TcpProbe,
+    TlsAttempt, TlsProbe,
 };
 
-/// 运行体检（D0-D4）。
+/// 诊断运行选项（D4 矩阵 / D5 域列表；默认两者皆空）。
+#[derive(Debug, Default, Clone)]
+pub struct DiagOptions {
+    /// D4 通道矩阵（由 NetLayer/registry 展开后传入）。
+    pub d4_targets: Vec<ChannelTarget>,
+    /// D5 待定位域列表（如 D2 判污染的域）；空 = 默认关键域（D2 域列表）。
+    pub d5_domains: Vec<String>,
+}
+
+/// 运行体检（D0-D6）。
 ///
-/// - `items`：`None` = 全量 D0-D4；否则按给定子集执行（输出仍按 D0→D4 规范排序）。
+/// - `items`：`None` = 全量 D0-D6；否则按给定子集执行（输出仍按 D0→D6 规范排序）。
 /// - `deps`：可注入依赖（单测传 mock；生产用 [`DoctorDeps::default`]）。
 ///
-/// D4 矩阵为空表（`no_targets`）；需要 D4 测速表时用 [`run_with_matrix`] 传入矩阵。
+/// D4 空矩阵 → `no_targets` warn；需要 D4 测速表时用 [`run_with_matrix`] / [`run_with_options`]。
 pub fn run(items: Option<&[DiagCode]>, deps: &DoctorDeps) -> DiagReport {
-    run_with_matrix(items, deps, &[])
+    run_with_options(items, deps, &DiagOptions::default())
 }
 
 /// 同 [`run`]，但 D4 使用调用方传入的通道矩阵（矩阵由 NetLayer/registry 展开，
@@ -55,6 +76,22 @@ pub fn run_with_matrix(
     items: Option<&[DiagCode]>,
     deps: &DoctorDeps,
     d4_targets: &[ChannelTarget],
+) -> DiagReport {
+    run_with_options(
+        items,
+        deps,
+        &DiagOptions {
+            d4_targets: d4_targets.to_vec(),
+            d5_domains: Vec::new(),
+        },
+    )
+}
+
+/// 同 [`run`]，但 D4 矩阵与 D5 域列表由调用方提供（[`DiagOptions`]）。
+pub fn run_with_options(
+    items: Option<&[DiagCode]>,
+    deps: &DoctorDeps,
+    opts: &DiagOptions,
 ) -> DiagReport {
     let codes: Vec<DiagCode> = match items {
         Some(list) => {
@@ -73,16 +110,24 @@ pub fn run_with_matrix(
             DiagCode::D1 => d1::run(deps),
             DiagCode::D2 => d2::run(deps),
             DiagCode::D3 => d3::run(deps),
-            DiagCode::D4 => d4::run(d4_targets, deps),
+            DiagCode::D4 => d4::run(&opts.d4_targets, deps),
+            DiagCode::D5 => {
+                if opts.d5_domains.is_empty() {
+                    d5::run(deps)
+                } else {
+                    d5::run_with_domains(&opts.d5_domains, deps)
+                }
+            }
+            DiagCode::D6 => d6::run(deps),
         })
         .collect();
 
     DiagReport::new(cards, (deps.now_ms)())
 }
 
-/// 便捷入口：按字符串子集执行（TS 边界 `netdoctor_run(items?: ('D0'|... )[])`）。
+/// 便捷入口：按字符串子集执行（TS 边界 `netdoctor_run(items?: ('D0'|...|'D6')[])`）。
 pub fn run_names(items: Option<&[String]>, deps: &DoctorDeps) -> Result<DiagReport, String> {
-    run_names_with_matrix(items, deps, &[])
+    run_names_with_options(items, deps, &DiagOptions::default())
 }
 
 /// [`run_names`] + D4 矩阵。
@@ -91,18 +136,34 @@ pub fn run_names_with_matrix(
     deps: &DoctorDeps,
     d4_targets: &[ChannelTarget],
 ) -> Result<DiagReport, String> {
+    run_names_with_options(
+        items,
+        deps,
+        &DiagOptions {
+            d4_targets: d4_targets.to_vec(),
+            d5_domains: Vec::new(),
+        },
+    )
+}
+
+/// [`run_names`] + [`DiagOptions`]（D4 矩阵 / D5 域列表）。
+pub fn run_names_with_options(
+    items: Option<&[String]>,
+    deps: &DoctorDeps,
+    opts: &DiagOptions,
+) -> Result<DiagReport, String> {
     match items {
-        None => Ok(run_with_matrix(None, deps, d4_targets)),
+        None => Ok(run_with_options(None, deps, opts)),
         Some(list) => {
             let mut codes = Vec::with_capacity(list.len());
             for name in list {
                 let code = DiagCode::parse(name)
-                    .ok_or_else(|| format!("未知诊断项: {name}（合法值 D0-D4）"))?;
+                    .ok_or_else(|| format!("未知诊断项: {name}（合法值 D0-D6）"))?;
                 if !codes.contains(&code) {
                     codes.push(code);
                 }
             }
-            Ok(run_with_matrix(Some(&codes), deps, d4_targets))
+            Ok(run_with_options(Some(&codes), deps, opts))
         }
     }
 }
@@ -116,7 +177,7 @@ mod tests {
     use aibox_net::ProbeOutcome;
 
     use crate::d1::ProxySetting;
-    use crate::transport::{HttpProbe, ProxySource, Resolve, TcpProbe};
+    use crate::transport::{HttpProbe, ProxySource, Resolve, TcpProbe, TlsAttempt, TlsProbe};
 
     struct OkProbe;
     impl HttpProbe for OkProbe {
@@ -127,6 +188,13 @@ mod tests {
                 status: Some(200),
                 error: None,
             }
+        }
+    }
+
+    struct OkTls;
+    impl TlsProbe for OkTls {
+        fn head_tls(&self, _host: &str, _ip: Option<IpAddr>, _t: Duration) -> TlsAttempt {
+            TlsAttempt::ok(200, None)
         }
     }
 
@@ -174,6 +242,7 @@ mod tests {
         let ip: IpAddr = "1.2.3.4".parse().unwrap();
         DoctorDeps {
             http: Box::new(OkProbe),
+            tls: Box::new(OkTls),
             tcp: Box::new(NoTcp),
             system_resolve: Box::new(IpResolve(ip)),
             doh_ali: Box::new(IpResolve(ip)),
@@ -186,21 +255,24 @@ mod tests {
     }
 
     #[test]
-    fn full_run_produces_all_five_cards_in_order() {
+    fn full_run_produces_all_seven_cards_in_order() {
         let report = run(None, &mock_deps());
         assert_eq!(report.schema, "aibox-netdoctor/v1");
         assert_eq!(report.generated_at_ms, 1_700_000_000_000);
         let codes: Vec<&str> = report.items.iter().map(|c| c.item.as_str()).collect();
-        assert_eq!(codes, ["D0", "D1", "D2", "D3", "D4"]);
+        assert_eq!(codes, ["D0", "D1", "D2", "D3", "D4", "D5", "D6"]);
         // 全 mock 环境下：D0 双通且快 → warn(suspicious_relay)；D1 无代理 → ok；
-        // D2 系统=DoH 一致 → ok；D3 无关键域 → ok；D4 无矩阵 → warn。
+        // D2 系统=DoH 一致 → ok；D3 无关键域 → ok；D4 无矩阵 → warn；
+        // D5 系统直连成功 → ok；D6 TLS 成功且无 Date → ok（时钟无法核对不算异常）。
         assert_eq!(report.get(DiagCode::D1).unwrap().status, DiagStatus::Ok);
         assert_eq!(report.get(DiagCode::D2).unwrap().status, DiagStatus::Ok);
         assert_eq!(report.get(DiagCode::D3).unwrap().status, DiagStatus::Ok);
         assert_eq!(report.get(DiagCode::D4).unwrap().status, DiagStatus::Warn);
+        assert_eq!(report.get(DiagCode::D5).unwrap().status, DiagStatus::Ok);
+        assert_eq!(report.get(DiagCode::D6).unwrap().status, DiagStatus::Ok);
         // 报告整体可序列化到 TS
         let v = serde_json::to_value(&report).expect("serialize report");
-        assert_eq!(v["items"].as_array().unwrap().len(), 5);
+        assert_eq!(v["items"].as_array().unwrap().len(), 7);
     }
 
     #[test]
@@ -219,7 +291,11 @@ mod tests {
         let r2 = report2.unwrap();
         assert_eq!(r2.items.len(), 1);
         assert_eq!(r2.items[0].item, DiagCode::D2);
-        assert!(run_names(None, &deps).unwrap().items.len() == 5);
+        assert!(run_names(None, &deps).unwrap().items.len() == 7);
+        // D5/D6 可按名字点跑
+        let r3 = run_names(Some(&["D5".into(), "D6".into()]), &deps).unwrap();
+        let c3: Vec<&str> = r3.items.iter().map(|c| c.item.as_str()).collect();
+        assert_eq!(c3, ["D5", "D6"]);
     }
 
     #[test]
