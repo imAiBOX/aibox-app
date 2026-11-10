@@ -1,21 +1,6 @@
 {
   "app": {
-    "tagline": "Installed until it works.",
-    "phaseNote": "portable shell. The installer state machine and network layer land in  .",
-    "phase": "· empty shell",
-    "portable": "Portable · no install",
-    "platform": "Windows · macOS",
-    "dataSource": "Data source: GitHub (single source of truth)",
-    "langSwitch": "中文",
-    "openclaw": {
-      "summary": "Your always-on AI assistant that runs on your own machine."
-    },
-    "hermes": {
-      "summary": "Multi-agent orchestrator. Heavier setup."
-    },
-    "openclawOld": {
-      "summary": "Previous release, kept for compatibility."
-    }
+    "langSwitch": "中文"
   },
   "nav": {
     "idle": "Apps",
@@ -96,7 +81,6 @@
     "recommended": "Recommended",
     "rebate": "We may earn a commission",
     "todo": "Coming soon",
-    "todoNote": "This path is not ready yet. Pick one of the paths above.",
     "todoTitle": "Not ready yet",
     "todoDetail": "This path arrives in a later phase. For now, pick one of the three ready paths above — they work today.",
     "nav1": "1 Path",
@@ -164,11 +148,16 @@
     "title": "Windows says “unknown publisher”?",
     "back": "Back",
     "intro": "Windows SmartScreen shows this the first time you run a downloaded app. It is normal. Four taps and it is gone:",
+    "whenTitle": "When does this warning appear?",
+    "whenBody": "Only the first time you run a file downloaded from the internet. Windows hasn't seen this file before, so it asks you to double-check. It is not a virus warning about AiBOX itself.",
     "step1": "Click “More info” on the blue screen.",
     "step2": "Click “Run anyway” at the bottom.",
     "step3": "If asked, confirm with “Yes”.",
     "step4": "The installer opens. You are done.",
     "shotPlaceholder": "Screenshot here",
+    "shaTitle": "How to check the file is genuine",
+    "shaBody": "Every release file has a SHA-256 checksum on the GitHub Releases page. Compare it with the file you downloaded — if they differ, don't run the file. AiBOX also verifies every download automatically before installing.",
+    "shaOpen": "Open Releases page",
     "note": "We are an unsigned portable app for now. Signing arrives when we can afford a certificate — never send your key to anyone."
   },
   "err": {
@@ -182,7 +171,11 @@
     "registry": "Could not reach the app list. Check your network and retry.",
     "scanFailed": "Could not check your system. Retry, or export diagnostics.",
     "netDead": "All download sources timed out. Check your network, then retry.",
-    "hashMismatch": "The downloaded file doesn't match its checksum — it may be tampered with. Try another source."
+    "hashMismatch": "The downloaded file doesn't match its checksum — it may be tampered with. Try another source.",
+    "execFailed": "The installer couldn't run or exited with an error. Export diagnostics, then retry.",
+    "probeFailed": "Installed, but the version check didn't pass. Retry, or skip this component.",
+    "downloadFailed": "The download didn't finish. Check your network, then retry.",
+    "generic": "Something went wrong. Retry, or export diagnostics."
   },
   "resume": {
     "title": "Continue last install?",
@@ -210,7 +203,6 @@
     "doctorRunning": "Checking…",
     "doctorFail": "The checkup couldn't run. Check your network and retry.",
     "doctorDone": "Checkup finished",
-    "doctorPending": "Checkup lands in the next batch — full report with plain-language results.",
     "status": {
       "ok": "OK",
       "warn": "Warning",
@@ -256,7 +248,8 @@
       "node": "Node.js is missing. We will install it for you silently, no admin rights needed.",
       "wsl": "WSL is not installed. Only needed by some apps; the plan will skip it if not required.",
       "port": "Another AI assistant is already using this port. It does not block installing; you may just pick a different entry later."
-    }
+    },
+    "node.unsupported": "This Node version isn't supported by the target app — we'll install a new one next to it, without touching yours."
   },
   "config": {
     "key": {
@@ -302,11 +295,6 @@
     "fail": "Export failed",
     "failHint": "Couldn't export the diagnostic package. Try again.",
     "issue": "Open GitHub Issue",
-    "issueNote": "Opens a pre-filled issue — version, OS and error code included, never your keys.",
-    "D0": { "ok": "DNS resolves normally" },
-    "D1": { "ok": "Encrypted DNS works" },
-    "D2": { "warn": "Proxy detected but not required" },
-    "D3": { "ok": "Certificates are valid" },
-    "D4": { "ok": "Download sources reachable" }
+    "issueNote": "Opens a pre-filled issue — version, OS and error code included, never your keys."
   }
 }

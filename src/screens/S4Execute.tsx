@@ -24,6 +24,10 @@ export default function S4Execute({ state }: { state: MachineState }) {
   const prog = progress(state);
   const done = completedTasks(state);
   const dl = useDownloadProgress();
+  // 进度条数据源：download 阶段用事件（真分支 download_progress，jobId=任务 id），
+  // 其余阶段/任务切换用状态机阶段进度（避免下载完成后 dl 残留 100%）
+  const dlActive = !!task && task.phase === "download" && dl.pct > 0 && dl.jobId === task.id;
+  const barPct = dlActive ? dl.pct : prog.pct;
 
   // 日志抽屉：订阅 log_line → 环形缓冲（4KB 截断），只读展示
   useEffect(
@@ -43,7 +47,7 @@ export default function S4Execute({ state }: { state: MachineState }) {
           {/* 通道徽章（进度条上方，12px 等宽） */}
           <div className="mb-2 flex items-center gap-2">
             <span className="rounded-[3px] border border-aibox-line px-2 py-0.5 font-mono text-xs text-aibox-info">
-              {dl.channel || t("s4.channelIdle")}
+              {dlActive && dl.channel ? dl.channel : t("s4.channelIdle")}
             </span>
             <span className="font-mono text-[11px] text-aibox-text2">
               {t(PHASE_KEYS[task.phase] ?? "s4.phaseDownload")}
@@ -68,14 +72,14 @@ export default function S4Execute({ state }: { state: MachineState }) {
           >
             <div
               className="h-full rounded-full bg-aibox-info transition-[width] duration-200"
-              style={{ width: `${dl.pct || prog.pct}%` }}
+              style={{ width: `${barPct}%` }}
             />
           </div>
           <div className="mt-1.5 flex justify-between font-mono text-[11px] text-aibox-text2">
             <span>
               {prog.done}/{prog.total} {t("s4.units")}
             </span>
-            <span>{dl.pct || prog.pct}%</span>
+            <span>{barPct}%</span>
           </div>
         </section>
       ) : (

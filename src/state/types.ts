@@ -1,7 +1,18 @@
 /**
  * 安装状态机类型。
  * 本文件与 reducer/selectors 均为纯函数层，不依赖 React / Tauri。
+ * 扫描报告 = wire 类型（契约核对统一）。
  */
+import type { DownloadTask, ExecTask, ProbeSpec, ScanReport } from "../net/client";
+
+/** 单任务四阶段执行载荷（PLAN 构建时由 registry packages 展开） */
+export interface TaskSpec {
+  download: DownloadTask;
+  exec: ExecTask;
+  probe?: ProbeSpec;
+}
+
+export type { ScanReport };
 
 /** 八态 + ERROR（ERROR 为覆盖层态，不在 FLOW 顺序里） */
 export type Status =
@@ -45,24 +56,21 @@ export interface Task {
   version: string;
   phase: TaskPhase;
   status: TaskStatus;
+  /** 四阶段执行载荷（PLAN 构建时注入；纯 reducer 测试可缺省） */
+  spec?: TaskSpec;
 }
 
-/** 体检报告单项（S2 左列指标表） */
-export interface ScanItem {
+/** 体检报告左列行（由 ScanReport.checks + 顶层字段派生，S2/S1 侧栏共用） */
+export interface ScanRow {
   id: string;
   labelKey: string;
   ok: boolean;
+  level: "ok" | "warn" | "fail";
   /** 人话解释（红灯项点击展开，S2 规格） */
   hintKey?: string;
   value?: string;
-}
-
-export interface ScanReport {
-  os: string;
-  arch: string;
-  diskFreeGb: number;
-  memGb: number;
-  items: ScanItem[];
+  /** 附加说明 i18n key（如 node 版本不受支持：scan.node.unsupported） */
+  noteKey?: string;
 }
 
 /** DAG 节点三色：reuse=已满足(--ok) / install=将安装(--info) / skip=无需(灰) */

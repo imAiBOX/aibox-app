@@ -1,15 +1,18 @@
 /**
- * SmartScreen 引导页骨架（.3 信任细节）：
- * 「Windows 已保护你的电脑」图文分步引导。文案 key 化，图片位占位。
+ * SmartScreen 引导页：
+ * 「Windows 已保护你的电脑」分步图文 + 警告出现时机说明 + SHA256 核对说明位（指向 Release 页）。
+ * 文案 key 化（en/zh），截图位占位（官网构建期静态资源，不入 registry）。
  */
 import { useTranslation } from "react-i18next";
+
+export const RELEASES_URL = "https://github.com/imAiBOX/aibox-app/releases";
 
 export default function SmartScreen({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const steps = ["ss.step1", "ss.step2", "ss.step3", "ss.step4"];
 
   return (
-    <div className="mx-auto flex h-full max-w-xl flex-col gap-5">
+    <div className="mx-auto flex h-full max-w-xl flex-col gap-5 overflow-y-auto pb-6">
       <header className="flex items-center justify-between">
         <h1 className="font-display text-xl font-bold text-aibox-cream">{t("ss.title")}</h1>
         <button
@@ -23,7 +26,15 @@ export default function SmartScreen({ onClose }: { onClose: () => void }) {
 
       <p className="text-sm leading-relaxed text-aibox-text2">{t("ss.intro")}</p>
 
-      {/* 竖向时间线（3 步母题，同款） */}
+      {/* 什么时候会出现警告（R1：先解释再操作，消除恐惧） */}
+      <section className="rounded-[6px] border border-aibox-line bg-aibox-raised p-4">
+        <h2 className="mb-1.5 font-display text-sm font-semibold text-aibox-cream">
+          {t("ss.whenTitle")}
+        </h2>
+        <p className="text-xs leading-relaxed text-aibox-text2">{t("ss.whenBody")}</p>
+      </section>
+
+      {/* 竖向时间线（四步：更多信息 → 仍要运行） */}
       <ol className="flex flex-col">
         {steps.map((k, i) => (
           <li key={k} className="flex gap-3">
@@ -48,6 +59,22 @@ export default function SmartScreen({ onClose }: { onClose: () => void }) {
           </li>
         ))}
       </ol>
+
+      {/* SHA256 核对说明位（指向 Release 页；C 档镜像安全的信任闭环） */}
+      <section className="rounded-[6px] border border-aibox-line bg-aibox-raised p-4">
+        <h2 className="mb-1.5 font-display text-sm font-semibold text-aibox-cream">
+          {t("ss.shaTitle")}
+        </h2>
+        <p className="mb-3 text-xs leading-relaxed text-aibox-text2">{t("ss.shaBody")}</p>
+        <a
+          href={RELEASES_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-block rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-xs text-aibox-info hover:border-aibox-green hover:text-aibox-green"
+        >
+          {t("ss.shaOpen")} ↗
+        </a>
+      </section>
 
       <p className="rounded-[6px] border border-aibox-line bg-aibox-raised p-3 font-mono text-[11px] leading-relaxed text-aibox-text2">
         {t("ss.note")}

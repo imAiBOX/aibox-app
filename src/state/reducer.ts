@@ -145,9 +145,10 @@ export function reduce(state: MachineState, event: Event): MachineState {
     }
 
     case "ALL_DONE":
+      // skipped 也算已处置（SKIP 后不能死锁在 EXECUTE）
       return state.status === "EXECUTE" &&
         state.tasks.length > 0 &&
-        state.tasks.every((t) => t.status === "done")
+        state.tasks.every((t) => t.status === "done" || t.status === "skipped")
         ? { ...state, status: "CONFIG", error: null }
         : state;
 
@@ -161,8 +162,19 @@ export function reduce(state: MachineState, event: Event): MachineState {
         ? { ...state, status: "DONE", verifyOk: true, error: null }
         : state;
 
-    case "ERROR":
-      return setError(state, event.code, event.messageKey, event.taskId);
+    case "ERROR": {
+      // EXECUTE 内带 taskId 的失败 → 同步标 failed
+      // （否则 SKIP 的 failed→skipped 转移永远不命中，任务会重跑）
+      const next = setError(state, event.code, event.messageKey, event.taskId);
+      if (event.taskId && state.status === "EXECUTE") {
+        next.tasks = state.tasks.map((t) =>
+          t.id === event.taskId && t.status !== "done" && t.status !== "skipped"
+            ? { ...t, status: "failed" as const }
+            : t,
+        );
+      }
+      return next;
+    }
 
     case "RETRY":
       return recover(state);

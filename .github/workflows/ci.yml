@@ -31,6 +31,9 @@ jobs:
       - name: i18n key parity (en ↔ zh-CN)
         run: node scripts/check-i18n.mjs
 
+      - name: i18n t() reference audit
+        run: node scripts/check-tkeys.mjs
+
       - name: Unit tests (vitest)
         run: pnpm test
 

@@ -11,10 +11,12 @@ import {
   createE1State,
   reduce,
   screenFor,
-  type Plan,
+  buildPlan,
+  startExecute,
+  type ExecuteHandle,
 } from "./state";
 import { api, getMockScenario, isMock, type AppIndex } from "./net/client";
-import { channelToast, feedLogFromEvents, feedToastFromEvents, startTauriEvents } from "./net/events";
+import { channelToast, feedLogFromEvents, feedToastFromEvents, onEvent, startTauriEvents } from "./net/events";
 import { AppShell, type BarAction } from "./screens/Shell";
 import S1Idle from "./screens/S1Idle";
 import S2Scan from "./screens/S2Scan";
@@ -130,45 +132,42 @@ export default function App() {
     if (state.status === "DONE") void persistence.clearSession();
   }, [state.status, persistence]);
 
-  // ── 主流程编排（mock 数据驱动状态机；换真 invoke）──
+  // ── 主流程编排（mock 数据驱动状态机；换真 invoke；真四阶段接线）──
   const startInstall = useCallback(() => {
     if (!selectedId) return;
     dispatch({ type: "START_INSTALL" });
-    api
-      .scanSystem()
-      .then((report) => dispatch({ type: "SCAN_DONE", report }))
-      .catch((_e: unknown) =>
-        dispatch({
-          type: "ERROR",
-          code: "SCAN_FAILED",
-          messageKey: "err.scanFailed",
-        }),
-      );
-    // 扫描期间预取 manifest，PLAN 态直接可用
-    api
-      .registryApp(selectedId)
-      .then((m) => {
-        const plan: Plan = {
-          appId: m.id,
-          nodes: m.tasks.map((task, i) => ({
-            id: task.id,
-            name: task.name,
-            versionRange: task.version,
-            kind: i === m.tasks.length - 1 ? ("target" as const) : ("install" as const),
-            children: [],
-          })).map((n, i, arr) => ({ ...n, children: i + 1 < arr.length ? [arr[i + 1].id] : [] })),
-          tasks: m.tasks.map((task) => ({
-            id: task.id,
-            name: task.name,
-            version: task.version,
-            phase: "download" as const,
-            status: "pending" as const,
-          })),
-          route: m.routes.global?.[0] ?? "direct",
-          channel: "ghfast.top",
-          diskMb: 760,
-          estMinutes: 6,
-        };
+    // scan 与 manifest 并行拉取；PLAN 构建需两者（platform/arch 差集 + 路线），Promise.all 保证新鲜
+    const scanP = api.scanSystem().then((report) => {
+      dispatch({ type: "SCAN_DONE", report });
+      return report;
+    });
+    scanP.catch((_e: unknown) =>
+      dispatch({ type: "ERROR", code: "SCAN_FAILED", messageKey: "err.scanFailed" }),
+    );
+    void Promise.all([scanP, api.registryApp(selectedId)])
+      .then(async ([report, manifest]) => {
+        // 路线按 net.effective 首条可行；region 取不到 → global 兑底
+        const region = await api.netRegion().catch(() => ({
+          source: "auto",
+          effective: "global" as const,
+        }));
+        // exe 需绝对路径（Rust exec 只展开 cwd 的 ~）；非 Tauri → '~' 兑底
+        const home = await (async () => {
+          if (isMock()) return "~";
+          try {
+            const { homeDir } = await import("@tauri-apps/api/path");
+            return await homeDir();
+          } catch {
+            return "~";
+          }
+        })();
+        const plan = buildPlan(manifest, {
+          platform: report.os.platform,
+          arch: report.os.arch,
+          region: region.effective,
+          home,
+          scan: report,
+        });
         dispatch({ type: "PLAN_READY", plan });
         // 诊断包收录最后计划：写 ~/.aibox/cache/last-plan.json，失败不阻塞
         void api.savePlan(plan).catch(() => undefined);
@@ -176,64 +175,32 @@ export default function App() {
       .catch(() => dispatch({ type: "ERROR", code: "REGISTRY_FETCH", messageKey: "err.registry" }));
   }, [selectedId]);
 
-  // EXECUTE：mock 阶段推进（每任务 download→verify→install→probe→快照持久化）
-  const execRunning = useRef(false);
+  // EXECUTE：真四阶段编排（mock 回落 = 阶段定时器+场景注入，行为不变）
+  const execHandle = useRef<ExecuteHandle | null>(null);
   useEffect(() => {
-    if (state.status !== "EXECUTE" || execRunning.current) return;
-    execRunning.current = true;
-    let cancelled = false;
-
-    const runTask = async (idx: number): Promise<void> => {
-      if (cancelled || idx >= state.tasks.length) return;
-      const task = state.tasks[idx];
-      const phases = ["download", "verify", "install", "probe"] as const;
-      for (const phase of phases) {
-        if (cancelled) return;
-        // mock 场景失败注入（C 档/B 档分支）：失败 → ERROR（带 taskId，E1 连败计数源）
-        if (isMock()) {
-          const sc = getMockScenario();
-          if (sc === "net_dead" && phase === "download") {
-            dispatch({ type: "ERROR", code: "NET_ALL_CHANNELS_DEAD", messageKey: "err.netDead", taskId: task.id });
-            return;
-          }
-          if (sc === "hash_mismatch" && phase === "verify") {
-            dispatch({ type: "ERROR", code: "HASH_MISMATCH", messageKey: "err.hashMismatch", taskId: task.id });
-            return;
-          }
-        }
-        dispatch({ type: "TASK_PHASE", taskId: task.id, phase });
-        await new Promise((r) => setTimeout(r, isMock() ? 180 : 60));
-      }
-      if (cancelled) return;
-      dispatch({ type: "TASK_DONE", taskId: task.id });
-      // 断点续装快照（EXECUTE 每任务完成即写；真 Tauri → SQLite sessions 表）
-      const snap = {
-        appId: state.appId ?? task.id,
-        doneTaskIds: state.tasks.slice(0, idx + 1).map((x) => x.id),
-        savedAt: Date.now(),
-      };
-      await persistence.saveSnapshot(snap);
-    };
-
-    void (async () => {
-      for (let i = 0; i < state.tasks.length; i++) {
-        if (cancelled) return;
-        // 用最新 tasks 状态判断（跳过的任务不重复执行）
-        const current = state.tasks[i];
-        if (current.status === "done" || current.status === "skipped") continue;
-        await runTask(i);
-      }
-      if (!cancelled) dispatch({ type: "ALL_DONE" });
-      execRunning.current = false;
-    })();
-
+    if (state.status !== "EXECUTE") return;
+    const handle = startExecute(
+      {
+        mode: isMock() ? "mock" : "real",
+        api,
+        dispatch,
+        onEvent,
+        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        scenario: getMockScenario,
+        saveSnapshot: (snap) => persistence.saveSnapshot(snap),
+        now: () => Date.now(),
+      },
+      { appId: state.appId, tasks: state.tasks },
+    );
+    execHandle.current = handle;
+    void handle.promise;
     return () => {
-      cancelled = true;
-      execRunning.current = false;
+      handle.stop();
+      execHandle.current = null;
     };
-    // 依赖 state.tasks.length / status；单次进入 EXECUTE 跑一轮
+    // 单次进入 EXECUTE 跑一轮；RETRY/SKIP 会经 ERROR 中转重进
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status, state.tasks.length]);
+  }, [state.status]);
 
   const sendVerify = useCallback(() => {
     setVerifyPending(true);

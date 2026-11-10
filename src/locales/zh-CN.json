@@ -1,21 +1,6 @@
 {
   "app": {
-    "tagline": "装到能用为止",
-    "phaseNote": "便携空壳。安装状态机与网络层将在接入。",
-    "phase": "· 空壳",
-    "portable": "便携版 · 免安装",
-    "platform": "Windows · macOS",
-    "dataSource": "数据源：GitHub（唯一事实源）",
-    "langSwitch": "EN",
-    "openclaw": {
-      "summary": "常驻你本机的 AI 助手，装完就能用。"
-    },
-    "hermes": {
-      "summary": "多智能体协作编排，配置稍重。"
-    },
-    "openclawOld": {
-      "summary": "上一版本，为兼容保留。"
-    }
+    "langSwitch": "EN"
   },
   "nav": {
     "idle": "应用",
@@ -96,7 +81,6 @@
     "recommended": "推荐",
     "rebate": "我们可能获得返佣",
     "todo": "即将上线",
-    "todoNote": "这条路线还没好，先选上面的。",
     "todoTitle": "还没做好",
     "todoDetail": "这条路线会在后续版本开放。现在先选上面三条完整路线，一样能用。",
     "nav1": "1 选路",
@@ -164,11 +148,16 @@
     "title": "Windows 提示「未知发布者」？",
     "back": "返回",
     "intro": "首次运行下载的应用，Windows 会拦一下，很正常。四步就过：",
+    "whenTitle": "什么时候会出现这个警告？",
+    "whenBody": "只在你第一次运行从网上下载的文件时出现。Windows 没见过这个文件，所以请你再确认一次——它不是说 AiBOX 有病毒。",
     "step1": "蓝屏上点「更多信息」。",
     "step2": "点底部「仍要运行」。",
     "step3": "若询问，点「是」确认。",
     "step4": "安装器打开了，完事。",
     "shotPlaceholder": "截图位",
+    "shaTitle": "怎么确认文件是真的",
+    "shaBody": "每个发布文件的 SHA-256 校验值都写在 GitHub Releases 页面上。和你下载的文件比对一下——不一致就不要运行。AiBOX 安装前也会自动校验每一次下载。",
+    "shaOpen": "打开 Releases 页面",
     "note": "目前是免签名便携版。等预算够了会买证书签名——任何时候都别把 key 发给任何人。"
   },
   "err": {
@@ -182,7 +171,11 @@
     "registry": "应用列表拉不到，检查网络后重试。",
     "scanFailed": "体检没跑成，重试或导出诊断。",
     "netDead": "所有下载源都超时了。检查网络后重试。",
-    "hashMismatch": "下载文件校验对不上，可能被篡改了。换个下载源再试。"
+    "hashMismatch": "下载文件校验对不上，可能被篡改了。换个下载源再试。",
+    "execFailed": "安装程序无法运行或返回错误。请导出诊断后重试。",
+    "probeFailed": "已安装，但版本核对未通过。可重试或跳过此组件。",
+    "downloadFailed": "下载没有完成。请检查网络后重试。",
+    "generic": "出了点问题。可以重试，或导出诊断。"
   },
   "resume": {
     "title": "继续上次安装？",
@@ -210,7 +203,6 @@
     "doctorRunning": "体检中…",
     "doctorFail": "体检没跑成，检查网络后重试。",
     "doctorDone": "体检完成",
-    "doctorPending": "完整体检在下一批接入，会出人话结论报告。",
     "status": {
       "ok": "正常",
       "warn": "注意",
@@ -256,7 +248,8 @@
       "node": "还没装 Node.js。我们会静默装好，不需要管理员权限。",
       "wsl": "没装 WSL。只有部分应用用得上，不需要会自动跳过。",
       "port": "另一个 AI 助手正在占用这个端口。不影响安装，装完后大不了换个入口。"
-    }
+    },
+    "node.unsupported": "当前 Node 版本不受目标应用支持——我们会在旁边另装一个新版，不动你现有的。"
   },
   "config": {
     "key": {
@@ -302,11 +295,6 @@
     "fail": "导出失败",
     "failHint": "诊断包没导出来，再试一次。",
     "issue": "一键新建 Issue",
-    "issueNote": "会打开预填好的 Issue——版本、系统、错误码都在，绝不含你的 key。",
-    "D0": { "ok": "DNS 解析正常" },
-    "D1": { "ok": "加密 DNS 可用" },
-    "D2": { "warn": "检测到代理但非必需" },
-    "D3": { "ok": "证书链有效" },
-    "D4": { "ok": "下载源可达" }
+    "issueNote": "会打开预填好的 Issue——版本、系统、错误码都在，绝不含你的 key。"
   }
 }

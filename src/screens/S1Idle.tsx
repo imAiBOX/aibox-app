@@ -3,29 +3,44 @@
  * 卡片 = 图标+名称+一句话+难度点+平台徽章+状态徽章；侧栏体检入口 E3。
  */
 import { useTranslation } from "react-i18next";
-import type { AppIndex } from "../net/client";
-import type { ScanReport } from "../state";
+import type { AppIndex, AppIndexEntry } from "../net/client";
+import { sidebarScanRows, type ScanReport } from "../state";
 
 function Difficulty({ n }: { n: number }) {
   const { t } = useTranslation();
+  const dots = Math.max(0, Math.min(5, Math.round(n)));
   return (
     <span className="font-mono text-[11px] text-aibox-text2" title={t("s1.difficulty")}>
-      {"●".repeat(n)}
-      {"○".repeat(5 - n)}
+      {"●".repeat(dots)}
+      {"○".repeat(5 - dots)}
     </span>
   );
 }
 
-function StatusBadge({ status, installed }: { status: string; installed?: string }) {
+/** 徽章派生（registry 真数据 → 三态）：已装 > stable 可安装 > 版本核对中 */
+export function appBadge(a: AppIndexEntry): "installed" | "installable" | "checking" {
+  if (a.installedVersion) return "installed";
+  return a.status === "stable" ? "installable" : "checking";
+}
+
+/** 一句话简介：tagline 按当前语言取，回落 en / 空 */
+function taglineOf(a: AppIndexEntry, lang: string): string {
+  const tl = a.tagline;
+  if (!tl) return "";
+  return tl[lang] ?? tl[lang.split("-")[0] ?? ""] ?? tl.en ?? Object.values(tl)[0] ?? "";
+}
+
+function StatusBadge({ entry }: { entry: AppIndexEntry }) {
   const { t } = useTranslation();
-  if (status === "installed") {
+  const kind = appBadge(entry);
+  if (kind === "installed") {
     return (
       <span className="rounded-[4px] border border-aibox-ok px-2 py-0.5 font-mono text-[10px] text-aibox-ok">
-        {t("s1.statusInstalled")} {installed}
+        {t("s1.statusInstalled")} {entry.installedVersion}
       </span>
     );
   }
-  if (status === "checking") {
+  if (kind === "checking") {
     return (
       <span className="rounded-[4px] border border-aibox-info px-2 py-0.5 font-mono text-[10px] text-aibox-info">
         {t("s1.statusChecking")}
@@ -54,7 +69,8 @@ export default function S1Idle({
   onSelect: (id: string) => void;
   onOpenDoctor: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage ?? "en";
   return (
     <div className="flex h-full gap-5">
       <div className="min-w-0 flex-1">
@@ -89,23 +105,23 @@ export default function S1Idle({
                 >
                   {a.name.slice(0, 1)}
                 </span>
-                <StatusBadge status={a.status} installed={a.installedVersion} />
+                <StatusBadge entry={a} />
               </div>
               <span className="font-display text-base font-semibold text-aibox-text1">
                 {a.name}
               </span>
               <span className="text-xs leading-relaxed text-aibox-text2">
-                {t(a.summaryKey)}
+                {taglineOf(a, lang)}
               </span>
               <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-                <Difficulty n={a.difficulty} />
+                <Difficulty n={a.difficulty ?? 3} />
                 <span className="flex gap-1">
                   {a.platforms.map((p) => (
                     <span
                       key={p}
                       className="rounded-[3px] border border-aibox-line px-1.5 py-0.5 font-mono text-[10px] text-aibox-text2"
                     >
-                      {p === "win" ? "Windows" : p === "mac" ? "macOS" : p}
+                      {p === "windows" ? "Windows" : p === "macos" ? "macOS" : p}
                     </span>
                   ))}
                 </span>
@@ -121,7 +137,7 @@ export default function S1Idle({
         <p className="text-xs leading-relaxed text-aibox-text2">{t("s1.doctorDesc")}</p>
         {scan && (
           <div className="flex flex-col gap-1.5 font-mono text-[11px]">
-            {scan.items.slice(0, 5).map((it) => (
+            {sidebarScanRows(scan).map((it) => (
               <span key={it.id} className="flex items-center justify-between">
                 <span className="text-aibox-text2">{t(it.labelKey)}</span>
                 <span className={it.ok ? "text-aibox-ok" : "text-aibox-danger"}>

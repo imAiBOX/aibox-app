@@ -1,7 +1,7 @@
 /**
  * Selector：屏幕映射、进度、导航六态。
  */
-import { FLOW, TASK_PHASES, type MachineState, type Status, type Task } from "./types";
+import { FLOW, TASK_PHASES, type MachineState, type ScanReport, type ScanRow, type Status, type Task } from "./types";
 
 /** 屏幕映射：S1=IDLE … S7=DONE，ERROR=覆盖层 */
 export type ScreenId =
@@ -108,4 +108,57 @@ export function inFlow(status: Status): boolean {
 /** 断点续装：是否有可恢复的未完成任务边界 */
 export function hasResumableSession(s: MachineState): boolean {
   return s.resume.available && s.resume.prompt && s.resume.snapshot !== null;
+}
+
+/**
+ * ScanReport → S2 左列行（契约核对：checks 为真源，顶层字段派生 value 列）。
+ * hint 仅对存在 `scan.hint.<id>` 语言包的项给出（磁盘/节点/端口/WSL 四项有解释文案）。
+ */
+const HINT_IDS = new Set(["disk", "node", "port", "wsl"]);
+
+export function scanRows(report: ScanReport | null): ScanRow[] {
+  if (!report) return [];
+  const v = (id: string): string => {
+    switch (id) {
+      case "os":
+        return `${report.os.platform} ${report.os.version}`;
+      case "arch":
+        return report.os.arch;
+      case "disk":
+        return `${report.diskFreeGb} GB`;
+      case "mem":
+        return `${report.memTotalGb} GB`;
+      case "node":
+        return report.node.version ?? "—";
+      case "git":
+        return report.git.version ?? "—";
+      case "wsl":
+        return report.wsl.installed ? (report.wsl.distros?.join(", ") || "√") : "—";
+      case "port":
+        return report.port18789.occupied
+          ? report.port18789.process || "127.0.0.1:18789"
+          : "free";
+      case "installed":
+        return report.installedApps.length > 0
+          ? report.installedApps.map((a) => a.version ?? a.id).join(", ")
+          : "—";
+      default:
+        return "";
+    }
+  };
+  return report.checks.map((c) => ({
+    id: c.id,
+    labelKey: c.human,
+    level: c.level,
+    ok: c.level === "ok",
+    value: v(c.id),
+    ...(HINT_IDS.has(c.id) ? { hintKey: `scan.hint.${c.id}` } : {}),
+    // node 不支持的版本：Rust 注入 note（i18n key），作为附加解释
+    ...(c.id === "node" && report.node.note ? { noteKey: report.node.note } : {}),
+  }));
+}
+
+/** S1 侧栏前 5 行（与 S2 同源） */
+export function sidebarScanRows(report: ScanReport | null): ScanRow[] {
+  return scanRows(report).slice(0, 5);
 }

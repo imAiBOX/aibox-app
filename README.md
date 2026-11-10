@@ -4,7 +4,8 @@
 口号：**Installed until it works. / 装到能用为止。**
 
 > 当前状态：active development。
-> 状态机八态、NetLayer 全量、配置写入与验证在接入。
+
+
 
 ## 项目结构
 
@@ -45,19 +46,26 @@ aibox-app/
 pnpm install            # 安装前端依赖
 pnpm dev                # 纯前端 dev server (http://localhost:5173)
 pnpm build              # typecheck (tsc --noEmit) + 生产构建 → dist/
-pnpm tauri dev          # Tauri 开发热重载（需本机 WebView2/系统 WebView）
+pnpm tauri dev          # Tauri 开发热重载（需本机 WebView2/系统 WebView；真 invoke）
 pnpm tauri build        # 本机出 exe（Linux 需 webkit2gtk；Windows 正常出包）
+pnpm test               # vitest 全量单测（状态机/编排/CONFIG/i18n/事件，离线）
+pnpm check:i18n         # en↔zh-CN key 对齐（CI 同款）
 
-cargo test -p aibox-net # 网络层单测（离线可过：DoH 解析 + 通道 HEAD 探测）
+# Rust（三 crate 均可脱离 Tauri 离线单测）
+cargo test -p aibox-net -p aibox-netdoctor -p aibox-core  # 网络+体检+原语（162 tests）
+cargo check -p aibox-app                                   # 壳编译检查
 ```
 
-> 本 crate 不依赖 native-tls / 系统 C 库（TLS 走 rustls），Linux/macOS/Windows 均可直接 `cargo test`。
+> 三 crate 不依赖 native-tls / 系统 C 库（TLS 走 rustls），Linux/macOS/Windows 均可直接 `cargo test`。
+> 纯前端开发用 `VITE_AIBOX_MOCK=1 pnpm dev` 走内存 mock（真 invoke 需 `pnpm tauri dev`）。
+
 
 ## CI（.github/workflows/ci.yml）
 
 | 触发 | Runner | 内容 |
 |---|---|---|
-| push / PR（main） | ubuntu-latest | `cargo test -p aibox-net` + `pnpm build`（typecheck+build） |
+| push / PR（main） | ubuntu-latest | `check-i18n` + `pnpm test` + `pnpm build` + `cargo test -p aibox-net -p aibox-netdoctor -p aibox-core` |
+| push / PR（main） | ubuntu / windows-latest | `cargo check -p aibox-app`（壳 + cfg(windows) 分支） |
 | tag `v*` | windows-latest | `pnpm exec tauri build --no-bundle` → 重命名为 `AiBOX-vX.Y.Z-windows-x64.exe` → 上传 GitHub Release（tag 即 release） |
 
 **不打 NSIS/MSI 安装包**（`bundle.active=false` + `--no-bundle`），只要单文件 portable exe。

@@ -3,6 +3,9 @@
  * `VITE_AIBOX_MOCK=1` 时全部走内存 mock（UI 开发与单测不依赖 Rust）。
  * 事件订阅：Rust 侧 emit（download_progress / task_phase / channel_switched / log_line），
  * mock 模式下由 mockEvents 模拟推送。
+ *
+ * 本文件类型以 src-tauri/commands.rs 实际签名为准。
+
  */
 import {
   mockDownloadProgress,
@@ -43,48 +46,128 @@ export const isMock = (): boolean => {
   return proc?.env?.VITE_AIBOX_MOCK === "1";
 };
 
-/* ── 类型（与一致） ── */
+/* ── 类型（= Rust 实际返回/payload；扫描报告形状） ── */
+
+/** 单条体检结论（Rust `Check`；`human` 即 i18n key `scan.<id>`） */
+export interface ScanCheck {
+  id: string;
+  level: "ok" | "warn" | "fail";
+  human: string;
+}
+/** `scan_system` 返回（Rust aibox_core::scan::ScanReport，camelCase） */
 export interface ScanReport {
-  os: string;
-  arch: string;
+  os: { platform: string; version: string; arch: string };
   diskFreeGb: number;
-  memGb: number;
-  items: { id: string; labelKey: string; ok: boolean; hintKey?: string; value?: string }[];
+  memTotalGb: number;
+  node: { installed: boolean; version?: string; ok?: boolean; note?: string };
+  git: { installed: boolean; version?: string };
+  wsl: { installed: boolean; distros?: string[] };
+  installedApps: { id: string; version?: string; path?: string }[];
+  port18789: { occupied: boolean; process?: string };
+  checks: ScanCheck[];
 }
+
+/** registry index.json 单个应用（+ Rust enrich 的 installedVersion） */
+export interface AppIndexEntry {
+  id: string;
+  name: string;
+  category?: string;
+  /** 双语一句话简介（registry 数据，非 i18n key） */
+  tagline?: Record<string, string>;
+  icon?: string;
+  difficulty?: number;
+  popularity?: number;
+  platforms: string[];
+  /** registry 状态原值（如 "stable"）；徽章由 appBadge() 派生 */
+  status: string;
+  installedVersion?: string;
+}
+/** `registry_index` 返回（裸 index.json 文档 + installedVersion 注入） */
 export interface AppIndex {
-  apps: {
-    id: string;
-    name: string;
-    summaryKey: string;
-    difficulty: number;
-    platforms: string[];
-    status: "installable" | "installed" | "checking";
-    installedVersion?: string;
-  }[];
+  registryVersion?: string;
+  generatedAt?: string;
+  note?: string;
+  apps: AppIndexEntry[];
 }
+
+/** registry 下载通道（type 大小写不敏感：direct/mirror/proxy/custom） */
+export interface RegistryChannel {
+  type: string;
+  url: string;
+  region?: string;
+  operator?: string;
+  note?: string;
+}
+/** registry 安装描述 */
+export interface RegistryInstall {
+  type: string;
+  args?: string[];
+  probe?: { cmd: string; expect: string };
+  notes?: string;
+}
+/** registry 单个安装包 */
+export interface RegistryPackage {
+  id: string;
+  name: string;
+  version: string;
+  platforms: string[];
+  arch?: string; // 'x64' | 'arm64' | 'any' | 缺省
+  sha256?: string;
+  sizeBytes?: number;
+  channels: RegistryChannel[];
+  install?: RegistryInstall;
+}
+export interface RoutePlan {
+  label?: string;
+  steps: string[];
+  note?: string;
+}
+/** `registry_app` 返回（裸 app.json 文档） */
 export interface AppManifest {
   id: string;
   name: string;
-  tasks: { id: string; name: string; version: string }[];
-  routes: Record<string, string[]>;
+  version?: string;
+  packages: RegistryPackage[];
+  routes?: Record<string, string[]>;
+  routePlans?: Record<string, RoutePlan>;
   /** registry modelProviders（C3 keyFormat / C4 recommendedModels 真源；可缺省→本地回落） */
   modelProviders?: Record<string, ProviderMeta>;
 }
+
+/** DownloadTask（download_start payload） */
 export interface DownloadTask {
-  taskId: string;
+  id: string;
+  channels: { type: string; url: string }[];
+  sha256: string;
+  destName: string;
+}
+/** ExecTask.kind（Rust ExecKind::parse 白名单） */
+export type ExecKind = "nsis-silent" | "npm-prefix" | "script";
+/** ExecTask（exec_install payload） */
+export interface ExecTask {
+  id: string;
+  kind: ExecKind;
+  exe: string;
+  args: string[];
+  cwd?: string;
+  probe?: ProbeSpec;
+}
+/** ProbeSpec（probe_run payload） */
+export interface ProbeSpec {
+  cmd: string;
+  expect: string;
+}
+/** net_probe 行（Rust NetProbeRow，camelCase） */
+export interface NetProbeRow {
+  resource: string;
+  channel: string;
   name: string;
   url: string;
-  sha256: string;
-}
-export interface ExecTask {
-  taskId: string;
-  cmd: string;
-  args: string[];
-}
-export interface ProbeSpec {
-  taskId: string;
-  cmd: string;
-  args: string[];
+  ok: boolean;
+  ttfbMs: number;
+  status?: number;
+  error?: string;
+  rank: number;
 }
 export interface DiagReportItem {
   /** 'D0'..'D4'（冻结） */
@@ -99,11 +182,6 @@ export interface DiagReport {
   schema?: string;
   generatedAtMs?: number;
   items: DiagReportItem[];
-}
-export interface ProbeResult {
-  channel: string;
-  ok: boolean;
-  ttfbMs: number;
 }
 export interface VerifyInput {
   /** 冻结：provider 联合 + 可选字段 */
@@ -217,7 +295,7 @@ export const api = {
   registryApp: (id: string) => invoke<AppManifest>("registry_app", { id }),
   netRegion: () => invoke<{ source: string; effective: "cn" | "global" }>("net_region"),
   netRegionSet: (v: "auto" | "cn" | "global") => invoke<void>("net_region_set", { v }),
-  netProbe: () => invoke<ProbeResult[]>("net_probe"),
+  netProbe: () => invoke<NetProbeRow[]>("net_probe"),
   netdoctorRun: (items?: string[]) => invoke<DiagReport>("netdoctor_run", { items }),
   downloadStart: (task: DownloadTask) => invoke<string>("download_start", task),
   downloadCancel: (jobId: string) => invoke<void>("download_cancel", { jobId }),

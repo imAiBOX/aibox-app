@@ -137,7 +137,17 @@ describe("VERIFY 流转与弱判定拒绝", () => {
     s = reduce(s, { type: "START_INSTALL" });
     s = reduce(s, {
       type: "SCAN_DONE",
-      report: { os: "Windows", arch: "x64", diskFreeGb: 100, memGb: 16, items: [] },
+      report: {
+        os: { platform: "windows", version: "Windows 11", arch: "x64" },
+        diskFreeGb: 100,
+        memTotalGb: 16,
+        node: { installed: false },
+        git: { installed: true, version: "2.56.0" },
+        wsl: { installed: false },
+        installedApps: [],
+        port18789: { occupied: false },
+        checks: [],
+      },
     });
     s = reduce(s, {
       type: "PLAN_READY",

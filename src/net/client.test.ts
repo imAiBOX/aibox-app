@@ -24,6 +24,8 @@ import {
   mockVerifySha256,
   setMockScenario,
 } from "./mock";
+import { scanRows } from "../state/selectors";
+import { appBadge } from "../screens/S1Idle";
 
 afterEach(() => {
   setMockScenario("normal");
@@ -32,25 +34,29 @@ afterEach(() => {
 describe("mock 场景开关覆盖", () => {
   it("normal：体检全绿之外的基线（node/wsl 缺失为可信常态）", () => {
     const r = mockScanSystem();
-    expect(r.os).toContain("Windows");
+    expect(r.os.version).toContain("Windows");
     expect(r.diskFreeGb).toBeGreaterThan(5);
-    const port = r.items.find((i) => i.id === "port18789");
-    expect(port?.ok).toBe(true);
+    const port = r.checks.find((i) => i.id === "port");
+    expect(port?.level).toBe("ok");
+    expect(port?.human).toBe("scan.port");
     expect(getMockScenario()).toBe("normal");
   });
 
-  it("port_occupied：端口红灯 + hintKey（S2 红灯分支）", () => {
+  it("port_occupied：端口红灯 + hint 由 selectors 派生（S2 红灯分支）", () => {
     setMockScenario("port_occupied");
-    const port = mockScanSystem().items.find((i) => i.id === "port18789");
-    expect(port?.ok).toBe(false);
-    expect(port?.hintKey).toBe("scan.hint.port");
+    const r = mockScanSystem();
+    expect(r.checks.find((i) => i.id === "port")?.level).toBe("fail");
+    expect(r.port18789.occupied).toBe(true);
+    expect(r.port18789.process).toBeTruthy();
+    // scanRows 派生 hintKey
+    expect(scanRows(r).find((x) => x.id === "port")?.hintKey).toBe("scan.hint.port");
   });
 
   it("disk_low：磁盘 <5GB（ERROR 分支）", () => {
     setMockScenario("disk_low");
     const r = mockScanSystem();
     expect(r.diskFreeGb).toBeLessThan(5);
-    expect(r.items.find((i) => i.id === "disk")?.ok).toBe(false);
+    expect(r.checks.find((i) => i.id === "disk")?.level).toBe("fail");
     // disk_low 下 config_write 备份写不进 → ok:false
     expect(
       mockConfigWrite({ appId: "openclaw", provider: "openrouter", apiKey: "sk-x", model: "auto" })
@@ -63,14 +69,14 @@ describe("mock 场景开关覆盖", () => {
   it("hash_mismatch：verify_sha256 false（C 档篡改分支）", () => {
     setMockScenario("hash_mismatch");
     expect(mockVerifySha256("C:\\cache\\file")).toBe(false);
-    expect(mockExecInstall({ taskId: "t", cmd: "x", args: [] }).code).toBe(0);
+    expect(mockExecInstall({ id: "t", kind: "script", exe: "x", args: [] }).code).toBe(0);
   });
 
   it("net_dead：探测挂 + exec 失败 + D4 fail", () => {
     setMockScenario("net_dead");
     const probes = mockNetProbe();
     expect(probes.find((p) => p.channel === "github.com")?.ok).toBe(false);
-    expect(mockExecInstall({ taskId: "t", cmd: "x", args: [] }).code).toBe(1);
+    expect(mockExecInstall({ id: "t", kind: "script", exe: "x", args: [] }).code).toBe(1);
     expect(mockNetdoctorRun().items.find((i) => i.item === "D4")?.status).toBe("fail");
   });
 
@@ -126,19 +132,23 @@ describe("mock 场景开关覆盖", () => {
 });
 
 describe("mock 基础数据", () => {
-  it("registry_index 三态徽章（可安装/已装/核对中）", () => {
+  it("registry_index 三态徽章（可安装/已装/核对中，appBadge 派生）", () => {
     const idx = mockRegistryIndex();
-    const statuses = idx.apps.map((a) => a.status);
-    expect(statuses).toContain("installable");
-    expect(statuses).toContain("installed");
-    expect(statuses).toContain("checking");
-    expect(idx.apps.every((a) => a.difficulty >= 1 && a.difficulty <= 5)).toBe(true);
+    const badges = idx.apps.map((a) => appBadge(a));
+    expect(badges).toContain("installable");
+    expect(badges).toContain("installed");
+    expect(badges).toContain("checking");
+    expect(idx.apps.every((a) => (a.difficulty ?? 0) >= 1 && (a.difficulty ?? 0) <= 5)).toBe(true);
+    // tagline 双语存在（S1 一句话简介）
+    expect(idx.apps[0].tagline?.["zh-CN"]).toBeTruthy();
+    expect(idx.apps[0].tagline?.en).toBeTruthy();
   });
 
-  it("registry_app 返回 4 任务队列（PLAN 可用）+ modelProviders（C3/C4 真源）", () => {
+  it("registry_app 返回 packages 队列 + routePlans（PLAN 可用）+ modelProviders（C3/C4 真源）", () => {
     const m = mockRegistryApp("openclaw");
-    expect(m.tasks).toHaveLength(4);
-    expect(m.routes.global.length).toBeGreaterThan(0);
+    expect(m.packages).toHaveLength(4);
+    expect(m.routes?.global?.length).toBeGreaterThan(0);
+    expect(m.routePlans?.["mock-full"]?.steps).toHaveLength(4);
     // C3 keyFormat + C4 recommendedModels（registry 数据 mock 兑底）
     const or = m.modelProviders?.openrouter;
     expect(or?.keyFormat).toBe("^sk-or-v1-[A-Za-z0-9]{64}$");

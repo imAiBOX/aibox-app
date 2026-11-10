@@ -14,11 +14,15 @@ import {
 import { reduce as reducer } from "./reducer";
 
 const report: ScanReport = {
-  os: "Windows 11",
-  arch: "x64",
+  os: { platform: "windows", version: "Windows 11", arch: "x64" },
   diskFreeGb: 100,
-  memGb: 16,
-  items: [{ id: "os", labelKey: "scan.os", ok: true }],
+  memTotalGb: 16,
+  node: { installed: false },
+  git: { installed: true, version: "2.56.0" },
+  wsl: { installed: false },
+  installedApps: [],
+  port18789: { occupied: false },
+  checks: [{ id: "os", level: "ok", human: "scan.os" }],
 };
 
 const plan: Plan = {
