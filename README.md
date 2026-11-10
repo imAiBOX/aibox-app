@@ -5,8 +5,6 @@
 
 > 当前状态：active development。
 
-
-
 ## 项目结构
 
 ```
@@ -59,7 +57,6 @@ cargo check -p aibox-app                                   # 壳编译检查
 > 三 crate 不依赖 native-tls / 系统 C 库（TLS 走 rustls），Linux/macOS/Windows 均可直接 `cargo test`。
 > 纯前端开发用 `VITE_AIBOX_MOCK=1 pnpm dev` 走内存 mock（真 invoke 需 `pnpm tauri dev`）。
 
-
 ## CI（.github/workflows/ci.yml）
 
 | 触发 | Runner | 内容 |
@@ -69,8 +66,3 @@ cargo check -p aibox-app                                   # 壳编译检查
 | tag `v*` | windows-latest | `pnpm exec tauri build --no-bundle` → 重命名为 `AiBOX-vX.Y.Z-windows-x64.exe` → 上传 GitHub Release（tag 即 release） |
 
 **不打 NSIS/MSI 安装包**（`bundle.active=false` + `--no-bundle`），只要单文件 portable exe。
-
-
-
-
-
