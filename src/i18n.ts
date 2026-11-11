@@ -8,16 +8,15 @@ const STORAGE_KEY = "aibox.lang";
 export const SUPPORTED_LANGS = ["en", "zh-CN"] as const;
 export type Lang = (typeof SUPPORTED_LANGS)[number];
 
-/** 首屏语言：localStorage 保存值 > navigator.language > en（en 为基线） */
+/** 首屏语言：localStorage 保存值（用户手动切换）> 默认 en（国际版产品：面向英文与中文用户，默认英文，可选中文） */
 function detect(): Lang {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === "en" || saved === "zh-CN") return saved;
   } catch {
-    /* localStorage 不可用（隐私模式等）→ 继续走 navigator 探测 */
+    /* localStorage 不可用（隐私模式等）→ 用默认英文 */
   }
-  const nav = typeof navigator !== "undefined" ? navigator.language : "en";
-  return nav.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+  return "en";
 }
 
 i18n.use(initReactI18next).init({

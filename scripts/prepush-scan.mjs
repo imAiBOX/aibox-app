@@ -43,6 +43,14 @@ function scanContent(label, text, findings) {
   }
 }
 
+/** 语言策略：根 README.md 必须以英文为主（可选中文在 README.zh-CN.md）；语言切换行豁免 */
+function checkReadmeEnglish(label, text, findings) {
+  if (!/(^|\/)README\.md$/.test(label)) return;
+  const lines = text.split('\n').filter((l) => !/English\s*\|/.test(l) && !/\[English\]\(README\.md\)/.test(l));
+  const m = lines.join('').match(/[\u4e00-\u9fff]/g);
+  if (m && m.length > 40) findings.push({ pattern: 'readme-not-english', where: `${label} (${m.length} CJK chars in main README)` });
+}
+
 function scanPathList(label, paths, findings) {
   for (const p of paths) {
     if (p && INTERNAL_PATH_RE.test(p)) findings.push({ pattern: 'internal-doc-path', where: `${label} → ${p}` });
@@ -56,11 +64,12 @@ if (mode === '--tree' || mode === '--staged') {
   for (const f of tracked) {
     try {
       const text = git(`show :"${f}" 2>/dev/null`) || '';
-      if (text) scanContent(f, text, findings);
+      if (text) { scanContent(f, text, findings); checkReadmeEnglish(f, text, findings); }
     } catch { /* 未 staged 的新文件用磁盘内容 */ 
       try {
         const text = git(`show HEAD:"${f}"`);
         scanContent(f, text, findings);
+        checkReadmeEnglish(f, text, findings);
       } catch { /* binary or missing */ }
     }
   }
@@ -89,6 +98,9 @@ if (mode === '--history') {
       scanContent(`msg ${sha.slice(0, 7)}`, msg, findings);
       const files = git(`ls-tree -r --name-only ${sha}`);
       scanPathList(`tree ${sha.slice(0, 7)}`, files.split('\n'), findings);
+      if (files.split('\n').includes('README.md')) {
+        try { checkReadmeEnglish(`tree ${sha.slice(0, 7)} README.md`, git(`show ${sha}:README.md`), findings); } catch {}
+      }
     }
     // 全历史内容（含已删除文件的 blob）
     const patch = git('log --all -p --no-merges');

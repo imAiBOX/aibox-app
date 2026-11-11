@@ -1,82 +1,91 @@
-# AiBOX（aibox-app）
+# AiBOX (aibox-app)
 
-**AiBOX.im（智能盒子）桌面端** —— 面向 Windows/macOS 完全小白用户的安装助手 + 日常维护神器。
-口号：**Installed until it works. / 装到能用为止。**
+**AiBOX.im desktop app** — a one-click installer and maintenance companion for Windows/macOS
+users who just want things to work.
 
-> 当前状态：active development。
+Tagline: **Installed until it works.**
 
-## 项目结构
+> Status: active development.
+
+**English | [简体中文](README.zh-CN.md)**
+
+## Project layout
 
 ```
 aibox-app/
-├── src/                    # 前端（React 18 + TypeScript + Vite + Tailwind CSS 4）
-│   ├── App.tsx             # 空壳 UI：黑底 #0A0A0A + 主绿 #B6FB50 + 像素方块母题
-│   ├── i18n.ts             # i18next 初始化（en 基线 / zh-CN，navigator.language 探测）
-│   └── locales/            # en.json（基线）/ zh-CN.json（key 对齐）
-├── src-tauri/              # Tauri v2 壳（Rust）
-│   ├── tauri.conf.json     # 窗口 1080×768（最小 900×640）；bundle.active=false
-│   └── src/main.rs         # 空窗口 + channel_types 命令（壳 ↔ aibox-net 最小链路）
-├── crates/aibox-net/       # 网络层 crate（可脱离 Tauri 独立编译单测）
-│   └── src/{channel,doh,probe}.rs
-│       ├── ChannelType     # DIRECT / MIRROR / PROXY / CUSTOM
-│       ├── parse_doh_response  # DoH 响应 JSON → IP 列表（纯函数）
-│       └── probe_head      # HEAD + Range: bytes=0-0，TTFB 计时
+├── src/                    # Frontend (React 18 + TypeScript + Vite + Tailwind CSS 4)
+│   ├── App.tsx             # Shell UI: near-black #0A0A0A + brand green #B6FB50, pixel-block motif
+│   ├── i18n.ts             # i18next init (English default; zh-CN opt-in via user switch)
+│   └── locales/            # en.json (baseline) / zh-CN.json (key-parity enforced in CI)
+├── src-tauri/              # Tauri v2 shell (Rust)
+│   ├── tauri.conf.json     # Window 1080×768 (min 900×640); bundle.active=false
+│   └── src/                # Commands, tray, autostart wiring (shell <-> crates)
+├── crates/aibox-net/       # Network layer crate (compiles & unit-tests without Tauri)
+├── crates/aibox-netdoctor/ # Network diagnostics D0-D6 (offline-injectable transports)
+├── crates/aibox-core/      # Stable primitives: download/verify/exec/probe/fs/diag-zip/registry
 └── .github/workflows/ci.yml
 ```
 
-技术栈（定死）：**Tauri v2（Rust 核心）+ React 18 + TypeScript + Vite + Tailwind CSS 4**，
-不用重型组件库；多语言 i18next + JSON 语言包（en 为基线，zh-CN 对齐，扩展语言零发版）。
+Stack (fixed): **Tauri v2 (Rust core) + React 18 + TypeScript + Vite + Tailwind CSS 4**,
+no heavy component libraries; i18next + JSON locale packs (English baseline, zh-CN parity,
+new languages ship as registry files with zero app release).
 
-## 便携分发与升级策略
+## Portable distribution & upgrade
 
-- **分发**：Windows = 单文件 portable exe（`AiBOX-vX.Y.Z-windows-x64.exe`，双击即跑，
-  数据写 `%LOCALAPPDATA%\AiBOX\`，不写注册表不改 PATH）；Win10+ 自带 WebView2，无运行时依赖。
-- **升级**：
-  1. 启动时拉 `aibox.im/meta/latest.json`（源自 GitHub Releases，本地 5 分钟缓存）；
-  2. 发现新版 → 首页顶部**黄条通知**「有新版本 vX.Y.Z → 下载」（不强制）；
-  3. 点击**跳官网下载页**，下载带版本号的新文件 → 用户双击新 exe 即完成升级。
-  **不做自替换机制**（杀软/文件锁失败态对小白是灾难）；自替换仅远期实验项。
-- **CI 出包**：tag `v*` → Windows runner 构建 exe 并挂到同名 GitHub Release。
+- **Distribution**: Windows = single-file portable exe (`AiBOX-vX.Y.Z-windows-x64.exe`),
+  double-click to run, data lives in `%LOCALAPPDATA%\AiBOX\` (no registry writes, no PATH edits).
+  Win10+ ships WebView2 — no runtime download needed.
+- **Upgrade**:
+  1. On startup the app checks the latest GitHub Release (5-minute local cache);
+  2. If a newer version exists, a **yellow banner** appears ("New version vX.Y.Z → Download"), never forced;
+  3. Clicking opens the official download page; the user double-clicks the new exe — done.
+  **No self-replacing updater** (antivirus/file-lock failure modes are hostile to novice users).
+- **CI**: pushing tag `v*` builds the exe on a Windows runner and attaches it to the GitHub Release
+  (version injected from the tag).
 
-## 托盘常驻与开机自启
+## Tray, autostart & update reminders
 
-- **关闭窗口 = 隐藏到托盘**（不退出）；左键/双击托盘图标重新打开主窗口。
-- **右键菜单**：打开 AiBOX / 检查更新 / 退出——只有「退出」才真正结束进程；
-  安装进行中点退出会先弹确认（防误杀）。本体有新版本时，菜单首项变为「有新版本 vX → 下载」。
-- **开机自启默认开启**（Windows 写 HKCU `Run` 键，免提权；macOS 走 LaunchAgent），
-  可在「设置 → 通用」随时关闭；若被安全软件/策略阻止，设置页给出人话提示且不阻塞启动。
-- **更新提醒三类**：本体新版（顶部黄条 + 托盘联动）/ 已装应用新版（目录卡片「可升级」徽章 + 聚合条）
-  / 目录新增（顶部提示，可关）。检查节奏克制：启动时一次 + 托盘手动 + 常驻每 4 小时一次，
-  全部走既有缓存（本体 5 分钟、registry 12 小时、应用更新结果 4 小时）。
-- **资源目标**：托盘常驻空闲内存 < 50MB——不引入常驻重型依赖（托盘用 Tauri 内置能力，
-  自启用官方 tauri-plugin-autostart，均为纯 Rust）。
+- **Closing the window hides to tray** (does not quit). Left-click / double-click the tray icon
+  to reopen the main window.
+- **Right-click menu**: Open AiBOX / Check for updates / Quit — only *Quit* ends the process;
+  quitting during an active install asks for confirmation first. When a new app version exists the
+  first menu item becomes "New version vX → Download".
+- **Autostart is ON by default** (Windows: HKCU `Run` key, no elevation; macOS: LaunchAgent),
+  toggleable under Settings → General. If blocked by security software the settings page shows a
+  plain-language notice and startup is never blocked.
+- **Three reminder types**: new app release (banner + tray), installed-app updates
+  (catalog badge + aggregate bar), newly catalogued apps (dismissible notice). Check cadence is
+  deliberately quiet: once at startup + manual tray trigger + every 4h while resident, all behind
+  existing caches (5 min / 12 h / 4 h).
+- **Resource target**: < 50 MB idle memory while resident (built-in Tauri tray, official
+  autostart plugin, pure Rust).
 
-## 开发命令
+## Development
 
 ```bash
-pnpm install            # 安装前端依赖
-pnpm dev                # 纯前端 dev server (http://localhost:5173)
-pnpm build              # typecheck (tsc --noEmit) + 生产构建 → dist/
-pnpm tauri dev          # Tauri 开发热重载（需本机 WebView2/系统 WebView；真 invoke）
-pnpm tauri build        # 本机出 exe（Linux 需 webkit2gtk；Windows 正常出包）
-pnpm test               # vitest 全量单测（状态机/编排/CONFIG/i18n/事件，离线）
-pnpm check:i18n         # en↔zh-CN key 对齐（CI 同款）
+pnpm install            # frontend deps
+pnpm dev                # plain frontend dev server (http://localhost:5173)
+pnpm build              # typecheck (tsc --noEmit) + production build → dist/
+pnpm tauri dev          # Tauri dev with hot reload (real invoke)
+pnpm tauri build        # local exe (Linux needs webkit2gtk)
+pnpm test               # vitest suite (state machine, orchestration, config, i18n — offline)
+pnpm check:i18n         # en ↔ zh-CN key parity (same check as CI)
 
-# Rust（三 crate 均可脱离 Tauri 离线单测）
-cargo test -p aibox-net -p aibox-netdoctor -p aibox-core  # 网络+体检+原语（162 tests）
-cargo check -p aibox-app                                   # 壳编译检查
+# Rust (all three crates unit-test offline, without Tauri)
+cargo test -p aibox-net -p aibox-netdoctor -p aibox-core
+cargo check -p aibox-app
 ```
 
-> 三 crate 不依赖 native-tls / 系统 C 库（TLS 走 rustls），Linux/macOS/Windows 均可直接 `cargo test`。
-> 纯前端开发用 `VITE_AIBOX_MOCK=1 pnpm dev` 走内存 mock（真 invoke 需 `pnpm tauri dev`）。
+> No native-tls / system C libraries (TLS via rustls) — `cargo test` runs on Linux/macOS/Windows.
+> Frontend-only development: `VITE_AIBOX_MOCK=1 pnpm dev` uses the in-memory mock.
 
-## CI（.github/workflows/ci.yml）
+## CI (.github/workflows/ci.yml)
 
-| 触发 | Runner | 内容 |
+| Trigger | Runner | Steps |
 |---|---|---|
-| push / PR（main） | ubuntu-latest | `check-i18n` + `pnpm test` + `pnpm build` + `cargo test -p aibox-net -p aibox-netdoctor -p aibox-core` |
-| push / PR（main） | ubuntu / windows-latest | `cargo check -p aibox-app`（壳 + cfg(windows) 分支） |
-| push / PR（main） | ubuntu-latest | `sanitization`：全历史内部引用扫描（`fetch-depth: 0`） |
-| tag `v*` | windows-latest | `pnpm exec tauri build --no-bundle` → 重命名为 `AiBOX-vX.Y.Z-windows-x64.exe` → 上传 GitHub Release（tag 即 release） |
+| push / PR (main) | ubuntu | i18n parity + `pnpm test` + `pnpm build` + `cargo test` (3 crates) |
+| push / PR (main) | ubuntu + windows | `cargo check -p aibox-app` (shell + cfg(windows) branches) |
+| push / PR (main) | ubuntu | `sanitization`: full-history scan (`fetch-depth: 0`) |
+| tag `v*` | windows | `tauri build --no-bundle` → rename `AiBOX-vX.Y.Z-windows-x64.exe` → GitHub Release |
 
-**不打 NSIS/MSI 安装包**（`bundle.active=false` + `--no-bundle`），只要单文件 portable exe。
+No NSIS/MSI installers (`bundle.active=false` + `--no-bundle`) — single portable exe only.
