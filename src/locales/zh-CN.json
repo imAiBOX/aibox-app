@@ -37,7 +37,11 @@
     "statusChecking": "版本核对中",
     "doctorTitle": "本机体检",
     "doctorDesc": "装之前先快速看看你的电脑。",
-    "doctorOpen": "打开体检"
+    "doctorOpen": "打开体检",
+    "upgradeTo": "可升级 {{version}}",
+    "updatesBar": "已装应用有 {{count}} 个新版本",
+    "newApps": "目录新增：{{names}}",
+    "dismiss": "关闭"
   },
   "s2": {
     "title": "体检报告",
@@ -185,7 +189,6 @@
     "no": "重新开始"
   },
   "net": {
-    "title": "网络设置",
     "back": "返回",
     "regionTitle": "地区",
     "region": {
@@ -218,7 +221,8 @@
     "detailToggle": "详情",
     "diagTitle": "导出诊断",
     "diagDesc": "把日志、体检报告和计划打包成 zip（不含 key）。",
-    "diagSymptom": "从网络设置页导出。"
+    "diagSymptom": "从网络设置页导出。",
+    "tab": "网络"
   },
   "e1": {
     "title": "网络好像有问题",
@@ -300,5 +304,32 @@
     "failHint": "诊断包没导出来，再试一次。",
     "issue": "一键新建 Issue",
     "issueNote": "会打开预填好的 Issue——版本、系统、错误码都在，绝不含你的 key。"
+  },
+  "set": {
+    "title": "设置"
+  },
+  "gen": {
+    "title": "通用",
+    "autostart": "开机自启动",
+    "autostartDesc": "开机自动打开 AiBOX，无需管理员权限",
+    "autostartFail": "未能设置开机自启，可能被安全软件阻止",
+    "trayTitle": "托盘常驻",
+    "trayHint": "关闭窗口会最小化到托盘；右击托盘图标可退出"
+  },
+  "tray": {
+    "open": "打开 AiBOX",
+    "check": "检查更新",
+    "quit": "退出",
+    "firstUpdate": "有新版本 {{version}} → 下载",
+    "appUpdates": "{{count}} 个应用可升级",
+    "tip": "AiBOX",
+    "tipUpdate": "AiBOX · 有新版本",
+    "tipApps": "AiBOX · {{count}} 个可升级"
+  },
+  "quit": {
+    "title": "退出 AiBOX？",
+    "desc": "正在安装应用，现在退出会中断安装。",
+    "stay": "继续运行",
+    "quit": "退出"
   }
 }

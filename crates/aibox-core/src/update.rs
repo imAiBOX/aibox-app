@@ -4,6 +4,7 @@
 use serde::Serialize;
 
 use crate::err::{CoreError, CoreResult};
+use crate::scan::InstalledApp;
 
 /// UpdateInfo。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -17,6 +18,46 @@ pub struct UpdateInfo {
 }
 
 const LATEST_URL: &str = "https://api.github.com/repos/imAiBOX/aibox-app/releases/latest";
+
+/// 已装应用更新行（契约：`check_app_updates` 返回 `[{appId, installed?, latest?, hasUpdate}]`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateRow {
+    pub app_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest: Option<String>,
+    pub has_update: bool,
+}
+
+/// 已装 vs 上游 latest 比对（纯函数）：
+/// - 两侧版本都有 → `is_newer(latest, installed)` 才算可升级；
+/// - 缺 latest（registry 拉取失败/无版本字段）或缺 installed → 不提醒（缺数据不打扰）。
+pub fn app_update_rows(
+    installed: &[InstalledApp],
+    latest: &[(String, Option<String>)],
+) -> Vec<AppUpdateRow> {
+    installed
+        .iter()
+        .map(|a| {
+            let latest_v = latest
+                .iter()
+                .find(|(id, _)| *id == a.id)
+                .and_then(|(_, v)| v.clone());
+            let has = match (&latest_v, &a.version) {
+                (Some(l), Some(i)) if !i.trim().is_empty() => is_newer(l, i),
+                _ => false,
+            };
+            AppUpdateRow {
+                app_id: a.id.clone(),
+                installed: a.version.clone(),
+                latest: latest_v,
+                has_update: has,
+            }
+        })
+        .collect()
+}
 
 /// 版本比较（`v` 前缀可选；数字段逐段比，非数字段字典序）。`candidate > current`。
 pub fn is_newer(candidate: &str, current: &str) -> bool {
@@ -135,5 +176,49 @@ mod tests {
         assert_eq!(v["hasUpdate"], true);
         assert_eq!(v["version"], "v0.0.2");
         assert!(v.get("url").is_some());
+    }
+
+    fn app(id: &str, version: Option<&str>) -> InstalledApp {
+        InstalledApp {
+            id: id.to_string(),
+            version: version.map(String::from),
+            path: None,
+        }
+    }
+
+    #[test]
+    fn app_update_rows_compares_installed_vs_latest() {
+        let installed = vec![
+            app("openclaw", Some("2026.11.1")), // 上游更新 → 可升级
+            app("cherry", Some("2026.11.3")),   // 同版本 → 不提醒
+            app("jan", Some("2026.12.1")),      // 本地更新 → 不提醒
+            app("ghost", Some("1.0.0")),        // registry 无记录 → 不提醒
+            app("nov", None),                   // 无已装版本 → 不提醒
+        ];
+        let latest = vec![
+            ("openclaw".to_string(), Some("2026.11.2".to_string())),
+            ("cherry".to_string(), Some("2026.11.3".to_string())),
+            ("jan".to_string(), Some("2026.11.1".to_string())),
+            ("nov".to_string(), Some("2.0.0".to_string())),
+        ];
+        let rows = app_update_rows(&installed, &latest);
+        assert_eq!(rows.len(), 5);
+        assert!(rows[0].has_update);
+        assert_eq!(rows[0].latest.as_deref(), Some("2026.11.2"));
+        assert!(!rows[1].has_update);
+        assert!(!rows[2].has_update);
+        assert!(!rows[3].has_update, "registry 无记录 → 缺 latest 不提醒");
+        assert!(!rows[4].has_update, "缺 installed 版本 → 不提醒");
+        assert_eq!(rows[4].app_id, "nov");
+    }
+
+    #[test]
+    fn app_update_rows_serializes_contract_shape() {
+        let rows = app_update_rows(&[app("a", Some("1.0.0"))], &[("a".into(), Some("1.1.0".into()))]);
+        let v = serde_json::to_value(&rows[0]).unwrap();
+        assert_eq!(v["appId"], "a");
+        assert_eq!(v["installed"], "1.0.0");
+        assert_eq!(v["latest"], "1.1.0");
+        assert_eq!(v["hasUpdate"], true);
     }
 }

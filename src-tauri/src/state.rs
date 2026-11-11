@@ -7,6 +7,8 @@ use std::time::Instant;
 
 use aibox_core::update::UpdateInfo;
 
+use crate::tray::TrayUi;
+
 /// 下载 job：取消标志（进度闭包里轮询；置位 → 中断下载，保留 .part 断点）。
 #[derive(Clone)]
 pub struct JobHandle {
@@ -27,4 +29,11 @@ static UPDATE_CACHE: LazyLock<Mutex<Option<(Instant, UpdateInfo)>>> =
 
 pub fn update_cache() -> MutexGuard<'static, Option<(Instant, UpdateInfo)>> {
     UPDATE_CACHE.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// 托盘文案状态（前端 tray_sync 下发；首项动作在点击时读取）。
+static TRAY_UI: LazyLock<Mutex<TrayUi>> = LazyLock::new(|| Mutex::new(TrayUi::default()));
+
+pub fn tray_ui() -> MutexGuard<'static, TrayUi> {
+    TRAY_UI.lock().unwrap_or_else(|p| p.into_inner())
 }

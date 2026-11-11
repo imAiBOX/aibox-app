@@ -6,6 +6,8 @@
 import type {
   AppIndex,
   AppManifest,
+  AppUpdateRow,
+  AutostartState,
   ConfigWriteInput,
   ConfigWriteResult,
   DiagReport,
@@ -18,6 +20,7 @@ import type {
   UpdateInfo,
   VerifyInput,
 } from "./client";
+import { diffAppUpdates } from "../state/appUpdates";
 
 export type MockScenario =
   | "normal" // 全绿
@@ -435,6 +438,27 @@ export function mockUpdateCheck(): UpdateInfo {
       : { hasUpdate: false };
   }
   return { hasUpdate: false };
+}
+
+/** 已装应用更新（形状 = Rust check_app_updates；比对逻辑与真分支同款纯函数） */
+export function mockCheckAppUpdates(): AppUpdateRow[] {
+  return diffAppUpdates(
+    [
+      { id: "openclaw", version: "2026.11.1" }, // 上游 2026.11.2 → 可升级
+      { id: "openclaw-old", version: "0.9.2" }, // 同版本 → 不提醒
+    ],
+    { openclaw: "2026.11.2", "openclaw-old": "0.9.2" },
+  );
+}
+
+/** 开机自启 mock（内存态，toggle 即时生效） */
+let mockAutostart: AutostartState = { enabled: true };
+export function mockAutostartGet(): AutostartState {
+  return { ...mockAutostart };
+}
+export function mockAutostartSet(enabled: boolean): AutostartState {
+  mockAutostart = { enabled };
+  return { ...mockAutostart };
 }
 
 const localesCache: Record<string, Record<string, string>> = {

@@ -14,6 +14,7 @@ const EVENT_NAMES = [
   "task_phase",
   "channel_switched",
   "log_line",
+  "tray_action",
 ] as const;
 
 /** 幂等启动真事件桥（App 启动时调一次；mock/非 Tauri 环境为 noop） */

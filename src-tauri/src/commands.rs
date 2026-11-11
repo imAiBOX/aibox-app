@@ -609,3 +609,76 @@ pub fn channel_types() -> Vec<&'static str> {
         .map(|c| c.as_str())
         .collect()
 }
+
+// ── 托盘 / 开机自启 / 应用更新 ─────────────────────────────
+
+/// 已装应用更新检查：读 install-manifest → 并行拉 registry app.json（12h 缓存）
+/// → 比对上游 latest version → `[{appId, installed?, latest?, hasUpdate}]`。
+/// 结果缓存（4h）由前端 kv 时间戳门控；本命令只做拉取+比对。
+#[tauri::command]
+pub async fn check_app_updates() -> Cmd<Vec<update::AppUpdateRow>> {
+    blocking(|| {
+        let installed = aibox_core::scan::installed_apps();
+        if installed.is_empty() {
+            return Ok(Vec::new());
+        }
+        let latest: Vec<(String, Option<String>)> = std::thread::scope(|s| {
+            let handles: Vec<_> = installed
+                .iter()
+                .map(|a| {
+                    let id = a.id.clone();
+                    s.spawn(move || {
+                        let v = registry::fetch_app(&id, false).ok().and_then(|(doc, _)| {
+                            doc.get("version")
+                                .and_then(|x| x.as_str())
+                                .map(String::from)
+                        });
+                        (id, v)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or_else(|_| (String::new(), None)))
+                .collect()
+        });
+        Ok(update::app_update_rows(&installed, &latest))
+    })
+    .await
+}
+
+/// 安装完成登记：upsert `~/.aibox/install-manifest.json`（前端在任务全部完成后调用）。
+#[tauri::command]
+pub async fn install_record(app_id: String, version: Option<String>) -> Cmd<String> {
+    blocking(move || aibox_core::scan::record_install(&app_id, version.as_deref())).await
+}
+
+/// 托盘文案同步（前端 i18n 后下发；tooltip + 菜单项 + 首项动作）。
+#[tauri::command]
+pub fn tray_sync(ui: crate::tray::TrayUi) -> Cmd<()> {
+    let mut ui = ui;
+    if ui.first_action != "download" {
+        ui.first_action = "open".to_string();
+    }
+    crate::tray::apply_ui(&ui);
+    *state::tray_ui() = ui;
+    Ok(())
+}
+
+/// 退出（真正结束进程；托盘「退出」经前端确认后调用）。
+#[tauri::command]
+pub fn app_quit(app: AppHandle) {
+    app.exit(0);
+}
+
+/// 开机自启状态（enabled = OS 真相；error = 最近一次注册失败）。
+#[tauri::command]
+pub fn autostart_get(app: AppHandle) -> crate::autostart::AutostartState {
+    crate::autostart::status(&app)
+}
+
+/// 设置开机自启（即时生效；失败返回 error，设置页人话提示）。
+#[tauri::command]
+pub fn autostart_set(app: AppHandle, enabled: bool) -> crate::autostart::AutostartState {
+    crate::autostart::set(&app, enabled)
+}

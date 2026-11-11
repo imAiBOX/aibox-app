@@ -21,6 +21,9 @@ import {
   mockRegistryIndex,
   mockScanSystem,
   mockUpdateCheck,
+  mockCheckAppUpdates,
+  mockAutostartGet,
+  mockAutostartSet,
   mockVerifySend,
   mockVerifySha256,
   mockDiagExport,
@@ -229,13 +232,35 @@ export interface UpdateInfo {
   version?: string;
   url?: string;
 }
+/** `check_app_updates` 行（Rust AppUpdateRow，camelCase） */
+export interface AppUpdateRow {
+  appId: string;
+  installed?: string;
+  latest?: string;
+  hasUpdate: boolean;
+}
+/** 开机自启状态（autostart_get / autostart_set 返回） */
+export interface AutostartState {
+  enabled: boolean;
+  /** 最近一次注册失败原因（人话提示由 i18n 提供，这里仅详情） */
+  error?: string;
+}
+/** 托盘文案同步（前端 i18n 后下发；Rust 只展示） */
+export interface TraySync {
+  tooltip: string;
+  firstLabel: string;
+  firstAction: "open" | "download";
+  checkLabel: string;
+  quitLabel: string;
+}
 
 /* ── 事件总线 ── */
 export type AiboxEvent =
   | { event: "download_progress"; payload: { jobId: string; done: number; total: number; channel: string } }
   | { event: "task_phase"; payload: { taskId: string; phase: string } }
   | { event: "channel_switched"; payload: { from: string; to: string; reason: string } }
-  | { event: "log_line"; payload: { text: string } };
+  | { event: "log_line"; payload: { text: string } }
+  | { event: "tray_action"; payload: { action: "open" | "check" | "quit" | "download" } };
 
 type Handler = (e: AiboxEvent) => void;
 const handlers = new Set<Handler>();
@@ -301,6 +326,18 @@ function mockDispatch<T>(cmd: string, a?: unknown): T {
       return "~/.aibox/cache/last-plan.json" as T;
     case "update_check":
       return mockUpdateCheck() as T;
+    case "check_app_updates":
+      return mockCheckAppUpdates() as T;
+    case "install_record":
+      return "~/.aibox/install-manifest.json" as T;
+    case "tray_sync":
+      return undefined as T;
+    case "app_quit":
+      return undefined as T;
+    case "autostart_get":
+      return mockAutostartGet() as T;
+    case "autostart_set":
+      return mockAutostartSet(Boolean(args.enabled)) as T;
     case "locales_load":
       return mockLocalesLoad(String(args?.lang ?? "en")) as T;
     default:
@@ -331,6 +368,18 @@ export const api = {
   /** 写入最后计划到 ~/.aibox/cache/last-plan.json（诊断包收录） */
   savePlan: (plan: unknown) => invoke<string>("save_plan", { plan }),
   updateCheck: () => invoke<UpdateInfo>("update_check"),
+  /** 已装应用更新检查（Rust 读 install-manifest + 拉 registry 比对；4h 缓存门控在 TS） */
+  checkAppUpdates: () => invoke<AppUpdateRow[]>("check_app_updates"),
+  /** 安装完成登记 install-manifest（任务全部完成后调用） */
+  installRecord: (appId: string, version?: string) =>
+    invoke<string>("install_record", { appId, version }),
+  /** 托盘文案同步（tooltip + 菜单项 + 首项动作） */
+  traySync: (ui: TraySync) => invoke<void>("tray_sync", { ui }),
+  /** 退出（真正结束进程） */
+  appQuit: () => invoke<void>("app_quit"),
+  autostartGet: () => invoke<AutostartState>("autostart_get"),
+  /** 即时生效；失败返回 error（设置页人话提示） */
+  autostartSet: (enabled: boolean) => invoke<AutostartState>("autostart_set", { enabled }),
   localesLoad: (lang: string) => invoke<Record<string, string>>("locales_load", { lang }),
 };
 

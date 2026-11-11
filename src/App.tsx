@@ -27,9 +27,12 @@ import S5Config from "./screens/S5Config";
 import S6Verify from "./screens/S6Verify";
 import S7Done from "./screens/S7Done";
 import ErrorOverlay from "./screens/ErrorOverlay";
-import SettingsNetwork from "./screens/SettingsNetwork";
+import Settings from "./screens/Settings";
 import SmartScreen from "./screens/SmartScreen";
-import { useUpdateBanner } from "./hooks/useUpdateBanner";
+import { useUpdateBanner, OFFICIAL_DOWNLOAD_URL } from "./hooks/useUpdateBanner";
+import { useUpdateChecks } from "./hooks/useUpdateChecks";
+import { buildTrayLabels } from "./state/tray";
+import { APP_UPDATE_TTL_MS } from "./state/appUpdates";
 import { useSessionResume } from "./hooks/useSessionResume";
 import E1DiagPanel from "./screens/E1DiagPanel";
 import { runVerify } from "./config/flow";
@@ -51,6 +54,8 @@ export default function App() {
   const [verifyResult, setVerifyResult] = useState<{ text: string; ms: number } | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [verifyPending, setVerifyPending] = useState(false);
+  /** 托盘「退出」在安装进行中 → 确认弹层（防误杀） */
+  const [quitConfirm, setQuitConfirm] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   /** 区域判定结果（plan.netRegion + E1 建议分支用） */
   const [netRegion, setNetRegion] = useState<NetRegionResult | null>(null);
@@ -59,11 +64,15 @@ export default function App() {
   const lastChannelRef = useRef<string | null>(null);
   // 断点续装：真 Tauri → SQLite（sessions/kv），mock/浏览器 → memory（persistence-sqlite 工厂）
   const persistence = useRef(createPersistence()).current;
+  /** 本次安装的 registry 版本（install-manifest 登记用）；记录去重 */
+  const installVersionRef = useRef<string | undefined>(undefined);
+  const recordedRef = useRef<string | null>(null);
   // E1 内嵌诊断面板（同一任务连败 2 次触发；纯 reducer 可测）
   const [e1, rawE1] = useReducer(e1Reduce, createE1State());
   /** 导出成功后关闭 → 用 EXPORT_DIAG 语义恢复（与 RETRY 同转移，保留事件契约） */
   const exportedRef = useRef(false);
   const banner = useUpdateBanner();
+  const checks = useUpdateChecks();
   const resume = useSessionResume(persistence, dispatch, state);
 
   // 版本号：Tauri 壳优先，失败回落构建期注入
@@ -139,6 +148,75 @@ export default function App() {
     [],
   );
 
+  // 目录新增比对（registry_index 就绪后；首启无记录 → 只落记录不提示）
+  useEffect(() => {
+    if (!appIndex) return;
+    void checks.checkNewApps(appIndex.apps.map((a) => a.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appIndex]);
+
+  const { recheck: recheckAppUpdates } = checks;
+  // 常驻周期检查（每 4h，窗口隐藏也跑）：已装应用（4h kv 门控）+ 本体（5min 缓存）+ 目录（12h 缓存）
+  useEffect(() => {
+    const id = setInterval(() => {
+      void recheckAppUpdates();
+      banner.recheck();
+      api.registryIndex()
+        .then((idx) => setAppIndex(idx))
+        .catch(() => undefined);
+    }, APP_UPDATE_TTL_MS);
+    return () => clearInterval(id);
+  }, [recheckAppUpdates, banner.recheck]);
+
+  // 托盘状态同步（i18n 后下发 tooltip/菜单；本体新版/可升级数量联动）
+  const appUpdateCount = checks.appUpdates.filter((r) => r.hasUpdate).length;
+  useEffect(() => {
+    const labels = buildTrayLabels(t, {
+      hasCoreUpdate: banner.info?.hasUpdate ?? false,
+      coreVersion: banner.info?.version,
+      appUpdateCount,
+    });
+    void api.traySync(labels).catch(() => undefined);
+  }, [t, i18next.resolvedLanguage, banner.info, appUpdateCount]);
+
+  // 托盘菜单动作（Rust 发出）：下载=开官网；检查=三类合并重查；退出=安装中先确认
+  useEffect(
+    () =>
+      onEvent((e) => {
+        if (e.event !== "tray_action") return;
+        if (e.payload.action === "download") {
+          window.open(OFFICIAL_DOWNLOAD_URL, "_blank");
+        } else if (e.payload.action === "check") {
+          void recheckAppUpdates({ force: true });
+          banner.recheck();
+          api.registryIndex()
+            .then((idx) => setAppIndex(idx))
+            .catch(() => undefined);
+        } else if (e.payload.action === "quit") {
+          if (state.status === "EXECUTE") setQuitConfirm(true);
+          else void api.appQuit().catch(() => undefined);
+        }
+      }),
+    [recheckAppUpdates, banner.recheck, state.status],
+  );
+
+  // 安装完成（任务全部干完 → CONFIG）→ 登记 install-manifest（已装应用更新检查的数据源）
+  useEffect(() => {
+    const appId = state.appId;
+    if (state.status !== "CONFIG" || !appId) return;
+    if (recordedRef.current === appId) return;
+    recordedRef.current = appId;
+    void (async () => {
+      const version =
+        installVersionRef.current ??
+        (await api
+          .registryApp(appId)
+          .then((m) => m.version)
+          .catch(() => undefined));
+      await api.installRecord(appId, version).catch(() => undefined);
+    })();
+  }, [state.status, state.appId]);
+
   // 断点续装写入时机：状态机关键转移（每任务完成在下方 runTask 内单独写）
   useEffect(() => {
     if (!state.appId || state.tasks.length === 0) return;
@@ -170,6 +248,7 @@ export default function App() {
     );
     void Promise.all([scanP, api.registryApp(selectedId)])
       .then(async ([report, manifest]) => {
+        installVersionRef.current = manifest.version;
         // 路线按 net.effective 首条可行；region 取不到 → 前端静态判定兑底（不再硬编 global）
         const region = await api.netRegion().catch((e: unknown) => {
           const effective = staticRegionFallback();
@@ -357,7 +436,7 @@ export default function App() {
       >
         {isOverlay ? (
           overlay === "settings" ? (
-            <SettingsNetwork onClose={() => setOverlay("none")} />
+            <Settings onClose={() => setOverlay("none")} />
           ) : (
             <SmartScreen onClose={() => setOverlay("none")} />
           )
@@ -369,6 +448,9 @@ export default function App() {
             selectedId={selectedId}
             onSelect={setSelectedId}
             onOpenDoctor={() => setOverlay("settings")}
+            appUpdates={checks.appUpdates}
+            newApps={checks.newApps}
+            onDismissNewApps={checks.dismissNewApps}
           />
         ) : screen === "S2Scan" ? (
           <S2Scan report={state.scan} plan={state.plan} />
@@ -420,6 +502,37 @@ export default function App() {
                   className="rounded-[4px] bg-aibox-green px-4 py-2 font-display text-sm font-semibold text-aibox-bg"
                 >
                   {t("resume.yes")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 退出确认弹层（托盘「退出」在安装进行中触发；人话防误杀） */}
+        {quitConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+            <div className="w-full max-w-sm rounded-[6px] border border-aibox-danger bg-aibox-raised p-5">
+              <h2 className="mb-2 font-display text-base font-semibold text-aibox-cream">
+                {t("quit.title")}
+              </h2>
+              <p className="mb-4 text-sm text-aibox-text2">{t("quit.desc")}</p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setQuitConfirm(false)}
+                  className="rounded-[4px] border border-aibox-line px-4 py-2 font-mono text-xs text-aibox-text2"
+                >
+                  {t("quit.stay")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuitConfirm(false);
+                    void api.appQuit().catch(() => undefined);
+                  }}
+                  className="rounded-[4px] bg-aibox-danger px-4 py-2 font-display text-sm font-semibold text-aibox-bg"
+                >
+                  {t("quit.quit")}
                 </button>
               </div>
             </div>

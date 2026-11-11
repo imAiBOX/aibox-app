@@ -22,7 +22,7 @@ function fmtDetail(detail: string): string {
 
 type Region = "auto" | "cn" | "global";
 
-export default function SettingsNetwork({ onClose }: { onClose: () => void }) {
+export default function SettingsNetwork() {
   const { t, i18n } = useTranslation();
   const [region, setRegion] = useState<Region>("auto");
   const [settings, setSettings] = useState<NetLocalSettings>(DEFAULT_NET_SETTINGS);
@@ -69,18 +69,7 @@ export default function SettingsNetwork({ onClose }: { onClose: () => void }) {
   const worst = worstStatus(rows);
 
   return (
-    <div className="mx-auto flex h-full max-w-xl flex-col gap-5">
-      <header className="flex items-center justify-between">
-        <h1 className="font-display text-xl font-bold text-aibox-cream">{t("net.title")}</h1>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-xs text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
-        >
-          {t("net.back")}
-        </button>
-      </header>
-
+    <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-1">
       {/* 地区选择（真 net_region_set） */}
       <section className="rounded-[6px] border border-aibox-line bg-aibox-raised p-4">
         <h2 className="mb-2 font-display text-sm font-semibold text-aibox-cream">

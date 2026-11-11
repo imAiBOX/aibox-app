@@ -11,6 +11,7 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::err::{io_err, CoreError, CoreResult};
 use crate::paths;
 
 /// ScanReport。
@@ -469,7 +470,7 @@ fn wsl_info() -> WslInfo {
     }
 }
 
-fn installed_apps() -> Vec<InstalledApp> {
+pub fn installed_apps() -> Vec<InstalledApp> {
     let path = paths::install_manifest_file();
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Vec::new();
@@ -478,6 +479,67 @@ fn installed_apps() -> Vec<InstalledApp> {
         return Vec::new();
     };
     parse_install_manifest(&v)
+}
+
+/// 安装完成登记：upsert `~/.aibox/install-manifest.json`（保留既有条目/字段）。
+/// 返回写入路径；失败不阻塞安装流程（调用方 best-effort）。
+pub fn record_install(id: &str, version: Option<&str>) -> CoreResult<String> {
+    crate::registry::validate_id(id)?;
+    let path = paths::install_manifest_file();
+    let mut v: Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!({"apps": []}));
+    upsert_install_manifest(&mut v, id, version);
+    if let Some(dir) = path.parent() {
+        paths::ensure_dir(dir).map_err(|e| io_err("create install-manifest dir", e))?;
+    }
+    let text = serde_json::to_string_pretty(&v)
+        .map_err(|e| CoreError::new("INSTALL_RECORD", format!("serialize install-manifest: {e}")))?;
+    std::fs::write(&path, text)
+        .map_err(|e| io_err("write install-manifest", e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// upsert 语义：已有同 id 条目 → 更新 version（保留 path 等字段）；否则追加。
+/// 兼容 map 形态旧文件（归一化为 `{apps:[...]}`，不丢既有条目）。
+pub fn upsert_install_manifest(v: &mut Value, id: &str, version: Option<&str>) {
+    if v.get("apps").and_then(|a| a.as_array()).is_none() {
+        let mut apps: Vec<Value> = Vec::new();
+        if let Some(map) = v.as_object() {
+            for (k, item) in map {
+                if k == "apps" {
+                    continue;
+                }
+                let mut e = serde_json::json!({"id": k});
+                if let Some(ver) = item.get("version").and_then(|x| x.as_str()) {
+                    e["version"] = serde_json::json!(ver);
+                }
+                if let Some(p) = item.get("path").and_then(|x| x.as_str()) {
+                    e["path"] = serde_json::json!(p);
+                }
+                apps.push(e);
+            }
+        }
+        *v = serde_json::json!({"apps": apps});
+    }
+    let Some(arr) = v.get_mut("apps").and_then(|a| a.as_array_mut()) else {
+        return;
+    };
+    if let Some(entry) = arr
+        .iter_mut()
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id))
+    {
+        if let Some(ver) = version {
+            entry["version"] = serde_json::json!(ver);
+        }
+    } else {
+        let mut e = serde_json::json!({"id": id});
+        if let Some(ver) = version {
+            e["version"] = serde_json::json!(ver);
+        }
+        arr.push(e);
+    }
 }
 
 /// 容错解析 install-manifest：`{apps:[...]}` 或 `{id:{version,path}}` 映射。
@@ -782,6 +844,33 @@ mod tests {
         let apps2 = parse_install_manifest(&v2);
         assert_eq!(apps2[0].id, "openclaw");
         assert_eq!(apps2[0].version.as_deref(), Some("1.0"));
+    }
+
+    #[test]
+    fn upsert_install_manifest_append_and_update() {
+        // 新装 → 追加
+        let mut v = serde_json::json!({"apps": []});
+        upsert_install_manifest(&mut v, "openclaw", Some("2026.11.2"));
+        assert_eq!(v["apps"].as_array().unwrap().len(), 1);
+        // 同 id 再登记（版本升级）→ 更新而非重复；无关字段保留
+        upsert_install_manifest(&mut v, "openclaw", Some("2026.11.3"));
+        assert_eq!(v["apps"].as_array().unwrap().len(), 1);
+        assert_eq!(v["apps"][0]["version"], "2026.11.3");
+        // 不同 id → 追加第二条
+        upsert_install_manifest(&mut v, "cherry-studio", None);
+        assert_eq!(v["apps"].as_array().unwrap().len(), 2);
+        assert!(v["apps"][1].get("version").is_none(), "无版本不写 null 字段");
+        // map 形态旧文件 → 归一化且不丢条目
+        let mut legacy = serde_json::json!({"jan": {"version": "1.0", "path": "/opt/jan"}});
+        upsert_install_manifest(&mut legacy, "ollama", Some("0.5.0"));
+        let apps = legacy["apps"].as_array().unwrap();
+        assert_eq!(apps.len(), 2);
+        let jan = apps.iter().find(|a| a["id"] == "jan").unwrap();
+        assert_eq!(jan["version"], "1.0");
+        assert_eq!(jan["path"], "/opt/jan");
+        // 幂等：重复 upsert 不产生重复条目
+        upsert_install_manifest(&mut legacy, "jan", Some("1.1"));
+        assert_eq!(legacy["apps"].as_array().unwrap().len(), 2);
     }
 
     #[test]

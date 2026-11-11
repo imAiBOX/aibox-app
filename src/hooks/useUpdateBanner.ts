@@ -47,22 +47,26 @@ export interface UpdateBannerState {
   visible: boolean;
   version?: string;
   url: string;
+  /** 原始检查结果（托盘联动用：不受 dismissed 影响） */
+  info: UpdateInfo | null;
   dismiss: () => void;
+  /** 重新检查（5min 缓存；托盘「检查更新」/ 常驻周期用） */
+  recheck: () => void;
 }
 
 export function useUpdateBanner(): UpdateBannerState {
   const [state, rawDispatch] = useReducer(bannerReduce, undefined, createBannerState);
 
-  useEffect(() => {
-    let alive = true;
+  const recheck = useCallback(() => {
     api
       .updateCheck()
-      .then((r) => alive && rawDispatch({ type: "CHECK_RESULT", info: r }))
-      .catch(() => alive && rawDispatch({ type: "CHECK_RESULT", info: { hasUpdate: false } }));
-    return () => {
-      alive = false;
-    };
+      .then((r) => rawDispatch({ type: "CHECK_RESULT", info: r }))
+      .catch(() => rawDispatch({ type: "CHECK_RESULT", info: { hasUpdate: false } }));
   }, []);
+
+  useEffect(() => {
+    recheck();
+  }, [recheck]);
 
   const dismiss = useCallback(() => rawDispatch({ type: "DISMISS" }), []);
 
@@ -70,6 +74,8 @@ export function useUpdateBanner(): UpdateBannerState {
     visible: bannerVisible(state),
     version: state.info?.version,
     url: OFFICIAL_DOWNLOAD_URL,
+    info: state.info,
     dismiss,
+    recheck,
   };
 }

@@ -1,9 +1,11 @@
 /**
  * S1 IDLE 应用目录：卡片网格 auto-fill minmax(260px)，
- * 卡片 = 图标+名称+一句话+难度点+平台徽章+状态徽章；侧栏体检入口 E3。
+ * 卡片 = 图标+名称+一句话+难度点+平台徽章+状态徽章（+可升级徽章）；侧栏体检入口 E3。
+ * 顶部：已装应用更新聚合条（可展开跳卡片）+ 目录新增提示（可关）。
  */
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { AppIndex, AppIndexEntry } from "../net/client";
+import type { AppIndex, AppIndexEntry, AppUpdateRow } from "../net/client";
 import { sidebarScanRows, type ScanReport } from "../state";
 
 function Difficulty({ n }: { n: number }) {
@@ -30,26 +32,32 @@ function taglineOf(a: AppIndexEntry, lang: string): string {
   return tl[lang] ?? tl[lang.split("-")[0] ?? ""] ?? tl.en ?? Object.values(tl)[0] ?? "";
 }
 
-function StatusBadge({ entry }: { entry: AppIndexEntry }) {
+function StatusBadge({ entry, upgradeTo }: { entry: AppIndexEntry; upgradeTo?: string }) {
   const { t } = useTranslation();
   const kind = appBadge(entry);
-  if (kind === "installed") {
-    return (
-      <span className="rounded-[4px] border border-aibox-ok px-2 py-0.5 font-mono text-[10px] text-aibox-ok">
-        {t("s1.statusInstalled")} {entry.installedVersion}
-      </span>
-    );
-  }
-  if (kind === "checking") {
-    return (
-      <span className="rounded-[4px] border border-aibox-info px-2 py-0.5 font-mono text-[10px] text-aibox-info">
-        {t("s1.statusChecking")}
-      </span>
-    );
-  }
   return (
-    <span className="rounded-[4px] border border-aibox-green px-2 py-0.5 font-mono text-[10px] text-aibox-green">
-      {t("s1.statusInstallable")}
+    <span className="flex flex-wrap items-center justify-end gap-1.5">
+      {kind === "installed" && (
+        <span className="rounded-[4px] border border-aibox-ok px-2 py-0.5 font-mono text-[10px] text-aibox-ok">
+          {t("s1.statusInstalled")} {entry.installedVersion}
+        </span>
+      )}
+      {kind === "checking" && (
+        <span className="rounded-[4px] border border-aibox-info px-2 py-0.5 font-mono text-[10px] text-aibox-info">
+          {t("s1.statusChecking")}
+        </span>
+      )}
+      {kind === "installable" && (
+        <span className="rounded-[4px] border border-aibox-green px-2 py-0.5 font-mono text-[10px] text-aibox-green">
+          {t("s1.statusInstallable")}
+        </span>
+      )}
+      {/* 可升级徽章（info 色，区别于「已装」绿徽章） */}
+      {upgradeTo && (
+        <span className="rounded-[4px] border border-aibox-info bg-aibox-info/10 px-2 py-0.5 font-mono text-[10px] text-aibox-info">
+          {t("s1.upgradeTo", { version: upgradeTo })}
+        </span>
+      )}
     </span>
   );
 }
@@ -61,6 +69,9 @@ export default function S1Idle({
   selectedId,
   onSelect,
   onOpenDoctor,
+  appUpdates,
+  newApps,
+  onDismissNewApps,
 }: {
   index: AppIndex | null;
   scan: ScanReport | null;
@@ -68,9 +79,27 @@ export default function S1Idle({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onOpenDoctor: () => void;
+  /** check_app_updates 结果（有 hasUpdate 的行 → 徽章/聚合条） */
+  appUpdates: AppUpdateRow[];
+  /** 目录新增的 app id（首启为空；可关） */
+  newApps: string[];
+  onDismissNewApps: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.resolvedLanguage ?? "en";
+  const [updatesOpen, setUpdatesOpen] = useState(false);
+
+  const nameOf = (id: string): string => index?.apps.find((a) => a.id === id)?.name ?? id;
+  const updatable = appUpdates.filter((r) => r.hasUpdate);
+
+  /** 展开列表点项 → 跳到对应卡片（选中 + 滚动居中） */
+  const jumpTo = (id: string) => {
+    onSelect(id);
+    window.requestAnimationFrame(() =>
+      document.getElementById(`app-card-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+    );
+  };
+
   return (
     <div className="flex h-full gap-5">
       <div className="min-w-0 flex-1">
@@ -78,6 +107,61 @@ export default function S1Idle({
           <h1 className="font-display text-xl font-bold text-aibox-cream">{t("s1.title")}</h1>
           <span className="font-mono text-[11px] text-aibox-text2">{t("s1.subtitle")}</span>
         </header>
+
+        {/* 已装应用更新聚合条（黄条；点击展开列表 → 跳卡片；本批只提醒+入口） */}
+        {updatable.length > 0 && (
+          <div className="mb-3 rounded-[6px] border border-[#f5c518] bg-[#f5c518]/15 px-4 py-2 text-sm text-aibox-cream">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 text-left"
+              onClick={() => setUpdatesOpen((o) => !o)}
+              aria-expanded={updatesOpen}
+            >
+              <span>{t("s1.updatesBar", { count: updatable.length })}</span>
+              <span className="font-mono text-[11px] text-aibox-text2">
+                {updatesOpen ? "▲" : "▼"}
+              </span>
+            </button>
+            {updatesOpen && (
+              <ul className="mt-2 flex flex-col gap-1.5">
+                {updatable.map((r) => (
+                  <li key={r.appId}>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-3 rounded-[4px] border border-aibox-line bg-aibox-bg px-3 py-1.5 text-left text-xs hover:border-aibox-green"
+                      onClick={() => jumpTo(r.appId)}
+                    >
+                      <span className="text-aibox-text1">{nameOf(r.appId)}</span>
+                      <span className="font-mono text-[10px] text-aibox-green">
+                        {t("s1.upgradeTo", { version: r.latest ?? "?" })}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* 目录新增提示（人话，可关） */}
+        {newApps.length > 0 && (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-[6px] border border-aibox-info/60 bg-aibox-info/10 px-4 py-2 text-xs text-aibox-info">
+            <span>
+              {t("s1.newApps", {
+                names: newApps.map(nameOf).join(lang.startsWith("zh") ? "、" : ", "),
+              })}
+            </span>
+            <button
+              type="button"
+              onClick={onDismissNewApps}
+              title={t("s1.dismiss")}
+              aria-label={t("s1.dismiss")}
+              className="shrink-0 rounded-[3px] px-1.5 font-mono text-sm text-aibox-info hover:text-aibox-cream"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {loading && <p className="font-mono text-xs text-aibox-text2">{t("s1.loading")}</p>}
         {!loading && (!index || index.apps.length === 0) && (
@@ -88,6 +172,7 @@ export default function S1Idle({
           {index?.apps.map((a) => (
             <button
               key={a.id}
+              id={`app-card-${a.id}`}
               type="button"
               onClick={() => onSelect(a.id)}
               className={[
@@ -105,7 +190,7 @@ export default function S1Idle({
                 >
                   {a.name.slice(0, 1)}
                 </span>
-                <StatusBadge entry={a} />
+                <StatusBadge entry={a} upgradeTo={appUpdates.find((r) => r.hasUpdate && r.appId === a.id)?.latest} />
               </div>
               <span className="font-display text-base font-semibold text-aibox-text1">
                 {a.name}

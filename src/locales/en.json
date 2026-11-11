@@ -37,7 +37,11 @@
     "statusChecking": "Checking version",
     "doctorTitle": "System checkup",
     "doctorDesc": "A quick look at your machine before installing.",
-    "doctorOpen": "Open checkup"
+    "doctorOpen": "Open checkup",
+    "upgradeTo": "Update to {{version}}",
+    "updatesBar": "{{count}} installed apps have updates",
+    "newApps": "New in the catalog: {{names}}",
+    "dismiss": "Dismiss"
   },
   "s2": {
     "title": "Checkup report",
@@ -185,7 +189,6 @@
     "no": "Start over"
   },
   "net": {
-    "title": "Network settings",
     "back": "Back",
     "regionTitle": "Region",
     "region": {
@@ -218,7 +221,8 @@
     "detailToggle": "details",
     "diagTitle": "Export diagnostics",
     "diagDesc": "Package logs, scan report and plan into a zip (no keys).",
-    "diagSymptom": "Exported from network settings."
+    "diagSymptom": "Exported from network settings.",
+    "tab": "Network"
   },
   "e1": {
     "title": "Network trouble",
@@ -300,5 +304,32 @@
     "failHint": "Couldn't export the diagnostic package. Try again.",
     "issue": "Open GitHub Issue",
     "issueNote": "Opens a pre-filled issue — version, OS and error code included, never your keys."
+  },
+  "set": {
+    "title": "Settings"
+  },
+  "gen": {
+    "title": "General",
+    "autostart": "Launch at startup",
+    "autostartDesc": "Start AiBOX when you sign in. No admin rights needed.",
+    "autostartFail": "Couldn't turn on launch at startup — security software may have blocked it.",
+    "trayTitle": "System tray",
+    "trayHint": "Closing the window keeps AiBOX in the tray. Right-click the tray icon to quit."
+  },
+  "tray": {
+    "open": "Open AiBOX",
+    "check": "Check for updates",
+    "quit": "Quit",
+    "firstUpdate": "New version {{version}} → Download",
+    "appUpdates": "{{count}} apps have updates",
+    "tip": "AiBOX",
+    "tipUpdate": "AiBOX · update available",
+    "tipApps": "AiBOX · {{count}} apps can update"
+  },
+  "quit": {
+    "title": "Quit AiBOX?",
+    "desc": "An install is still running. Quitting now will interrupt it.",
+    "stay": "Keep running",
+    "quit": "Quit"
   }
 }

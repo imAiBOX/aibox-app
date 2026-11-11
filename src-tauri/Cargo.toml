@@ -9,7 +9,10 @@ description = "AiBOX portable installer shell: thin Tauri commands over aibox-co
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# tray-icon：系统托盘（官方内置能力）；image-png：托盘图标嵌入解码
+# tauri-plugin-autostart：开机自启（Windows=HKCU Run 键，免提权；官方插件，纯 Rust 依赖）
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
 aibox-net = { path = "../crates/aibox-net" }
 aibox-core = { path = "../crates/aibox-core" }
 aibox-netdoctor = { path = "../crates/aibox-netdoctor" }
