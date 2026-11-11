@@ -217,6 +217,9 @@ pub async fn download_start(
     channels: Vec<Value>,
     sha256: String,
     dest_name: String,
+    app_id: Option<String>,
+    size_bytes: Option<u64>,
+    skip_channels: Option<Vec<String>>,
 ) -> Cmd<String> {
     if id.trim().is_empty() {
         return Err(CommandError::new(
@@ -227,6 +230,10 @@ pub async fn download_start(
     // 提前校验通道与落点（快速失败，不进 job 表）
     let channel_urls = download::parse_channels(&channels).map_err(CommandError::from)?;
     download::dest_for(&dest_name).map_err(CommandError::from)?;
+    let skip = match &skip_channels {
+        Some(list) => download::parse_skip_channels(list).map_err(CommandError::from)?,
+        None => Vec::new(),
+    };
 
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
     {
@@ -246,10 +253,14 @@ pub async fn download_start(
     }
 
     let job_id = id.clone();
+    let log_app = app_id.unwrap_or_else(|| "aibox".to_string());
     let spec = DownloadSpec {
         channels: channel_urls,
         sha256,
         dest_name,
+        size_bytes,
+        skip_channels: skip.clone(),
+        app_id: Some(log_app.clone()),
     };
 
     std::thread::spawn(move || {
@@ -257,6 +268,33 @@ pub async fn download_start(
         let app_log = app.clone();
         let cancel_flag = cancel.clone();
         let job_for_progress = job_id.clone();
+        let log_app_progress = log_app.clone();
+        let job_for_log = job_id.clone();
+
+        // 任务日志：通道序 / 跳过源 / 期望大小 / sha 起点
+        let sha_head: String = spec.sha256.chars().take(16).collect();
+        let _ = aibox_core::tasklog::append(
+            &log_app,
+            &job_for_log,
+            &format!(
+                "download start: dest={} channels=[{}] skip=[{}] sizeBytes={} sha256={}…",
+                spec.dest_name,
+                spec.channels
+                    .iter()
+                    .map(|c| c.channel.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                spec.skip_channels
+                    .iter()
+                    .map(|c| c.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                spec.size_bytes
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "unknown".into()),
+                sha_head,
+            ),
+        );
 
         let mut last_emit = Instant::now()
             .checked_sub(EMIT_INTERVAL)
@@ -275,6 +313,11 @@ pub async fn download_start(
                     let _ = app_progress.emit(
                         "channel_switched",
                         json!({"from": prev, "to": channel, "reason": "download-fallback"}),
+                    );
+                    let _ = aibox_core::tasklog::append(
+                        &log_app_progress,
+                        &job_for_log,
+                        &format!("channel switch: {prev} → {channel}"),
                     );
                 }
             }
@@ -301,27 +344,39 @@ pub async fn download_start(
             download::download_to_cache(&spec, &mut progress)
         }));
 
-        let note = match outcome {
-            Ok(Ok(receipt)) => format!(
-                "download ok: {} bytes via {} ({})",
-                receipt.bytes,
-                receipt.channel.as_str(),
-                spec_log_name(&spec)
-            ),
-            Ok(Err(e)) => format!("download failed [{}]: {}", e.code, e.human),
+        let (note, terminal) = match outcome {
+            Ok(Ok(receipt)) => {
+                let n = format!(
+                    "download ok: {} bytes via {} ({})",
+                    receipt.bytes,
+                    receipt.channel.as_str(),
+                    spec_log_name(&spec)
+                );
+                let t = format!("{n}, sha256={}", receipt.sha256);
+                (n, t)
+            }
+            Ok(Err(e)) => {
+                let n = format!("download failed [{}]: {}", e.code, e.human);
+                let t = n.clone();
+                (n, t)
+            }
             Err(payload) => {
                 let cancelled = payload
                     .downcast_ref::<&'static str>()
                     .map(|s| *s == CANCEL_PANIC)
                     .or_else(|| payload.downcast_ref::<String>().map(|s| s == CANCEL_PANIC))
                     .unwrap_or(false);
-                if cancelled {
+                let n = if cancelled {
                     "download cancelled (partial kept for resume)".to_string()
                 } else {
                     "download panicked".to_string()
-                }
+                };
+                let t = n.clone();
+                (n, t)
             }
         };
+        // 任务日志终态（含 sha 结果；与事件文本独立，不改冻结的 log_line 格式）
+        let _ = aibox_core::tasklog::append(&log_app, &job_for_log, &terminal);
         let _ = app_log.emit("log_line", json!({ "text": note }));
         state::jobs().remove(&job_id);
     });
@@ -361,6 +416,7 @@ pub async fn exec_install(
     args: Vec<String>,
     cwd: Option<String>,
     probe: Option<ProbeSpec>,
+    app_id: Option<String>,
 ) -> Cmd<Value> {
     let _ = probe; // probe 阶段由 TS 调 probe_run（四阶段之一，不在 install 内联执行）
     let kind = ExecKind::parse(&kind).map_err(CommandError::from)?;
@@ -371,10 +427,26 @@ pub async fn exec_install(
         args,
         cwd,
     };
+    let log_app = app_id.unwrap_or_else(|| "aibox".to_string());
+    let log_task = id.clone();
+    let log_cmd = format!("{} {}", spec.exe, spec.args.join(" "));
 
     let _ = app.emit("task_phase", json!({"taskId": id, "phase": "install"}));
     let task_id = id.clone();
     let outcome = blocking(move || exec::run(&spec)).await;
+
+    // 任务日志：命令 / 退出码 / stdout+stderr 摘要（上游已截 4KB）
+    let exec_log = match &outcome {
+        Ok(o) => format!(
+            "exec install: cmd={} → exit {}{}\nout:\n{}",
+            log_cmd,
+            o.code,
+            if o.timed_out { " (timeout)" } else { "" },
+            o.out
+        ),
+        Err(e) => format!("exec install: cmd={} → error[{}]: {}", log_cmd, e.code, e.human),
+    };
+    let _ = aibox_core::tasklog::append(&log_app, &log_task, &exec_log);
 
     match outcome {
         Ok(o) => {

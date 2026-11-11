@@ -31,9 +31,9 @@ pub use doh::{
     DOH_TTL_SECS,
 };
 pub use download::{
-    download_fallback, sha256_file, sha256_hex, ChannelFailure, ChannelUrl, DownloadError,
-    DownloadOptions, DownloadProgress, DownloadReceipt, DEFAULT_TIMEOUT, SEGMENT_RETRIES,
-    SEGMENT_SIZE,
+    classify_product, download_fallback, looks_like_fault_page, sha256_file, sha256_hex,
+    ChannelFailure, ChannelUrl, DownloadError, DownloadOptions, DownloadProgress, DownloadReceipt,
+    ProductVerdict, DEFAULT_TIMEOUT, SEGMENT_RETRIES, SEGMENT_SIZE,
 };
 pub use probe::{probe_head, probe_head_with, ProbeOutcome};
 pub use proxy::{
@@ -41,8 +41,9 @@ pub use proxy::{
     detect_registry_proxies, proxies_from_env, ProxyConfig, ProxyLiveness, ProxySource,
 };
 pub use region::{
-    detect_initial_region, initial_region, order_channels, override_from_probe, resolve_region,
-    signals_from_env, RegionKind, RegionSignals, RegionSource, RegionState,
+    classify_multi, detect_initial_region, initial_region, order_channels, resolve_region,
+    signals_from_env, AnchorProbe, AnchorProbes, RegionKind, RegionProbes, RegionSignals,
+    RegionSource, RegionState,
 };
 pub use score::{
     ProbeRecord, ProbeScore, FAIL_STRIKE_LIMIT, REVIVE_AFTER_MS, SCORE_TTL_MS,

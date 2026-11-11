@@ -2,8 +2,9 @@
 //!
 //! - **初值**：UI 语言 zh + 系统时区 Asia/Shanghai + 系统区域 CN → CN 序，否则 GLOBAL 序。
 //!   三个信号全部以参数注入（纯函数），系统信号读取见 [`detect_initial_region`]。
-//! - **实测覆盖**：github.com 直连成功且 TTFB < 800ms → 采用 GLOBAL 序
-//!   （避免给翻墙中的用户强推国内镜像反而绕路）。
+//! - **实测覆盖**：三锚点并行实测（主站 / release 资产全链 / 国内镜像），
+//!   **主判据 = release 资产全链**（大文件端点真实可达才判 GLOBAL）；
+//!   见 [`classify_multi`]。
 //! - **排序**：CN 序 = MIRROR > PROXY > DIRECT；GLOBAL 序 = DIRECT > 其余；
 //!   CUSTOM 恒为末位（用户自定义通道由用户显式启用，不参与区域偏好）。
 //! - 用户可在设置中手动固定（auto/cn/global → [`RegionSource`]）。
@@ -55,10 +56,66 @@ impl RegionSource {
 }
 
 /// `net_region()` 返回结构。
+///
+/// `anchors` = 本次实测三锚点结果（仅 auto 且已实测时给出；手动固定时不探测）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegionState {
     pub source: RegionSource,
     pub effective: RegionKind,
+    /// 可观测：三锚点实测摘要（auto 判定时给出；手动固定省略）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchors: Option<AnchorProbes>,
+}
+
+/// 单锚点实测摘要（`anchors.*`，可观测用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AnchorProbe {
+    pub ok: bool,
+    pub ttfb_ms: u64,
+}
+
+/// 三锚点实测摘要（顺序固定：github 主站 / release 资产全链 / npmmirror 国内镜像）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AnchorProbes {
+    pub github: AnchorProbe,
+    pub release_asset: AnchorProbe,
+    pub npmmirror: AnchorProbe,
+}
+
+/// 三锚点实测原始结果（core 侧采集与 TTL 缓存持有）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionProbes {
+    /// A：`https://github.com/` 主站（翻墙/优化线路信号）
+    pub github: ProbeOutcome,
+    /// B：GitHub release 资产全链（HEAD 资产 URL → 302 → objects.githubusercontent.com）——**主判据**
+    pub release_asset: ProbeOutcome,
+    /// C：`https://registry.npmmirror.com/`（国内镜像信号，仅辅助记录）
+    pub npmmirror: ProbeOutcome,
+}
+
+impl RegionProbes {
+    /// 三锚点 → 区域判定（纯函数）。
+    pub fn classify(&self) -> Option<RegionKind> {
+        classify_multi(&self.github, &self.release_asset, &self.npmmirror)
+    }
+
+    /// 三锚点 → 可观测摘要。
+    pub fn to_anchors(&self) -> AnchorProbes {
+        AnchorProbes {
+            github: anchor_of(&self.github),
+            release_asset: anchor_of(&self.release_asset),
+            npmmirror: anchor_of(&self.npmmirror),
+        }
+    }
+}
+
+fn anchor_of(p: &ProbeOutcome) -> AnchorProbe {
+    AnchorProbe {
+        ok: p.success,
+        ttfb_ms: p.ttfb_ms,
+    }
 }
 
 /// 区域判定的三个输入信号（可注入，纯函数判定）。
@@ -88,10 +145,21 @@ pub fn initial_region(locale: &str, tz: &str, region: &str) -> RegionKind {
     }
 }
 
-/// 实测覆盖：github.com 直连成功且 TTFB < 800ms → 采用 GLOBAL 序。
-/// 返回 `None` 表示不覆盖（保留初值）。
-pub fn override_from_probe(github_direct: &ProbeOutcome) -> Option<RegionKind> {
-    if github_direct.success && github_direct.ttfb_ms < 800 {
+/// 三锚点区域判定（纯函数，可注入离线单测）。
+///
+/// 判定表：
+/// - **B（release 资产全链）通且 TTFB < 800ms → `Some(Global)`**（大文件真可达 = 国际序成立）；
+/// - B 不通（无论 A 多快）→ `None`（回落初值；国内典型「主站通/资产挂」从此判 cn）；
+/// - B 通但 ≥ 800ms → `None`（回落初值）；
+/// - C（npmmirror）只作辅助记录，不单独触发覆盖。
+pub fn classify_multi(
+    main_site: &ProbeOutcome,
+    release_asset: &ProbeOutcome,
+    cn_mirror: &ProbeOutcome,
+) -> Option<RegionKind> {
+    // A/C 参与观测（诊断可见），不参与判定本身
+    let _ = (main_site, cn_mirror);
+    if release_asset.success && release_asset.ttfb_ms < 800 {
         Some(RegionKind::Global)
     } else {
         None
@@ -227,13 +295,46 @@ mod tests {
     }
 
     #[test]
-    fn measured_override_github_fast_direct_wins_global() {
-        assert_eq!(override_from_probe(&ok(799)), Some(RegionKind::Global));
-        assert_eq!(override_from_probe(&ok(0)), Some(RegionKind::Global));
-        // 边界：800ms 不覆盖
-        assert_eq!(override_from_probe(&ok(800)), None);
-        assert_eq!(override_from_probe(&ok(5000)), None);
-        assert_eq!(override_from_probe(&fail()), None);
+    fn classify_multi_matrix() {
+        let fast = ok(120);
+        let slow = ok(1500);
+        let dead = fail();
+        let mirror_ok = ok(60);
+
+        // B 通且快 → Global（主判据）
+        assert_eq!(classify_multi(&fast, &fast, &mirror_ok), Some(RegionKind::Global));
+        // B 通但慢（≥800ms）→ None（回落初值）
+        assert_eq!(classify_multi(&fast, &slow, &mirror_ok), None);
+        assert_eq!(classify_multi(&fast, &ok(800), &mirror_ok), None);
+        // 边界：799ms 仍判 Global
+        assert_eq!(classify_multi(&dead, &ok(799), &mirror_ok), Some(RegionKind::Global));
+        // B 挂 + A 快（国内典型：主站通、资产端点挂）→ None（回落初值 → cn）
+        assert_eq!(classify_multi(&fast, &dead, &mirror_ok), None);
+        // B 挂 + C 通（国内镜像好）→ None（C 不单独触发覆盖）
+        assert_eq!(classify_multi(&fast, &dead, &mirror_ok), None);
+        // 三锚点全挂 → None
+        assert_eq!(classify_multi(&dead, &dead, &dead), None);
+    }
+
+    #[test]
+    fn region_probes_classify_and_anchors() {
+        let p = RegionProbes {
+            github: ok(100),
+            release_asset: ok(200),
+            npmmirror: ok(50),
+        };
+        assert_eq!(p.classify(), Some(RegionKind::Global));
+        let a = p.to_anchors();
+        assert!(a.github.ok && a.release_asset.ok && a.npmmirror.ok);
+        assert_eq!(a.release_asset.ttfb_ms, 200);
+
+        let q = RegionProbes {
+            github: ok(100),
+            release_asset: fail(),
+            npmmirror: ok(50),
+        };
+        assert_eq!(q.classify(), None, "资产链挂 → 不覆盖（回落初值）");
+        assert!(!q.to_anchors().release_asset.ok);
     }
 
     #[test]
@@ -300,6 +401,7 @@ mod tests {
         let state = RegionState {
             source: RegionSource::Auto,
             effective: RegionKind::Cn,
+            anchors: None,
         };
         assert_eq!(
             serde_json::to_string(&state).unwrap(),
@@ -308,6 +410,7 @@ mod tests {
         let state2 = RegionState {
             source: RegionSource::Global,
             effective: RegionKind::Global,
+            anchors: None,
         };
         assert_eq!(
             serde_json::to_string(&state2).unwrap(),
@@ -318,8 +421,29 @@ mod tests {
             RegionState {
                 source: RegionSource::Cn,
                 effective: RegionKind::Cn,
+                anchors: None,
             }
         );
+    }
+
+    #[test]
+    fn region_state_serializes_anchors_when_measured() {
+        let state = RegionState {
+            source: RegionSource::Auto,
+            effective: RegionKind::Global,
+            anchors: Some(RegionProbes {
+                github: ok(90),
+                release_asset: ok(150),
+                npmmirror: ok(40),
+            }
+            .to_anchors()),
+        };
+        let v = serde_json::to_value(state).unwrap();
+        assert_eq!(v["source"], "auto");
+        assert_eq!(v["effective"], "global");
+        assert_eq!(v["anchors"]["releaseAsset"]["ttfbMs"], 150);
+        assert_eq!(v["anchors"]["releaseAsset"]["ok"], true);
+        assert_eq!(v["anchors"]["github"]["ok"], true);
     }
 
     #[test]

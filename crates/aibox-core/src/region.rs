@@ -1,7 +1,9 @@
-//! 区域判定：初值信号 + github 实测覆盖 + 用户固定。
+//! 区域判定：初值信号 + 三锚点实测覆盖 + 用户固定。
 //!
 //! - 初值：UI/系统语言 zh + 时区 Asia/Shanghai + 系统区域 CN → CN，否则 GLOBAL
-//! - 实测覆盖：github.com 直连成功且 TTFB < 800ms → GLOBAL（会话级缓存 15min）
+//! - 实测覆盖：三锚点并行实测（github 主站 / release 资产全链 / npmmirror），
+//!   主判据 = release 资产全链（见 `aibox_net::classify_multi`），会话级缓存 15min；
+//!   实测结果与 TTL 缓存保留在 `MEASURED`（可观测 → `RegionState.anchors`）
 //! - 用户固定（`net_region_set`）写 `~/.aibox/settings.json`，最高优先
 
 use std::path::Path;
@@ -11,8 +13,8 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use aibox_net::{
-    initial_region, override_from_probe, resolve_region, ProbeOutcome, RegionKind, RegionSignals,
-    RegionSource, RegionState,
+    initial_region, probe_head, resolve_region, ProbeOutcome, RegionKind, RegionProbes,
+    RegionSignals, RegionSource, RegionState,
 };
 
 use crate::err::{CoreError, CoreResult};
@@ -21,8 +23,31 @@ use crate::paths;
 
 /// 实测缓存 15 分钟（会话语义）。
 const MEASURE_TTL: Duration = Duration::from_secs(15 * 60);
+/// 单锚点探测超时（与 probe_head 基线一致）。
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
-static MEASURED: Mutex<Option<(Instant, Option<ProbeOutcome>)>> = Mutex::new(None);
+/// 锚点 A：github 主站（翻墙/优化线路信号，不单独定案）。
+const ANCHOR_GITHUB: &str = "https://github.com/";
+/// 锚点 C：npmmirror 国内镜像（辅助记录，不单独触发覆盖）。
+const ANCHOR_NPMIRROR: &str = "https://registry.npmmirror.com/";
+/// 锚点 B 兑底：GitHub release 资产（主判据）。`releases/latest/download/<资产名>`
+/// 形式随最新 release 自动跟随；registry 缓存可用时优先用缓存里的真实资产 URL。
+const RELEASE_FALLBACKS: &[&str] = &[
+    "https://github.com/openclaw/openclaw-windows-node/releases/latest/download/OpenClawCompanion-Setup-x64.exe",
+    "https://github.com/openclaw/openclaw-windows-node/releases/download/v2026.11.1/OpenClawCompanion-Setup-x64.exe",
+];
+
+/// 实测三锚点 + TTL（结构扩展：可观测与判定同源）。
+static MEASURED: Mutex<Option<(Instant, RegionProbes)>> = Mutex::new(None);
+
+fn probe_failed(reason: &str) -> ProbeOutcome {
+    ProbeOutcome {
+        success: false,
+        ttfb_ms: 0,
+        status: None,
+        error: Some(reason.to_string()),
+    }
+}
 
 /// 采集区域信号（Windows 读注册表免提权；unix 走环境变量 + /etc/timezone）。
 pub fn detect_signals() -> RegionSignals {
@@ -113,24 +138,102 @@ pub fn initial_kind() -> RegionKind {
     initial_region(&s.locale, &s.tz, &s.region)
 }
 
-/// github.com 直连实测（带 15min 会话缓存）。
-pub fn measured_override() -> Option<ProbeOutcome> {
-    if let Ok(guard) = MEASURED.lock() {
-        if let Some((at, outcome)) = guard.as_ref() {
-            if at.elapsed() < MEASURE_TTL {
-                return outcome.clone();
+/// 锚点 B 候选：优先 registry 缓存里 openclaw hub-x64 的 direct 资产 URL（真实大文件
+/// 端点），兑底固定列表。全部要求 `https://github.com/` 前缀（保证跟到
+/// objects.githubusercontent.com 资产域）。
+pub fn release_asset_candidates() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Ok(doc) = crate::registry::read_cached_app("openclaw") {
+        if let Some(pkgs) = doc.get("packages").and_then(|p| p.as_array()) {
+            for pkg in pkgs {
+                let id = pkg.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                if !id.contains("hub-win-x64") {
+                    continue;
+                }
+                for ch in pkg.get("channels").and_then(|c| c.as_array()).into_iter().flatten() {
+                    if ch.get("type").and_then(|t| t.as_str()) != Some("direct") {
+                        continue;
+                    }
+                    if let Some(u) = ch.get("url").and_then(|u| u.as_str()) {
+                        if u.starts_with("https://github.com/") && !out.iter().any(|x| x == u) {
+                            out.push(u.to_string());
+                        }
+                    }
+                }
             }
         }
     }
-    let outcome = aibox_net::probe_head("https://github.com/", Duration::from_secs(5));
-    if let Ok(mut guard) = MEASURED.lock() {
-        *guard = Some((Instant::now(), Some(outcome.clone())));
+    for f in RELEASE_FALLBACKS {
+        if !out.iter().any(|x| x == f) {
+            out.push(f.to_string());
+        }
     }
-    Some(outcome)
+    out
+}
+
+/// 三锚点并行实测（每锚点 5s 超时；锚点 B 多候选取最优：任一成功取最快，全败取首败）。
+pub fn measure_three() -> RegionProbes {
+    let b_handles: Vec<_> = release_asset_candidates()
+        .into_iter()
+        .map(|u| {
+            std::thread::spawn(move || probe_head(&u, PROBE_TIMEOUT))
+        })
+        .collect();
+    let a = std::thread::spawn(|| probe_head(ANCHOR_GITHUB, PROBE_TIMEOUT));
+    let c = std::thread::spawn(|| probe_head(ANCHOR_NPMIRROR, PROBE_TIMEOUT));
+
+    let mut release: Option<ProbeOutcome> = None;
+    for h in b_handles {
+        if let Ok(o) = h.join() {
+            let better = match &release {
+                None => true,
+                Some(cur) => match (cur.success, o.success) {
+                    (false, true) => true, // 从失败候选换到成功候选
+                    (true, true) => o.ttfb_ms < cur.ttfb_ms,
+                    _ => false,
+                },
+            };
+            if better {
+                release = Some(o);
+            }
+        }
+    }
+
+    RegionProbes {
+        github: a
+            .join()
+            .unwrap_or_else(|_| probe_failed("github probe panicked")),
+        release_asset: release
+            .unwrap_or_else(|| probe_failed("no release asset candidate available")),
+        npmmirror: c
+            .join()
+            .unwrap_or_else(|_| probe_failed("npmmirror probe panicked")),
+    }
+}
+
+/// 三锚点实测（带 15min 会话缓存；TTL 内直接命中 `MEASURED`）。
+pub fn measured_probes() -> RegionProbes {
+    if let Ok(guard) = MEASURED.lock() {
+        if let Some((at, probes)) = guard.as_ref() {
+            if at.elapsed() < MEASURE_TTL {
+                return probes.clone();
+            }
+        }
+    }
+    let probes = measure_three();
+    if let Ok(mut guard) = MEASURED.lock() {
+        *guard = Some((Instant::now(), probes.clone()));
+    }
+    probes
+}
+
+/// 实测区域覆盖（15min 缓存）：三锚点判定，`None` = 不覆盖（回落初值）。
+pub fn measured_override() -> Option<RegionKind> {
+    measured_probes().classify()
 }
 
 /// 纯判定（可注入实测结果，单测离线）。
-pub fn region_state_with(settings: &Value, measured: Option<ProbeOutcome>) -> RegionState {
+pub fn region_state_with(settings: &Value, measured: Option<RegionKind>) -> RegionState {
     let source = settings
         .pointer("/net/region")
         .and_then(|v| v.as_str())
@@ -141,21 +244,32 @@ pub fn region_state_with(settings: &Value, measured: Option<ProbeOutcome>) -> Re
         initial_region(&s.locale, &s.tz, &s.region)
     };
     let measured_region = match source {
-        RegionSource::Auto => measured.as_ref().and_then(override_from_probe),
+        RegionSource::Auto => measured,
         _ => None,
     };
     let effective = resolve_region(source, initial, measured_region);
-    RegionState { source, effective }
+    RegionState {
+        source,
+        effective,
+        anchors: None,
+    }
 }
 
-/// `net_region()` 实装：读 settings + 实测（auto 时）。
+/// `net_region()` 实装：读 settings + 三锚点实测（auto 时）。
+/// 实测三锚点结果写进 `anchors`（可观测；手动固定不探测 → 省略）。
 pub fn region_state() -> RegionState {
     let settings = read_settings();
-    let measured = match settings.pointer("/net/region").and_then(|v| v.as_str()) {
-        Some("cn") | Some("global") => None, // 手动固定不探测
-        _ => measured_override(),
-    };
-    region_state_with(&settings, measured)
+    let manual = matches!(
+        settings.pointer("/net/region").and_then(|v| v.as_str()),
+        Some("cn") | Some("global")
+    );
+    if manual {
+        return region_state_with(&settings, None);
+    }
+    let probes = measured_probes();
+    let mut state = region_state_with(&settings, probes.classify());
+    state.anchors = Some(probes.to_anchors());
+    state
 }
 
 /// `net_region_set(v)`：校验 → 合并写 settings（保键）→ 返回新状态。
@@ -249,27 +363,52 @@ mod tests {
     }
 
     #[test]
-    fn auto_uses_measured_when_fast_github() {
+    fn auto_uses_measured_when_asset_endpoint_fast() {
         let s = json!({"net": {"region": "auto"}});
-        let fast = ProbeOutcome {
-            success: true,
-            ttfb_ms: 120,
-            status: Some(200),
-            error: None,
-        };
-        let st = region_state_with(&s, Some(fast));
+        // 三锚点判定：资产链通且快 → Some(Global)
+        let st = region_state_with(&s, Some(RegionKind::Global));
         assert_eq!(st.source, RegionSource::Auto);
-        assert_eq!(st.effective, RegionKind::Global, "fast github → GLOBAL 序");
+        assert_eq!(st.effective, RegionKind::Global, "资产链可达 → GLOBAL 序");
+        assert!(st.anchors.is_none(), "注入判定不带实测锚点");
 
-        let slow = ProbeOutcome {
-            success: false,
-            ttfb_ms: 0,
-            status: None,
-            error: Some("timeout".into()),
-        };
-        let st2 = region_state_with(&s, Some(slow));
-        // 实测失败不覆盖 → 回落初值（本机时区信号决定）
+        // 实测不覆盖（如国内典型：主站通/资产挂）→ 回落初值（本机时区信号决定）
+        let st2 = region_state_with(&s, None);
         assert!(st2.effective == RegionKind::Cn || st2.effective == RegionKind::Global);
+    }
+
+    #[test]
+    fn manual_source_ignores_measured_and_omits_anchors() {
+        let s = json!({"net": {"region": "cn"}});
+        let st = region_state_with(&s, Some(RegionKind::Global));
+        assert_eq!(st.effective, RegionKind::Cn, "手动设置最高优先");
+        assert!(st.anchors.is_none());
+    }
+
+    #[test]
+    fn release_asset_candidates_are_github_urls() {
+        let c = release_asset_candidates();
+        assert!(!c.is_empty(), "至少有兑底候选");
+        for u in &c {
+            assert!(
+                u.starts_with("https://github.com/"),
+                "锚点 B 必须是 GitHub release 资产（会跟到 objects.githubusercontent.com）: {u}"
+            );
+        }
+    }
+
+    /// 真实联网 smoke（不入 CI）：三锚点实测 + 判定打印。
+    /// 用法：`cargo test -p aibox-core measure_three_live -- --ignored --nocapture`
+    #[test]
+    #[ignore = "live network smoke"]
+    fn measure_three_live() {
+        let probes = measure_three();
+        let anchors = probes.to_anchors();
+        println!("anchors = {}", serde_json::to_string_pretty(&anchors).unwrap());
+        println!("classify = {:?}", probes.classify());
+        assert!(
+            anchors.github.ok || anchors.release_asset.ok || anchors.npmmirror.ok,
+            "至少一个锚点可达"
+        );
     }
 
     #[test]

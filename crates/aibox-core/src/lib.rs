@@ -33,6 +33,7 @@ pub mod redact;
 pub mod region;
 pub mod registry;
 pub mod scan;
+pub mod tasklog;
 pub mod update;
 pub mod verify;
 pub mod verify_send;

@@ -3,8 +3,9 @@
 //! - 8MB 分段 + 断点续传（`.part` 文件按字节续写，Range 请求从断点起）；
 //! - 单段重试 2 次失败 → 整包降级到下一通道（跨源从头下载）；
 //! - 全通道失败 → 结构化错误 [`DownloadError::AllChannelsDead`]（`NET_ALL_CHANNELS_DEAD`）；
-//! - **S1 零豁免**：任何通道（MIRROR/PROXY/CUSTOM 同 DIRECT）产物一律 SHA256 校验，
-//!   校验不过 → 中止（`NET_HASH_MISMATCH`），不降级、不放行；
+//! - **产物三分判定**（下载完成后）：HTML/JSON 故障页、大小不符（截断）→ 判**通道故障**
+//!   降级下一通道；大小相符但 SHA256 不符 → **真篡改**，立即中止（`NET_HASH_MISMATCH`，
+//!   S1 零豁免、不降级不放行）；
 //! - 进度回调为普通闭包/`FnMut` trait，**不依赖 Tauri**（供上层 emit `download_progress`）。
 //!
 //! 网络 IO 全部走 `ureq`（rustls，无系统 C 库）；单测用手写本地 HTTP 服务器离线覆盖。
@@ -182,6 +183,8 @@ pub struct DownloadOptions {
     pub timeout: Duration,
     /// 经活代理下载（`None` = 直连；死代理由上层判定后忽略）
     pub proxy: Option<ProxyConfig>,
+    /// 期望总字节数（registry 包级 `sizeBytes`；`None` = 不知道 → 大小维度保守处理）
+    pub expected_size: Option<u64>,
 }
 
 impl Default for DownloadOptions {
@@ -191,8 +194,71 @@ impl Default for DownloadOptions {
             segment_retries: SEGMENT_RETRIES,
             timeout: DEFAULT_TIMEOUT,
             proxy: None,
+            expected_size: None,
         }
     }
+}
+
+/// 产物三分判定（纯函数：文件头字节 + 大小 + 哈希结果 → 结论）。
+///
+/// 判定表：
+/// | 情形 | 结论 |
+/// |---|---|
+/// | SHA256 相符 | [`ProductVerdict::HashOk`]（内容对了就放行） |
+/// | 文件头是 HTML/JSON 故障页 | [`ProductVerdict::ChannelFault`]（通道坏 → 降级下一通道） |
+/// | 有 `expected_size` 且实际大小不符 | [`ProductVerdict::ChannelFault`]（截断 → 降级） |
+/// | 大小相符（或未知）但 SHA256 不符 | [`ProductVerdict::Tamper`]（真篡改 → 中止，红线） |
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProductVerdict {
+    /// 哈希相符，产物可信
+    HashOk,
+    /// 通道故障（故障页/截断）：记为该通道失败，降级下一通道
+    ChannelFault(String),
+    /// 真篡改：立即中止（NET_HASH_MISMATCH），绝不降级
+    Tamper,
+}
+
+/// 文件头字节 → 是否为服务端故障页（HTML/XML/JSON 错误响应而非安装包）。
+///
+/// 取前 512B，去 BOM/前导空白后匹配 `<!doctype` / `<html` / `<?xml` / `{"message"`。
+pub fn looks_like_fault_page(head: &[u8]) -> bool {
+    let mut s: Vec<u8> = head.to_vec();
+    if s.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        s = s[3..].to_vec();
+    }
+    let text = String::from_utf8_lossy(&s).to_ascii_lowercase();
+    let t = text.trim_start();
+    t.starts_with("<!doctype")
+        || t.starts_with("<html")
+        || t.starts_with("<?xml")
+        || t.starts_with("{\"message\"")
+        || t.starts_with("{ \"message\"")
+}
+
+/// 产物三分判定（见 [`ProductVerdict`] 判定表）。
+pub fn classify_product(
+    head: &[u8],
+    size: u64,
+    expected_size: Option<u64>,
+    sha_matches: bool,
+) -> ProductVerdict {
+    if sha_matches {
+        return ProductVerdict::HashOk;
+    }
+    if looks_like_fault_page(head) {
+        return ProductVerdict::ChannelFault(
+            "server returned an HTML/JSON error page instead of the file".to_string(),
+        );
+    }
+    if let Some(exp) = expected_size {
+        if size != exp {
+            return ProductVerdict::ChannelFault(format!(
+                "truncated download: got {size} bytes, expected {exp}"
+            ));
+        }
+    }
+    // 无 sizeBytes 信息时也绝不放行（保守中止，不放松安全）
+    ProductVerdict::Tamper
 }
 
 /// 成功回执。
@@ -245,6 +311,21 @@ fn part_path(dest: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
+/// 读文件头 `n` 字节（产物三分判定用；读失败按本地 IO 致命错误处理）。
+fn read_file_head(path: &Path, n: usize) -> Result<Vec<u8>, DownloadError> {
+    let mut f = File::open(path).map_err(|e| DownloadError::Io {
+        context: format!("读取产物文件头 {}", path.display()),
+        source: e,
+    })?;
+    let mut buf = vec![0u8; n];
+    let got = f.read(&mut buf).map_err(|e| DownloadError::Io {
+        context: format!("读取产物文件头 {}", path.display()),
+        source: e,
+    })?;
+    buf.truncate(got);
+    Ok(buf)
+}
+
 /// 多通道顺序降级下载：
 /// 依次尝试 `channels`，成功通道按 S1 校验 SHA-256 后原子落盘；
 /// 单段重试 2 次失败 → 下一通道（`.part` 删除，跨源从头下载）；
@@ -268,37 +349,57 @@ pub fn download_fallback(
     for ch in channels {
         match download_one(&agent, ch, &part, opts, progress) {
             Ok(done) => {
-                // S1 零豁免：任何通道产物统一 SHA256 校验
+                // 产物三分判定（S1）：故障页/截断 → 通道故障降级；真篡改 → 中止
                 let actual = sha256_file(&part).map_err(|e| DownloadError::Io {
                     context: format!("读取下载产物 {}", part.display()),
                     source: e,
                 })?;
-                if !actual.eq_ignore_ascii_case(expected_sha256) {
-                    let _ = fs::remove_file(&part); // 篡改产物不留盘
-                    return Err(DownloadError::HashMismatch {
-                        channel: ch.channel,
-                        expected: expected_sha256.to_ascii_lowercase(),
-                        actual,
-                    });
+                let size = fs::metadata(&part)
+                    .map(|m| m.len())
+                    .unwrap_or(done.total);
+                let head = read_file_head(&part, 512)?;
+                let sha_matches = actual.eq_ignore_ascii_case(expected_sha256);
+                match classify_product(&head, size, opts.expected_size, sha_matches) {
+                    ProductVerdict::HashOk => {
+                        if dest.exists() {
+                            fs::remove_file(dest).map_err(|e| DownloadError::Io {
+                                context: format!("覆盖目标文件 {}", dest.display()),
+                                source: e,
+                            })?;
+                        }
+                        fs::rename(&part, dest).map_err(|e| DownloadError::Io {
+                            context: format!("落盘 {}", dest.display()),
+                            source: e,
+                        })?;
+                        return Ok(DownloadReceipt {
+                            channel: ch.channel,
+                            url: ch.url.clone(),
+                            bytes: done.total,
+                            sha256: actual,
+                            resumed_from: done.resumed_from,
+                            get_requests: done.get_requests,
+                        });
+                    }
+                    ProductVerdict::ChannelFault(reason) => {
+                        // 通道坏（故障页/截断）→ 记该通道失败，降级下一通道
+                        let _ = fs::remove_file(&part);
+                        failures.push(ChannelFailure {
+                            channel: ch.channel,
+                            url: ch.url.clone(),
+                            reason,
+                        });
+                        continue;
+                    }
+                    ProductVerdict::Tamper => {
+                        // 真篡改（大小相符但哈希不符）→ 立即中止，不降级不放行
+                        let _ = fs::remove_file(&part);
+                        return Err(DownloadError::HashMismatch {
+                            channel: ch.channel,
+                            expected: expected_sha256.to_ascii_lowercase(),
+                            actual,
+                        });
+                    }
                 }
-                if dest.exists() {
-                    fs::remove_file(dest).map_err(|e| DownloadError::Io {
-                        context: format!("覆盖目标文件 {}", dest.display()),
-                        source: e,
-                    })?;
-                }
-                fs::rename(&part, dest).map_err(|e| DownloadError::Io {
-                    context: format!("落盘 {}", dest.display()),
-                    source: e,
-                })?;
-                return Ok(DownloadReceipt {
-                    channel: ch.channel,
-                    url: ch.url.clone(),
-                    bytes: done.total,
-                    sha256: actual,
-                    resumed_from: done.resumed_from,
-                    get_requests: done.get_requests,
-                });
             }
             Err(ChannelError::Channel(reason)) => {
                 failures.push(ChannelFailure {
@@ -393,6 +494,10 @@ impl DownState<'_> {
             other => return Ok(AttemptResult::Failed(format!("unexpected HTTP {other}"))),
         };
 
+        let start_written = self.written;
+        let declared_cl: Option<u64> = resp
+            .header("content-length")
+            .and_then(|v| v.trim().parse::<u64>().ok());
         let mut reader = resp.into_reader();
         let mut buf = [0u8; 64 * 1024];
         self.file
@@ -402,9 +507,13 @@ impl DownState<'_> {
                 source: e,
             })?;
         let mut read_error: Option<String> = None;
+        let mut eof_early = false;
         while self.written < want {
             let n = match reader.read(&mut buf) {
-                Ok(0) => break, // 提前 EOF → 短体
+                Ok(0) => {
+                    eof_early = true;
+                    break; // 提前 EOF → 短体
+                }
                 Ok(n) => n,
                 Err(e) => {
                     read_error = Some(e.to_string());
@@ -436,6 +545,21 @@ impl DownState<'_> {
                 },
                 resumed: self.resumed_from > 0,
             });
+        }
+        // 段 Content-Length 完整性校验：声明长度 ≠ 实际读到 → 该段重试（既有重试机制）
+        if eof_early || read_error.is_some() {
+            let got = self.written - start_written;
+            if let Some(cl) = declared_cl {
+                if got != cl {
+                    let extra = read_error
+                        .as_ref()
+                        .map(|e| format!(" (body read failed: {e})"))
+                        .unwrap_or_default();
+                    return Ok(AttemptResult::Failed(format!(
+                        "content-length mismatch: got {got} bytes, declared {cl}{extra}"
+                    )));
+                }
+            }
         }
         if let Some(err) = read_error {
             return Ok(AttemptResult::Failed(format!("body read failed: {err}")));
@@ -620,6 +744,14 @@ mod tests {
             segment_retries: SEGMENT_RETRIES,
             timeout: Duration::from_secs(5),
             proxy: None,
+            expected_size: None,
+        }
+    }
+
+    fn opts_with_size(segment_size: u64, expected_size: Option<u64>) -> DownloadOptions {
+        DownloadOptions {
+            expected_size,
+            ..opts(segment_size)
         }
     }
 
@@ -1090,6 +1222,160 @@ mod tests {
         .expect("no-range server must still complete");
         assert_eq!(fs::read(&dest).unwrap(), body);
         assert_eq!(receipt.bytes, 3000);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 产物三分判定矩阵（纯函数，离线）。
+    #[test]
+    fn classify_product_three_way_matrix() {
+        let html = b"<!DOCTYPE html><html><body>502 Bad Gateway</body></html>";
+        let xml = b"<?xml version=\"1.0\"?><error>quota</error>";
+        let json = br#"{"message":"upstream timeout"}"#;
+        let exe = b"MZ\x90\x00 this is a real installer payload";
+        let sha_ok = true;
+
+        // 1) 哈希相符 → 放行（哪怕长得像文本）
+        assert_eq!(classify_product(html, 100, Some(999), sha_ok), ProductVerdict::HashOk);
+        // 2) 故障页（HTML/XML/JSON 错误）→ 通道故障（降级）
+        for page in [html.as_slice(), xml.as_slice(), json.as_slice()] {
+            assert!(matches!(
+                classify_product(page, 100, None, false),
+                ProductVerdict::ChannelFault(_)
+            ));
+        }
+        // 3) 大小不符（截断）→ 通道故障（降级）
+        assert!(matches!(
+            classify_product(exe, 500, Some(1000), false),
+            ProductVerdict::ChannelFault(_)
+        ));
+        // 4) 大小相符但哈希不符 → 真篡改 → 中止（安全红线）
+        assert_eq!(
+            classify_product(exe, 1000, Some(1000), false),
+            ProductVerdict::Tamper
+        );
+        // 5) 无 sizeBytes 信息 + 哈希不符 + 非故障页 → 保守中止（不放松安全）
+        assert_eq!(classify_product(exe, 1000, None, false), ProductVerdict::Tamper);
+        // 6) BOM + 空白前缀的故障页也识别
+        let bom = b"\xEF\xBB\xBF\n<html><body>expired</body></html>";
+        assert!(matches!(
+            classify_product(bom, 64, None, false),
+            ProductVerdict::ChannelFault(_)
+        ));
+    }
+
+    /// 故障页（HTML 网关错误页）→ 判通道故障 → 降级下一通道成功。
+    #[test]
+    fn html_fault_page_falls_back_to_next_channel() {
+        let dir = tmp_dir("faultpage");
+        let body = deterministic_body(4096, 5);
+        let bad = TestHttpServer::serve(
+            b"<!DOCTYPE html><html><head><title>502 Bad Gateway</title></head></html>".to_vec(),
+        );
+        let good = TestHttpServer::serve(body.clone());
+        let dest = dir.join("file.bin");
+        let expected = sha256_hex(&body);
+
+        let receipt = download_fallback(
+            &[
+                ChannelUrl::new(ChannelType::Proxy, bad.url("/f.bin")),
+                ChannelUrl::new(ChannelType::Direct, good.url("/f.bin")),
+            ],
+            &dest,
+            &expected,
+            &opts(1024),
+            &mut no_progress(),
+        )
+        .expect("fault page must fall back to next channel");
+
+        assert_eq!(receipt.channel, ChannelType::Direct, "降级到第二通道");
+        assert!(bad.request_count() >= 1, "坏通道至少试过一次");
+        assert_eq!(fs::read(&dest).unwrap(), body);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 截断（大小 ≠ 期望 sizeBytes）→ 判通道故障 → 降级下一通道。
+    #[test]
+    fn truncated_size_falls_back_to_next_channel() {
+        let dir = tmp_dir("trunc");
+        let full = deterministic_body(1000, 7);
+        let short = deterministic_body(500, 9); // 网关截断：只有半截
+        let bad = TestHttpServer::serve(short.clone());
+        let good = TestHttpServer::serve(full.clone());
+        let dest = dir.join("file.bin");
+        let expected = sha256_hex(&full);
+
+        let receipt = download_fallback(
+            &[
+                ChannelUrl::new(ChannelType::Proxy, bad.url("/f.bin")),
+                ChannelUrl::new(ChannelType::Direct, good.url("/f.bin")),
+            ],
+            &dest,
+            &expected,
+            &opts_with_size(256, Some(1000)),
+            &mut no_progress(),
+        )
+        .expect("truncated download must fall back");
+
+        assert_eq!(receipt.channel, ChannelType::Direct);
+        assert_eq!(fs::read(&dest).unwrap(), full);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 同长度篡改（sizeBytes 相符）+ 哈希不符 → 真篡改中止，绝不降级（红线）。
+    #[test]
+    fn tamper_with_matching_size_still_aborts() {
+        let dir = tmp_dir("tamper-size");
+        let body = deterministic_body(2048, 23);
+        let tampered = TestHttpServer::serve(deterministic_body(2048, 99));
+        let clean = TestHttpServer::serve(body.clone());
+        let dest = dir.join("file.bin");
+        let expected = sha256_hex(&body);
+
+        let err = download_fallback(
+            &[
+                ChannelUrl::new(ChannelType::Mirror, tampered.url("/f.bin")),
+                ChannelUrl::new(ChannelType::Direct, clean.url("/f.bin")),
+            ],
+            &dest,
+            &expected,
+            &opts_with_size(1024, Some(2048)),
+            &mut no_progress(),
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code(), "NET_HASH_MISMATCH");
+        assert_eq!(clean.request_count(), 0, "真篡改必须中止，不降级");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 段 Content-Length 完整性校验：声明长度 ≠ 实际读到 → 该段重试，耗尽后降级/报错。
+    #[test]
+    fn content_length_mismatch_fails_segment() {
+        let dir = tmp_dir("clen");
+        let body = deterministic_body(2048, 11);
+        let bad = TestHttpServer::serve(body.clone());
+        // 所有 GET：头声明全长、体只发 100 字节后断开
+        bad.inject_truncate_get(100, 100);
+        let dest = dir.join("file.bin");
+        let expected = sha256_hex(&body);
+
+        let err = download_fallback(
+            &[ChannelUrl::new(ChannelType::Direct, bad.url("/f.bin"))],
+            &dest,
+            &expected,
+            &opts(1024),
+            &mut no_progress(),
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code(), "NET_ALL_CHANNELS_DEAD");
+        let report = err.channel_report();
+        assert!(
+            report[0].1.contains("content-length mismatch"),
+            "失败原因应标明段 Content-Length 不符: {:?}",
+            report[0]
+        );
+        assert_eq!(bad.get_range_starts().len(), 3, "1 + 2 次段重试");
         let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -74,6 +74,36 @@ pub struct DownloadSpec {
     pub channels: Vec<ChannelUrl>,
     pub sha256: String,
     pub dest_name: String,
+    /// registry 包级期望字节数（`sizeBytes`，通道无关）；`None` = 不知道
+    pub size_bytes: Option<u64>,
+    /// 跳过的通道（「换个下载源」：用户显式换源重发时传入）
+    pub skip_channels: Vec<aibox_net::ChannelType>,
+    /// 所属应用 id（任务日志子目录 `~/.aibox/logs/<app>/`）
+    pub app_id: Option<String>,
+}
+
+/// 解析 `skipChannels`（TS 传通道类型名，大小写不敏感）。
+pub fn parse_skip_channels(raw: &[String]) -> CoreResult<Vec<aibox_net::ChannelType>> {
+    let mut out = Vec::with_capacity(raw.len());
+    for s in raw {
+        out.push(parse_channel_type(s)?);
+    }
+    Ok(out)
+}
+
+/// 应用跳过通道后的有效通道列表（空 → 无路可走，交由 `NET_NO_CHANNELS`）。
+pub fn apply_skip(
+    channels: Vec<ChannelUrl>,
+    skip: &[aibox_net::ChannelType],
+) -> Vec<ChannelUrl> {
+    if skip.is_empty() {
+        return channels;
+    }
+    let filtered: Vec<ChannelUrl> = channels
+        .into_iter()
+        .filter(|c| !skip.contains(&c.channel))
+        .collect();
+    filtered
 }
 
 /// 执行下载：dest 落 `~/.aibox/cache/downloads/<destName>`，S1 全通道 SHA-256 零豁免。
@@ -89,9 +119,17 @@ pub fn download_to_cache(
         ));
     }
     let dest = dest_for(&spec.dest_name)?;
-    let opts = DownloadOptions::default();
+    let channels = apply_skip(spec.channels.clone(), &spec.skip_channels);
+    if channels.is_empty() {
+        return Err(CoreError::new(
+            "DOWNLOAD_BAD_CHANNEL",
+            "All download channels were skipped; no source left to try",
+        ));
+    }
+    let mut opts = DownloadOptions::default();
+    opts.expected_size = spec.size_bytes;
     let receipt = download_fallback(
-        &spec.channels,
+        &channels,
         &dest,
         &spec.sha256.trim().to_ascii_lowercase(),
         &opts,
@@ -132,5 +170,40 @@ mod tests {
         assert!(dest_for("a/b.msi").is_err());
         assert!(dest_for("a\\b.msi").is_err());
         assert!(dest_for("").is_err());
+    }
+
+    #[test]
+    fn parse_skip_channels_case_insensitive() {
+        let skip = parse_skip_channels(&["PROXY".into(), "proxy".into()]).unwrap();
+        assert_eq!(
+            skip,
+            vec![
+                aibox_net::ChannelType::Proxy,
+                aibox_net::ChannelType::Proxy
+            ]
+        );
+        assert!(parse_skip_channels(&["warp".into()]).is_err());
+        assert!(parse_skip_channels(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn apply_skip_drops_named_channels() {
+        let raw = serde_json::json!([
+            {"type": "proxy", "url": "https://p.example/x"},
+            {"type": "direct", "url": "https://d.example/x"}
+        ]);
+        let ch = parse_channels(raw.as_array().unwrap()).unwrap();
+        // 跳过 PROXY → 只剩 DIRECT（「换个下载源」语义）
+        let out = apply_skip(ch.clone(), &[aibox_net::ChannelType::Proxy]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].channel, aibox_net::ChannelType::Direct);
+        // 无跳过 → 原样
+        assert_eq!(apply_skip(ch.clone(), &[]).len(), 2);
+        // 全部跳过 → 空（上层报 DOWNLOAD_BAD_CHANNEL）
+        assert!(apply_skip(
+            ch,
+            &[aibox_net::ChannelType::Proxy, aibox_net::ChannelType::Direct]
+        )
+        .is_empty());
     }
 }
