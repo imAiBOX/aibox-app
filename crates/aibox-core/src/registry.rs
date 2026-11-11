@@ -1,9 +1,10 @@
-//! registry 多源拉取与 12h 缓存（S2：jsdelivr / raw / GitHub API **任二一致**才采信）。
+//! registry 多源拉取与 12h 缓存（S2：jsdelivr / raw / GitHub API / aibox.im **任二一致**才采信）。
 //!
 //! - 缓存：`~/.aibox/cache/registry/<name>`，mtime 12h 内直接命中（`force=true` 绕过）
 //! - 0~1 个源可达 → 退回缓存（可用性）；无缓存 → `REGISTRY_SINGLE_SOURCE`/`REGISTRY_UNAVAILABLE`
+//! - **唯一成功源恰为 GitHub API** → 采信（contents API 正文先过 git blob sha1 完整性校验）
 //! - ≥2 个源可达但互不一致 → `REGISTRY_MISMATCH`（**不采信**，防篡改）
-//! - locales 也走同一套双源+缓存
+//! - locales 也走同一套多源+缓存
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -23,7 +24,12 @@ pub const CACHE_TTL: Duration = Duration::from_secs(12 * 3600);
 const SOURCE_TIMEOUT: Duration = Duration::from_secs(8);
 const USER_AGENT: &str = "aibox-app/0.0.1";
 
-/// 三源 URL（顺序即任务约定：jsdelivr → raw → GitHub API）。
+/// 四源 URL（顺序：jsdelivr → raw → GitHub API → aibox.im /meta 镜像）。
+///
+/// **路径约定（两端必须一致）**：aibox.im 侧是 registry 的**同构镜像**，即
+/// `https://aibox.im/meta/<rel>` ↔ registry `<rel>`（如 `index.json`、
+/// `apps/<id>/app.json`、`locales/<lang>.json`）。镜像由官网构建脚本
+/// `aibox-site/scripts/gen-meta.mjs` 输出到 `dist/meta/<rel>`，改路径需两端同步。
 pub fn source_urls(rel: &str) -> Vec<(&'static str, String)> {
     let rel = rel.trim_start_matches('/');
     vec![
@@ -39,10 +45,11 @@ pub fn source_urls(rel: &str) -> Vec<(&'static str, String)> {
             "github-api",
             format!("https://api.github.com/repos/{OWNER}/{REPO}/contents/{rel}?ref={BRANCH}"),
         ),
+        ("aibox-im", format!("https://aibox.im/meta/{rel}")),
     ]
 }
 
-/// 单次 GET（超时 8s，跟随重定向；GitHub API 带 UA + raw Accept）。
+/// 单次 GET（超时 8s，跟随重定向；GitHub API 带 UA + JSON Accept）。
 fn http_get(url: &str, source: &str) -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(SOURCE_TIMEOUT)
@@ -51,7 +58,8 @@ fn http_get(url: &str, source: &str) -> Result<String, String> {
         .build();
     let mut req = agent.get(url).set("User-Agent", USER_AGENT);
     if source == "github-api" {
-        req = req.set("Accept", "application/vnd.github.raw");
+        // JSON envelope（含 base64 content + blob sha）——不做 raw，拿得到完整性凭据
+        req = req.set("Accept", "application/vnd.github+json");
     }
     match req.call() {
         Ok(resp) => resp.into_string().map_err(|e| format!("read body: {e}")),
@@ -74,6 +82,84 @@ fn truncate(s: &str, n: usize) -> String {
     format!("{}…", &s[..end])
 }
 
+/// git blob 对象哈希 = `sha1("blob {len}\0{content}")`（Git 全网同款完整性机制）。
+pub fn git_blob_sha1(content: &[u8]) -> String {
+    use sha1::{Digest, Sha1};
+    let mut h = Sha1::new();
+    h.update(format!("blob {}\0", content.len()).as_bytes());
+    h.update(content);
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// 标准 base64 解码（容忍 GitHub contents API 的 `\r\n` 折行与空白）。
+fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut rev = [0xffu8; 256];
+    for (i, c) in TABLE.iter().enumerate() {
+        rev[*c as usize] = i as u8;
+    }
+    let mut out = Vec::new();
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for c in input.bytes() {
+        if c == b'=' || c == b'\r' || c == b'\n' || c == b' ' || c == b'\t' {
+            continue;
+        }
+        let v = rev[c as usize];
+        if v == 0xff {
+            return Err(format!("base64: invalid byte 0x{c:02x}"));
+        }
+        acc = (acc << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((acc >> bits) & 0xff) as u8);
+        }
+    }
+    Ok(out)
+}
+
+/// GitHub contents API JSON envelope → 原文，并做完整性校验：
+/// base64 解码 `content` 后计算 git blob sha1，与响应 `sha` 字段比对，一致才采信。
+/// （防 API 层/中间人篡改；不一致或解析失败 → 走既有错误路径。）
+pub fn decode_github_contents(raw: &str) -> Result<String, String> {
+    let v: Value = serde_json::from_str(raw).map_err(|e| format!("api json: {e}"))?;
+    let sha = v
+        .get("sha")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "api json: missing sha".to_string())?;
+    let b64 = v
+        .get("content")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "api json: missing content".to_string())?;
+    let bytes = base64_decode(b64)?;
+    let text = String::from_utf8(bytes.clone()).map_err(|e| format!("content utf8: {e}"))?;
+    let got = git_blob_sha1(&bytes);
+    if !got.eq_ignore_ascii_case(sha) {
+        return Err(format!(
+            "blob sha mismatch (integrity check failed): computed {got} != api {sha}"
+        ));
+    }
+    Ok(text)
+}
+
+/// 预处理网络结果：github-api 源返回 JSON envelope，解码为原文（含 blob 校验）；
+/// 校验失败 → 该源记为 Err（与网络失败同路径）。
+fn normalize_results(
+    results: Vec<(&'static str, Result<String, String>)>,
+) -> Vec<(&'static str, Result<String, String>)> {
+    results
+        .into_iter()
+        .map(|(name, r)| {
+            let r = match r {
+                Ok(text) if name == "github-api" => decode_github_contents(&text),
+                other => other,
+            };
+            (name, r)
+        })
+        .collect()
+}
+
 /// 从并行结果中挑「任二一致」的正文（S2）。返回 (正文, 源名)；优先取排序靠前的源。
 pub fn pick_agreed(
     results: &[(&'static str, Result<String, String>)],
@@ -88,6 +174,22 @@ pub fn pick_agreed(
         }
     }
     None
+}
+
+/// 单源兜底：**唯一**成功源恰为 github-api（正文已过 git blob sha1 校验）→ 采信。
+/// 其余任何单源（raw/jsdelivr/aibox-im）一律不采信（S2 严格性不变）。
+pub fn pick_single_api(
+    results: &[(&'static str, Result<String, String>)],
+) -> Option<String> {
+    let mut oks = results.iter().filter(|(_, r)| r.is_ok());
+    let first = oks.next()?;
+    if oks.next().is_some() {
+        return None; // 多于 1 个成功 → 交给任二交叉 / 不一致拒绝逻辑
+    }
+    if first.0 != "github-api" {
+        return None;
+    }
+    first.1.as_ref().ok().cloned()
 }
 
 fn cache_path(name: &str) -> PathBuf {
@@ -145,7 +247,8 @@ pub fn read_cache(name: &str) -> CoreResult<String> {
     })
 }
 
-/// 拉取 `rel`（如 `index.json`）：新鲜缓存 → 直接用；否则三源并行 + 任二一致。
+/// 拉取 `rel`（如 `index.json`）：新鲜缓存 → 直接用；否则四源并行 + 任二一致，
+/// 或 GitHub API 单源（blob 校验通过）兜底。
 /// `force=true` 绕过缓存（「检查更新」按钮）；网络失败时回退旧缓存（篡改不一致除外）。
 pub fn fetch_crosschecked(
     rel: &str,
@@ -175,11 +278,21 @@ pub fn fetch_crosschecked(
             .collect()
     });
 
+    // 「响应成功」计数按 HTTP 层算：github-api 若校验失败仍算 responded
+    // （→ 走 MISMATCH / SINGLE_SOURCE 既有错误路径，而不是伪装成 0 源）。
     let ok_count = results.iter().filter(|(_, r)| r.is_ok()).count();
+    let results = normalize_results(results);
 
     if let Some((text, source)) = pick_agreed(&results) {
         let _ = write_cache(cache_name, &text, source)?;
         return Ok((text, source.to_string()));
+    }
+
+    // GitHub API 单源（其余源全挂）：正文已在 decode 阶段过 git blob sha1 完整性校验
+    // → 采信（可用性兜底）。缓存 meta 标 github-api-single 以区分交叉一致来源。
+    if let Some(text) = pick_single_api(&results) {
+        let _ = write_cache(cache_name, &text, "github-api-single");
+        return Ok((text, "github-api".to_string()));
     }
 
     let errs: Vec<String> = results
@@ -334,9 +447,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn source_urls_cover_three_sources() {
+    fn source_urls_cover_four_sources() {
         let s = source_urls("index.json");
-        assert_eq!(s.len(), 3);
+        assert_eq!(s.len(), 4);
         assert_eq!(s[0].0, "jsdelivr");
         assert!(s[0]
             .1
@@ -347,6 +460,100 @@ mod tests {
         assert!(s[2]
             .1
             .contains("api.github.com/repos/imAiBOX/aibox-registry/contents/index.json"));
+        // 第 4 源：aibox.im 镜像（与 registry 同构路径 meta/<rel>）
+        assert_eq!(s[3].0, "aibox-im");
+        assert_eq!(s[3].1, "https://aibox.im/meta/index.json");
+        // 路径映射：apps/<id>/app.json 与 locales/<lang>.json 同构直拼（两端一致约定）
+        let app = source_urls("apps/openclaw/app.json");
+        assert_eq!(app[3].1, "https://aibox.im/meta/apps/openclaw/app.json");
+        let loc = source_urls("locales/zh-CN.json");
+        assert_eq!(loc[3].1, "https://aibox.im/meta/locales/zh-CN.json");
+    }
+
+    #[test]
+    fn git_blob_sha1_known_vectors() {
+        // sha1("blob 5\0hello")
+        assert_eq!(
+            git_blob_sha1(b"hello"),
+            "b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0"
+        );
+        // sha1("blob 7\0{\"a\":1}")
+        assert_eq!(
+            git_blob_sha1(br#"{"a":1}"#),
+            "daa5053ecf5f9a37b2de733d0751cc1ab53ac010"
+        );
+    }
+
+    #[test]
+    fn decode_github_contents_mock_envelope() {
+        let content = r#"{"a":1}"#;
+        let sha = git_blob_sha1(content.as_bytes());
+        // 正常 envelope（content 为 base64）
+        let ok_envelope = format!(r#"{{"content":"eyJhIjoxfQ==","sha":"{sha}","encoding":"base64"}}"#);
+        assert_eq!(decode_github_contents(&ok_envelope).unwrap(), content);
+        // GitHub 会在长 content 里折行（\r\n）——解码必须容忍
+        let wrapped = format!(
+            r#"{{"content":"eyJhIjoxf\r\nQ==","sha":"{sha}","encoding":"base64"}}"#
+        );
+        assert_eq!(decode_github_contents(&wrapped).unwrap(), content);
+        // sha 不一致（篡改/损坏）→ 拒绝
+        let tampered = format!(
+            r#"{{"content":"eyJhIjoxfQ==","sha":"0000000000000000000000000000000000000000"}}"#
+        );
+        assert!(decode_github_contents(&tampered)
+            .unwrap_err()
+            .contains("mismatch"));
+        // 缺 sha / 缺 content / 非 JSON → 拒绝
+        assert!(decode_github_contents(r#"{"content":"eyJhIjoxfQ=="}"#).is_err());
+        assert!(decode_github_contents(r#"{"sha":"x"}"#).is_err());
+        assert!(decode_github_contents("not json").is_err());
+        // 非法 base64 → 拒绝
+        let bad_b64 = format!(r#"{{"content":"!!not-b64!!","sha":"{sha}"}}"#);
+        assert!(decode_github_contents(&bad_b64).is_err());
+    }
+
+    #[test]
+    fn pick_single_api_only_github_api_accepted() {
+        // 唯一成功源 = github-api（已校验）→ 采信
+        let r: Vec<(&str, Result<String, String>)> = vec![
+            ("jsdelivr", Err("down".into())),
+            ("raw", Err("down".into())),
+            ("github-api", Ok("{\"a\":1}".to_string())),
+            ("aibox-im", Err("down".into())),
+        ];
+        assert_eq!(pick_single_api(&r).unwrap(), "{\"a\":1}");
+        // 唯一成功源 = raw（非 api）→ 仍拒绝（S2 严格性）
+        let r2: Vec<(&str, Result<String, String>)> = vec![
+            ("jsdelivr", Err("down".into())),
+            ("raw", Ok("1".to_string())),
+            ("github-api", Err("down".into())),
+            ("aibox-im", Err("down".into())),
+        ];
+        assert!(pick_single_api(&r2).is_none());
+        // 唯一成功源 = aibox-im（第 4 源，无 blob 校验）→ 不采信
+        let r3: Vec<(&str, Result<String, String>)> = vec![
+            ("jsdelivr", Err("down".into())),
+            ("raw", Err("down".into())),
+            ("github-api", Err("down".into())),
+            ("aibox-im", Ok("1".to_string())),
+        ];
+        assert!(pick_single_api(&r3).is_none());
+        // api 与另一源都通 → 不走单源兜底（交给任二交叉/不一致拒绝）
+        let r4: Vec<(&str, Result<String, String>)> = vec![
+            ("jsdelivr", Err("down".into())),
+            ("raw", Ok("1".to_string())),
+            ("github-api", Ok("2".to_string())),
+            ("aibox-im", Err("down".into())),
+        ];
+        assert!(pick_single_api(&r4).is_none());
+        // 全挂 → None
+        let r5: Vec<(&str, Result<String, String>)> = vec![
+            ("jsdelivr", Err("down".into())),
+            ("raw", Err("down".into())),
+            ("github-api", Err("down".into())),
+            ("aibox-im", Err("down".into())),
+        ];
+        assert!(pick_single_api(&r5).is_none());
     }
 
     #[test]

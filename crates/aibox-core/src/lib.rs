@@ -15,7 +15,7 @@
 //! | [`config`] | CONFIG C5：`config_write` 全流程（备份→合并→回读→脱敏返回） |
 //! | [`scan`] | `scan_system`：OS/磁盘/内存/Node/Git/WSL/已装应用/端口 18789（cfg 双实现） |
 //! | [`diagzip`] | 诊断打包（日志+ScanReport+计划+版本+系统信息）+ 强制脱敏扫描 |
-//! | [`registry`] | registry 多源交叉（jsdelivr/raw/GitHub API 任二一致，S2）+ 12h 缓存 + locales |
+//! | [`registry`] | registry 多源交叉（jsdelivr/raw/GitHub API/aibox.im 任二一致，S2）+ API 单源 blob 校验兜底 + 12h 缓存 + locales |
 //! | [`region`] | 区域判定（初值信号 + github 实测覆盖） |
 //! | [`matrix`] | 资源-通道矩阵展开（registry 数据优先，内置 v1.1 基线兜底） |
 //! | [`verify_send`] | VERIFY：经 provider 发真实 "Say OK"（max_tokens=8） |

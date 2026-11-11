@@ -108,7 +108,7 @@ pub fn baseline_targets() -> Vec<ProbeTarget> {
     ]
 }
 
-/// registry 文档 → 矩阵行（index 三源 + 各 app packages[].channels[]）。
+/// registry 文档 → 矩阵行（index 四源 + 各 app packages[].channels[]）。
 pub fn registry_targets(index: &serde_json::Value, apps: &[serde_json::Value]) -> Vec<ProbeTarget> {
     let _ = index; // index 只用于确认 registry 可达；通道行来自源 URL 与 packages
     let mut out = Vec::new();
@@ -265,8 +265,8 @@ mod tests {
             }]
         });
         let rows = registry_targets(&index, std::slice::from_ref(&app));
-        // 3 个 registry 源 + 2 个有效 package 通道（未知类型跳过）
-        assert_eq!(rows.len(), 5);
+        // 4 个 registry 源 + 2 个有效 package 通道（未知类型跳过）
+        assert_eq!(rows.len(), 6);
         let pkg_row = rows
             .iter()
             .find(|r| r.resource.contains("Node.js"))
