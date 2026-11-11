@@ -25,6 +25,8 @@ export interface BuildPlanOptions {
   /** 用户主目录（真 Tauri homeDir()）；缺省 '~'（mock/测试） */
   home?: string;
   scan?: ScanReport | null;
+  /** 区域判定结果（写进 plan.netRegion → last-plan.json，诊断一眼可见） */
+  netRegion?: { source: string; effective: "cn" | "global" };
 }
 
 /** install.type → ExecTask.kind 映射（registry 5 种 vs Rust ExecKind 白名单 3 种） */
@@ -136,7 +138,7 @@ function reuseKind(pkg: RegistryPackage, scan?: ScanReport | null): "reuse" | "i
  * 任务顺序 = 路线 steps 顺序（依赖先行）；reuse 包只入 DAG 不入任务队列。
  */
 export function buildPlan(manifest: AppManifest, opts: BuildPlanOptions): Plan {
-  const { platform, arch, region = "global", home = "~", scan } = opts;
+  const { platform, arch, region = "global", home = "~", scan, netRegion } = opts;
   const byId = new Map(manifest.packages.map((p) => [p.id, p]));
 
   // 路线选择（routes[net.effective] 首条可行）
@@ -174,13 +176,23 @@ export function buildPlan(manifest: AppManifest, opts: BuildPlanOptions): Plan {
     if (kind === "reuse") continue;
     const built = specOf(pkg, home);
     if (!built) continue;
+    // 任务日志子目录（appId）与截断检测（sizeBytes）随任务下发
+    const spec: TaskSpec = {
+      ...built.spec,
+      download: {
+        ...built.spec.download,
+        appId: manifest.id,
+        ...(pkg.sizeBytes != null ? { sizeBytes: pkg.sizeBytes } : {}),
+      },
+      exec: { ...built.spec.exec, appId: manifest.id },
+    };
     tasks.push({
       id: pkg.id,
       name: pkg.name,
       version: pkg.version,
       phase: "download",
       status: "pending",
-      spec: built.spec,
+      spec,
     });
     sizeSum += pkg.sizeBytes ?? 0;
   }
@@ -204,5 +216,6 @@ export function buildPlan(manifest: AppManifest, opts: BuildPlanOptions): Plan {
     channel: channel || "direct",
     diskMb,
     estMinutes: Math.max(2, Math.round(diskMb / 120)),
+    ...(netRegion ? { netRegion } : {}),
   };
 }

@@ -4,18 +4,21 @@
  * 导出走 DiagExport 共用控件：loading → zip 路径 + 一键新建 GitHub Issue。
  */
 import { useTranslation } from "react-i18next";
-import { errorActions, type MachineState } from "../state";
+import { canSwitchSource, errorActions, type MachineState } from "../state";
 import DiagExport from "./DiagExport";
 
 export default function ErrorOverlay({
   state,
   onRetry,
+  onRetrySource,
   onSkip,
   onExported,
   onDismiss,
 }: {
   state: MachineState;
   onRetry: () => void;
+  /** 换源重试：跳过当前失败通道重发 download_start（与「重试」并列） */
+  onRetrySource: () => void;
   onSkip: () => void;
   /** 诊断包导出成功（zip 路径）；调用方据此 dispatch EXPORT_DIAG */
   onExported: (zipPath: string) => void;
@@ -25,6 +28,8 @@ export default function ErrorOverlay({
   const err = state.error;
   if (!err) return null;
   const acts = errorActions(state);
+  // 只有下载类错误才有「另一个源」可换（扫描/配置类错误不展示）
+  const switchable = canSwitchSource(err.code);
 
   return (
     <div
@@ -82,6 +87,16 @@ export default function ErrorOverlay({
             >
               {t("err.close")}
             </button>
+            {switchable && (
+              <button
+                type="button"
+                onClick={onRetrySource}
+                data-testid="err-switch-source"
+                className="rounded-[4px] border border-aibox-green px-3 py-1.5 font-mono text-xs text-aibox-green hover:bg-aibox-green/10"
+              >
+                {t("err.switchSource")}
+              </button>
+            )}
             <button
               type="button"
               onClick={onRetry}

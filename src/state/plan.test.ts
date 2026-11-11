@@ -185,3 +185,55 @@ describe("buildPlan", () => {
     expect(p.tasks.every((t) => t.spec?.download && t.spec.exec)).toBe(true);
   });
 });
+
+describe("plan 携带诊断与任务扩展字段", () => {
+  it("netRegion 传入 → plan.netRegion 原样带出（last-plan.json 可见）", () => {
+    const p = buildPlan(manifest([cli]), {
+      platform: "windows",
+      arch: "x64",
+      region: "cn",
+      home: "/h",
+      netRegion: { source: "auto", effective: "cn" },
+    });
+    expect(p.netRegion).toEqual({ source: "auto", effective: "cn" });
+  });
+
+  it("未传 netRegion → 字段不出现（不写 undefined 键）", () => {
+    const p = buildPlan(manifest([cli]), {
+      platform: "windows",
+      arch: "x64",
+      home: "/h",
+    });
+    expect("netRegion" in p).toBe(false);
+  });
+
+  it("任务 spec 注入 appId（日志子目录）与 sizeBytes（截断检测）", () => {
+    const nosize = pkg({
+      id: "nosize",
+      name: "NoSize",
+      sizeBytes: undefined,
+      install: { type: "nsis-silent", args: ["/S"] },
+    });
+    const p = buildPlan(
+      manifest([hub, cli, nosize], {
+        routes: { global: ["all"], cn: ["all"] },
+        routePlans: { all: { steps: ["hub", "cli", "nosize"] } },
+      }),
+      {
+        platform: "windows",
+        arch: "x64",
+        region: "global",
+        home: "/h",
+        netRegion: { source: "auto", effective: "global" },
+      },
+    );
+    const hubTask = p.tasks.find((t) => t.id === "hub");
+    expect(hubTask?.spec?.download.appId).toBe("openclaw");
+    expect(hubTask?.spec?.download.sizeBytes).toBe(36_000_000); // 包级 sizeBytes
+    expect(hubTask?.spec?.exec.appId).toBe("openclaw");
+    // 包级无 sizeBytes → 不注入（截断检测退回保守中止）
+    const nosizeTask = p.tasks.find((t) => t.id === "nosize");
+    expect(nosizeTask?.spec?.download.appId).toBe("openclaw");
+    expect("sizeBytes" in (nosizeTask?.spec?.download ?? {})).toBe(false);
+  });
+});

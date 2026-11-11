@@ -3,7 +3,13 @@
  * mock 回落保持场景注入行为；取消/停滞/错误码映射。
  */
 import { describe, expect, it, vi } from "vitest";
-import { startExecute, messageKeyForCode, type ExecuteApi, type ExecuteDeps } from "./orchestrate";
+import {
+  startExecute,
+  messageKeyForCode,
+  canSwitchSource,
+  type ExecuteApi,
+  type ExecuteDeps,
+} from "./orchestrate";
 import type { Event, SessionSnapshot, Task, TaskSpec } from "./types";
 import type { AiboxEvent } from "../net/client";
 
@@ -270,5 +276,72 @@ describe("messageKeyForCode", () => {
     expect(messageKeyForCode("VERIFY_FILE_MISSING")).toBe("err.downloadFailed");
     expect(messageKeyForCode("USER_CANCELLED")).toBe("err.cancelled");
     expect(messageKeyForCode("WEIRD_CODE")).toBe("err.generic");
+  });
+});
+
+describe("换源重发（skipChannels）", () => {
+  const okStart = (h: Harness) =>
+    vi.fn(async (t: { destName: string; id: string }) => {
+      setTimeout(() => h.emit(ok(`download ok: 1 bytes via x (${t.destName})`)), 0);
+      return t.id;
+    });
+
+  it("takeSkipChannels 返回的通道作为 skipChannels 传给 downloadStart", async () => {
+    const h = harness({});
+    h.api.downloadStart = okStart(h);
+    const take = vi.fn(() => ["PROXY"]);
+    h.deps.takeSkipChannels = take;
+
+    await startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
+
+    expect(take).toHaveBeenCalledTimes(1);
+    expect(h.api.downloadStart).toHaveBeenCalledWith({
+      ...SPEC.download,
+      skipChannels: ["PROXY"],
+    });
+    expect(last(h.events)).toMatchObject({ type: "ALL_DONE" });
+  });
+
+  it("skipChannels 只消费一次（第二个任务不再带 skip）", async () => {
+    const h = harness({});
+    h.api.downloadStart = okStart(h);
+    // 模拟 App 的一次性消费（取后清空）
+    let pending: string[] = ["PROXY"];
+    const take = vi.fn(() => {
+      const s = pending;
+      pending = [];
+      return s;
+    });
+    h.deps.takeSkipChannels = take;
+
+    await startExecute(h.deps, { appId: "app", tasks: [task("t1"), task("t2")] }).promise;
+
+    expect(take).toHaveBeenCalledTimes(2);
+    expect(h.api.downloadStart).toHaveBeenNthCalledWith(1, {
+      ...SPEC.download,
+      skipChannels: ["PROXY"],
+    });
+    expect(h.api.downloadStart).toHaveBeenNthCalledWith(2, SPEC.download);
+  });
+
+  it("未提供 takeSkipChannels → payload 不带 skipChannels 字段", async () => {
+    const h = harness({});
+    h.api.downloadStart = okStart(h);
+    await startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
+    expect(h.api.downloadStart).toHaveBeenCalledWith(SPEC.download);
+    const arg = vi.mocked(h.api.downloadStart).mock.calls[0][0];
+    expect("skipChannels" in arg).toBe(false);
+  });
+});
+
+describe("canSwitchSource（换源按钮展示条件）", () => {
+  it("下载类错误可换源；其他不可", () => {
+    expect(canSwitchSource("NET_HASH_MISMATCH")).toBe(true);
+    expect(canSwitchSource("NET_ALL_CHANNELS_DEAD")).toBe(true);
+    expect(canSwitchSource("HASH_MISMATCH")).toBe(true);
+    expect(canSwitchSource("DOWNLOAD_STALLED")).toBe(true);
+    expect(canSwitchSource("EXEC_EXIT_1")).toBe(false);
+    expect(canSwitchSource("SCAN_FAILED")).toBe(false);
+    expect(canSwitchSource("REGISTRY_FETCH")).toBe(false);
   });
 });

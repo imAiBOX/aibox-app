@@ -93,6 +93,8 @@ export interface Plan {
   channel: string;
   diskMb: number;
   estMinutes: number;
+  /** 区域判定来源（诊断：last-plan.json 里一眼可见当时生效判定） */
+  netRegion?: { source: string; effective: "cn" | "global" };
 }
 
 /** 任意态 → ERROR 携带的人话错误码 */

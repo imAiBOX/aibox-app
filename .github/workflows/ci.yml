@@ -124,6 +124,16 @@ jobs:
         with:
           workspaces: "."
 
+      # 版本号随 tag 注入：tauri.conf.json + package.json + Cargo.toml
+      # （update_check 比较的是 CARGO_PKG_VERSION，三处不同步 → 黄条永远弹）
+      # 版本非法（非 x.y.z）→ 脚本 exit 1 → job fail
+      - name: Inject version from tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          node scripts/set-version.mjs "$VERSION"
+
       # bundle.active=false + --no-bundle：只要 exe（Win10+ 自带 WebView2，
       # 双击即跑的 portable），不做 NSIS/MSI 安装包
       - name: Build portable exe

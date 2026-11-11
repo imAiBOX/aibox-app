@@ -15,7 +15,8 @@ import {
   startExecute,
   type ExecuteHandle,
 } from "./state";
-import { api, getMockScenario, isMock, type AppIndex } from "./net/client";
+import { api, getMockScenario, isMock, type AppIndex, type NetRegionResult } from "./net/client";
+import { staticRegionFallback } from "./net/region";
 import { channelToast, feedLogFromEvents, feedToastFromEvents, onEvent, startTauriEvents } from "./net/events";
 import { AppShell, type BarAction } from "./screens/Shell";
 import S1Idle from "./screens/S1Idle";
@@ -51,6 +52,11 @@ export default function App() {
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [verifyPending, setVerifyPending] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  /** 区域判定结果（plan.netRegion + E1 建议分支用） */
+  const [netRegion, setNetRegion] = useState<NetRegionResult | null>(null);
+  /** 「换个下载源」：一次性跳过通道（取后清空）；当前下载通道（换源重发用） */
+  const skipChannelsRef = useRef<string[]>([]);
+  const lastChannelRef = useRef<string | null>(null);
   // 断点续装：真 Tauri → SQLite（sessions/kv），mock/浏览器 → memory（persistence-sqlite 工厂）
   const persistence = useRef(createPersistence()).current;
   // E1 内嵌诊断面板（同一任务连败 2 次触发；纯 reducer 可测）
@@ -108,12 +114,30 @@ export default function App() {
       rawE1({ type: "FAIL", taskId: state.error.taskId });
     }
   }, [state.status, state.error]);
-  // 任务成功 → 连败链断裂
+  // 任务成功 → 连败链断裂（同时清掉上一任务的下载通道记录）
   useEffect(() => {
     if (state.status !== "EXECUTE") return;
     const cur = state.tasks[state.currentTaskIndex];
-    if (cur?.status === "done") rawE1({ type: "SUCCESS", taskId: cur.id });
+    if (cur?.status === "done") {
+      rawE1({ type: "SUCCESS", taskId: cur.id });
+      lastChannelRef.current = null;
+    }
   }, [state.status, state.tasks, state.currentTaskIndex]);
+
+  // 进入 EXECUTE：重置下载通道记录（换源按钮只针对当前任务）
+  useEffect(() => {
+    if (state.status === "EXECUTE") lastChannelRef.current = null;
+  }, [state.status]);
+
+  // 记录当前下载通道（download_progress / channel_switched → 换源按钮 skipChannels）
+  useEffect(
+    () =>
+      onEvent((e) => {
+        if (e.event === "download_progress") lastChannelRef.current = e.payload.channel;
+        else if (e.event === "channel_switched") lastChannelRef.current = e.payload.to;
+      }),
+    [],
+  );
 
   // 断点续装写入时机：状态机关键转移（每任务完成在下方 runTask 内单独写）
   useEffect(() => {
@@ -146,11 +170,16 @@ export default function App() {
     );
     void Promise.all([scanP, api.registryApp(selectedId)])
       .then(async ([report, manifest]) => {
-        // 路线按 net.effective 首条可行；region 取不到 → global 兑底
-        const region = await api.netRegion().catch(() => ({
-          source: "auto",
-          effective: "global" as const,
-        }));
+        // 路线按 net.effective 首条可行；region 取不到 → 前端静态判定兑底（不再硬编 global）
+        const region = await api.netRegion().catch((e: unknown) => {
+          const effective = staticRegionFallback();
+          console.warn(
+            `[aibox] net_region failed, using static fallback (${effective}):`,
+            e,
+          );
+          return { source: "auto", effective } as NetRegionResult;
+        });
+        setNetRegion(region);
         // exe 需绝对路径（Rust exec 只展开 cwd 的 ~）；非 Tauri → '~' 兑底
         const home = await (async () => {
           if (isMock()) return "~";
@@ -167,6 +196,7 @@ export default function App() {
           region: region.effective,
           home,
           scan: report,
+          netRegion: { source: region.source, effective: region.effective },
         });
         dispatch({ type: "PLAN_READY", plan });
         // 诊断包收录最后计划：写 ~/.aibox/cache/last-plan.json，失败不阻塞
@@ -189,6 +219,12 @@ export default function App() {
         scenario: getMockScenario,
         saveSnapshot: (snap) => persistence.saveSnapshot(snap),
         now: () => Date.now(),
+        // 「换个下载源」：一次性消费跳过通道（取后清空，下次重试不再跳）
+        takeSkipChannels: () => {
+          const skip = skipChannelsRef.current;
+          skipChannelsRef.current = [];
+          return skip;
+        },
       },
       { appId: state.appId, tasks: state.tasks },
     );
@@ -395,6 +431,12 @@ export default function App() {
           <ErrorOverlay
             state={state}
             onRetry={() => dispatch({ type: "RETRY" })}
+            onRetrySource={() => {
+              // 换源语义：跳过当前失败通道重发 download_start
+              const ch = lastChannelRef.current;
+              skipChannelsRef.current = ch ? [ch] : [];
+              dispatch({ type: "RETRY" });
+            }}
             onSkip={() => dispatch({ type: "SKIP" })}
             onExported={() => {
               exportedRef.current = true;
@@ -409,6 +451,14 @@ export default function App() {
         {/* E1 内嵌诊断面板（同一任务连败 2 次 → 从右滑出；关闭/重试回到 S4） */}
         <E1DiagPanel
           open={e1.open}
+          onRetrySource={() => {
+            const ch = lastChannelRef.current;
+            skipChannelsRef.current = ch ? [ch] : [];
+            rawE1({ type: "ACK" });
+            dispatch({ type: "RETRY" });
+          }}
+          errorCode={state.error?.code}
+          regionEffective={netRegion?.effective ?? null}
           onClose={() => {
             rawE1({ type: "ACK" });
             dispatch({ type: "RETRY" });

@@ -35,6 +35,19 @@ export type { ProviderId, ProviderMeta };
 /** mock 场景开关读取（App 的 EXECUTE 失败注入用；真分支不读） */
 export { getMockScenario };
 
+/** `net_region()` 返回的三锚点实测摘要（auto 判定时给出） */
+export interface RegionAnchors {
+  github: { ok: boolean; ttfbMs: number };
+  releaseAsset: { ok: boolean; ttfbMs: number };
+  npmmirror: { ok: boolean; ttfbMs: number };
+}
+/** `net_region()` 返回（source + 生效区域 + 可选三锚点实测） */
+export interface NetRegionResult {
+  source: string;
+  effective: "cn" | "global";
+  anchors?: RegionAnchors;
+}
+
 export const isMock = (): boolean => {
   const metaEnv =
     typeof import.meta !== "undefined"
@@ -134,16 +147,22 @@ export interface AppManifest {
   modelProviders?: Record<string, ProviderMeta>;
 }
 
-/** DownloadTask（download_start payload） */
+/** DownloadTask（download_start payload；appId/sizeBytes/skipChannels 为可选扩展字段） */
 export interface DownloadTask {
   id: string;
   channels: { type: string; url: string }[];
   sha256: string;
   destName: string;
+  /** 所属应用 id（任务日志子目录 ~/.aibox/logs/<app>/） */
+  appId?: string;
+  /** registry 包级期望字节数（通道无关；截断检测用） */
+  sizeBytes?: number;
+  /** 换源重发：跳过的通道类型（如 ["PROXY"]） */
+  skipChannels?: string[];
 }
 /** ExecTask.kind（Rust ExecKind::parse 白名单） */
 export type ExecKind = "nsis-silent" | "npm-prefix" | "script";
-/** ExecTask（exec_install payload） */
+/** ExecTask（exec_install payload；appId 为可选扩展字段，任务日志用） */
 export interface ExecTask {
   id: string;
   kind: ExecKind;
@@ -151,6 +170,7 @@ export interface ExecTask {
   args: string[];
   cwd?: string;
   probe?: ProbeSpec;
+  appId?: string;
 }
 /** ProbeSpec（probe_run payload） */
 export interface ProbeSpec {
@@ -293,7 +313,7 @@ export const api = {
   scanSystem: () => invoke<ScanReport>("scan_system"),
   registryIndex: (force?: boolean) => invoke<AppIndex>("registry_index", { force }),
   registryApp: (id: string) => invoke<AppManifest>("registry_app", { id }),
-  netRegion: () => invoke<{ source: string; effective: "cn" | "global" }>("net_region"),
+  netRegion: () => invoke<NetRegionResult>("net_region"),
   netRegionSet: (v: "auto" | "cn" | "global") => invoke<void>("net_region_set", { v }),
   netProbe: () => invoke<NetProbeRow[]>("net_probe"),
   netdoctorRun: (items?: string[]) => invoke<DiagReport>("netdoctor_run", { items }),

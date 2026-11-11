@@ -33,6 +33,18 @@ export function messageKeyForCode(code: string): string {
   return "err.generic";
 }
 
+/**
+ * 下载类错误（有「另一个源」可换 → 展示「换个下载源」按钮）：
+ * `NET_*` / `DOWNLOAD_*` / 哈希不符。扫描、配置、执行类错误不适用。
+ */
+export function canSwitchSource(code: string): boolean {
+  return (
+    code.startsWith("NET_") ||
+    code.startsWith("DOWNLOAD_") ||
+    code.includes("HASH_MISMATCH")
+  );
+}
+
 /** Rust commands.rs 下载终态 log_line（冻结格式；审计确认） */
 const DL_OK = /^download ok:/;
 const DL_FAILED = /^download failed \[([A-Z0-9_]+)\]/;
@@ -59,6 +71,8 @@ export interface ExecuteDeps {
   now: () => number;
   /** 下载无任何事件超过该时长 → DOWNLOAD_STALLED（默认 3 分钟） */
   stallMs?: number;
+  /** 「换个下载源」：消费一次性跳过通道列表（取后清空；缺省 = 无跳过） */
+  takeSkipChannels?: () => string[];
 }
 
 export interface ExecuteContext {
@@ -186,11 +200,15 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     const spec = task.spec;
     if (!spec) return fail("TASK_NO_SPEC", task.id);
 
-    // 1) download
+    // 1) download（「换个下载源」→ 一次性 skipChannels 重发）
     deps.dispatch({ type: "TASK_PHASE", taskId: task.id, phase: "download" });
+    const skip = deps.takeSkipChannels?.() ?? [];
     const waiter = waitDownload(deps, state);
     try {
-      state.jobId = await deps.api.downloadStart(spec.download);
+      state.jobId = await deps.api.downloadStart({
+        ...spec.download,
+        ...(skip.length > 0 ? { skipChannels: skip } : {}),
+      });
     } catch (e) {
       return fail(errCode(e, "DOWNLOAD_START_FAILED"), task.id);
     }

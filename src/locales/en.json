@@ -164,6 +164,7 @@
     "title": "Something went wrong",
     "code": "Code",
     "retry": "Retry",
+    "switchSource": "Try another source",
     "skip": "Skip this",
     "export": "Export diagnostics",
     "close": "Close",
@@ -201,6 +202,7 @@
     "doctorDesc": "Test DNS, proxy and download sources.",
     "doctorRun": "Check now",
     "doctorRunning": "Checking…",
+    "doctorSlow": "The check is taking a while (still probing the network) — come back for the results in a moment.",
     "doctorFail": "The checkup couldn't run. Check your network and retry.",
     "doctorDone": "Checkup finished",
     "status": {
@@ -225,6 +227,8 @@
     "retry": "Retry",
     "r2Tag": "Suggested fix",
     "r2Advice": "Your connection may be behind a proxy or filtered. Try switching the region to Global in Settings → Network, or turn on a proxy — then retry.",
+    "r2AdviceCn": "You're on the mainland mirror channels. If it keeps failing, check your network or try again later.",
+    "adviceHashMismatch": "The download source returned unexpected content, so the install stopped. Tap \"Try another source\" to retry on a different channel.",
     "failHint": "Some download sources are unreachable right now; the installer will keep trying mirrors.",
     "symptom": "Install task failed twice."
   },
