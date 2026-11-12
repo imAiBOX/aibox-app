@@ -3,10 +3,16 @@
  * 卡片 = 图标+名称+一句话+难度点+平台徽章+状态徽章（+可升级徽章）；侧栏体检入口 E3。
  * 顶部：已装应用更新聚合条（可展开跳卡片）+ 目录新增提示（可关）。
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppIndex, AppIndexEntry, AppUpdateRow } from "../net/client";
-import { sidebarScanRows, type ScanReport } from "../state";
+import {
+  ALL_CATEGORIES,
+  deriveCategories,
+  filterApps,
+  sidebarScanRows,
+  type ScanReport,
+} from "../state";
 
 function Difficulty({ n }: { n: number }) {
   const { t } = useTranslation();
@@ -88,6 +94,31 @@ export default function S1Idle({
   const { t, i18n } = useTranslation();
   const lang = i18n.resolvedLanguage ?? "en";
   const [updatesOpen, setUpdatesOpen] = useState(false);
+  /** 分类 chips（默认 All）+ 搜索框；过滤经 175ms 防抖后与分类组合生效 */
+  const [category, setCategory] = useState(ALL_CATEGORIES);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedQuery(query), 175);
+    return () => window.clearTimeout(id);
+  }, [query]);
+
+  const allApps = index?.apps ?? [];
+  /** 先分类后搜索的组合过滤（纯函数，见 state/appFilter） */
+  const visible = filterApps(allApps, debouncedQuery, category);
+  /** chips 数据源从 index 推导（不硬编码分类枚举）；计数随搜索收窄 */
+  const searchHit = filterApps(allApps, debouncedQuery, ALL_CATEGORIES);
+  const chips = [
+    { id: ALL_CATEGORIES, count: searchHit.length },
+    ...deriveCategories(searchHit),
+  ];
+  /** 一键清空：搜索 + 分类同时复位 */
+  const clearFilters = () => {
+    setQuery("");
+    setDebouncedQuery("");
+    setCategory(ALL_CATEGORIES);
+  };
 
   const nameOf = (id: string): string => index?.apps.find((a) => a.id === id)?.name ?? id;
   const updatable = appUpdates.filter((r) => r.hasUpdate);
@@ -168,8 +199,73 @@ export default function S1Idle({
           <p className="font-mono text-xs text-aibox-text2">{t("s1.empty")}</p>
         )}
 
+        {/* 搜索 + 分类 chips（黑底绿 accent、圆角≤8、等宽 placeholder；组合过滤） */}
+        {!loading && index && index.apps.length > 0 && (
+          <div className="mb-4 flex flex-col gap-2.5">
+            <div className="relative w-full sm:max-w-xs">
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("s1.searchPlaceholder")}
+                aria-label={t("s1.searchPlaceholder")}
+                className="w-full rounded-[4px] border border-aibox-line bg-aibox-bg py-2 pl-3 pr-8 font-mono text-sm text-aibox-text1 outline-none placeholder:text-aibox-text2 focus:border-aibox-green"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  title={t("s1.searchClear")}
+                  aria-label={t("s1.searchClear")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[3px] px-1 font-mono text-sm text-aibox-text2 hover:text-aibox-green"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {chips.map((c) => {
+                const active = category === c.id;
+                const label =
+                  c.id === ALL_CATEGORIES ? t("s1.all") : t(`app.category.${c.id}`, { defaultValue: c.id });
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setCategory(c.id)}
+                    aria-pressed={active}
+                    className={[
+                      "rounded-[4px] border px-2.5 py-1 text-xs transition-colors",
+                      active
+                        ? "border-aibox-green bg-aibox-green/10 text-aibox-green"
+                        : "border-aibox-line text-aibox-text2 hover:border-aibox-text2 hover:text-aibox-text1",
+                    ].join(" ")}
+                  >
+                    {label}
+                    <span className="ml-1.5 font-mono text-[10px] opacity-70">{c.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 空态人话：有过滤条件但无命中 → 一键清空 */}
+        {!loading && index && index.apps.length > 0 && visible.length === 0 && (
+          <div className="rounded-[6px] border border-aibox-line bg-aibox-raised px-4 py-6 text-center">
+            <p className="text-sm text-aibox-text2">{t("s1.noMatches")}</p>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="mt-3 rounded-[4px] border border-aibox-green px-3 py-1.5 font-mono text-xs text-aibox-green hover:bg-aibox-green/10"
+            >
+              {t("s1.searchClear")}
+            </button>
+          </div>
+        )}
+
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
-          {index?.apps.map((a) => (
+          {visible.map((a) => (
             <button
               key={a.id}
               id={`app-card-${a.id}`}

@@ -1,6 +1,19 @@
 {
   "app": {
-    "langSwitch": "中文"
+    "langSwitch": "中文",
+    "category": {
+      "agent": "Agent",
+      "chat": "Chat",
+      "local-llm": "Local LLM",
+      "coding": "Coding",
+      "devtool": "Dev tools",
+      "knowledge": "Knowledge",
+      "media": "Media",
+      "automation": "Automation",
+      "productivity": "Productivity",
+      "utility": "Utility",
+      "other": "Other"
+    }
   },
   "nav": {
     "idle": "Apps",
@@ -41,7 +54,11 @@
     "upgradeTo": "Update to {{version}}",
     "updatesBar": "{{count}} installed apps have updates",
     "newApps": "New in the catalog: {{names}}",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "searchPlaceholder": "Search apps…",
+    "searchClear": "Clear",
+    "noMatches": "No apps match your search.",
+    "all": "All"
   },
   "s2": {
     "title": "Checkup report",

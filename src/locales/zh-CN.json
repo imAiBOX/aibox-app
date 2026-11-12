@@ -1,6 +1,19 @@
 {
   "app": {
-    "langSwitch": "EN"
+    "langSwitch": "EN",
+    "category": {
+      "agent": "智能体",
+      "chat": "聊天",
+      "local-llm": "本地大模型",
+      "coding": "编程",
+      "devtool": "开发工具",
+      "knowledge": "知识",
+      "media": "媒体",
+      "automation": "自动化",
+      "productivity": "效率",
+      "utility": "工具",
+      "other": "其他"
+    }
   },
   "nav": {
     "idle": "应用",
@@ -41,7 +54,11 @@
     "upgradeTo": "可升级 {{version}}",
     "updatesBar": "已装应用有 {{count}} 个新版本",
     "newApps": "目录新增：{{names}}",
-    "dismiss": "关闭"
+    "dismiss": "关闭",
+    "searchPlaceholder": "搜索应用…",
+    "searchClear": "清空",
+    "noMatches": "没有匹配的应用",
+    "all": "全部"
   },
   "s2": {
     "title": "体检报告",
