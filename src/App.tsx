@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
-import { setLang, type Lang } from "./i18n";
+import { setLang, SUPPORTED_LANGS, type Lang } from "./i18n";
 import { hotLoadInto } from "./i18n/loader";
 import i18n from "./i18n";
 import {
@@ -583,12 +583,13 @@ export default function App() {
         />
       </AppShell>
 
-      {/* 语言切换（右下角常驻） */}
+      {/* 语言切换（右下角常驻）：en → zh-CN → zh-TW → en 循环，按钮显示下一个语言 */}
       <button
         type="button"
         onClick={() => {
-          const isZh = (i18next.resolvedLanguage ?? "en").startsWith("zh");
-          setLang((isZh ? "en" : "zh-CN") as Lang);
+          const cur = (i18next.resolvedLanguage ?? "en") as Lang;
+          const idx = SUPPORTED_LANGS.indexOf(cur);
+          setLang(SUPPORTED_LANGS[(idx + 1) % SUPPORTED_LANGS.length]);
         }}
         className="fixed bottom-14 right-3 z-30 rounded-[4px] border border-aibox-line bg-aibox-raised px-2.5 py-1 font-mono text-[11px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
         aria-label="switch language"

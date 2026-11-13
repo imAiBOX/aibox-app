@@ -1,6 +1,6 @@
 {
   "app": {
-    "langSwitch": "EN",
+    "langSwitch": "繁體",
     "category": {
       "agent": "智能体",
       "chat": "聊天",
@@ -23,7 +23,8 @@
     "config": "配置",
     "verify": "验证",
     "settings": "设置",
-    "smartscreen": "SmartScreen 帮助"
+    "smartscreen": "SmartScreen 帮助",
+    "gatekeeper": "Gatekeeper 帮助"
   },
   "btn": {
     "startInstall": "开始安装",
@@ -180,6 +181,17 @@
     "shaBody": "每个发布文件的 SHA-256 校验值都写在 GitHub Releases 页面上。和你下载的文件比对一下——不一致就不要运行。AiBOX 安装前也会自动校验每一次下载。",
     "shaOpen": "打开 Releases 页面",
     "note": "目前是免签名便携版。等预算够了会买证书签名——任何时候都别把 key 发给任何人。"
+  },
+  "gk": {
+    "title": "macOS 提示「无法打开」？",
+    "intro": "首次打开从网上下载的应用，Gatekeeper 会拦一下，很正常。四步就过：",
+    "whenTitle": "什么时候会出现这个警告？",
+    "whenBody": "只在你第一次打开从网上下载的应用时出现。Apple 没见过这个应用，所以请你再确认一次——它不是说 AiBOX 有病毒。",
+    "step1": "在访达里右键点 AiBOX →「打开」。",
+    "step2": "在弹窗里点「打开」（不是「移到废纸篓」）。",
+    "step3": "还是打不开？苹果菜单 → 系统设置 → 隐私与安全性 → 下滑 →「仍要打开」。",
+    "step4": "用触控 ID 或密码确认。AiBOX 打开了，完事。",
+    "note": "当前版本是临时签名（ad-hoc），尚未做 Apple 公证——首次打开必被拦，属正常设计。公证等预算够了就上——任何时候都别把 key 发给别人。"
   },
   "err": {
     "title": "出了点问题",

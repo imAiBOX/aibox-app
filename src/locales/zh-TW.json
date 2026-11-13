@@ -1,0 +1,364 @@
+{
+  "app": {
+    "langSwitch": "EN",
+    "category": {
+      "agent": "智慧體",
+      "chat": "聊天",
+      "local-llm": "本地大模型",
+      "coding": "程式設計",
+      "devtool": "開發工具",
+      "knowledge": "知識",
+      "media": "媒體",
+      "automation": "自動化",
+      "productivity": "效率",
+      "utility": "工具",
+      "other": "其他"
+    }
+  },
+  "nav": {
+    "idle": "應用",
+    "scan": "體檢",
+    "plan": "計畫",
+    "execute": "安裝",
+    "config": "配置",
+    "verify": "驗證",
+    "settings": "設定",
+    "smartscreen": "SmartScreen 幫助",
+    "gatekeeper": "Gatekeeper 幫助"
+  },
+  "btn": {
+    "startInstall": "開始安裝",
+    "scanning": "體檢中…",
+    "back": "返回",
+    "confirm": "下一步",
+    "begin": "開始安裝",
+    "cancel": "取消安裝",
+    "viewLog": "檢視日誌",
+    "skipConfig": "跳過配置",
+    "verify": "傳送測試",
+    "reVerify": "再測一次",
+    "again": "再裝一個",
+    "docs": "看教程"
+  },
+  "s1": {
+    "title": "選擇應用",
+    "subtitle": "資料來自 GitHub registry",
+    "loading": "正在載入應用列表…",
+    "empty": "沒找到應用，檢查下網路",
+    "difficulty": "難度",
+    "statusInstallable": "可安裝",
+    "statusInstalled": "已裝",
+    "statusChecking": "版本核對中",
+    "doctorTitle": "本機體檢",
+    "doctorDesc": "裝之前先快速看看你的電腦。",
+    "doctorOpen": "開啟體檢",
+    "upgradeTo": "可升級 {{version}}",
+    "updatesBar": "已裝應用有 {{count}} 個新版本",
+    "newApps": "目錄新增：{{names}}",
+    "dismiss": "關閉",
+    "searchPlaceholder": "搜尋應用…",
+    "searchClear": "清空",
+    "noMatches": "沒有匹配的應用",
+    "all": "全部"
+  },
+  "s2": {
+    "title": "體檢報告",
+    "running": "正在檢查你的電腦…",
+    "expand": "看解釋",
+    "previewTitle": "將要安裝的東西",
+    "planPending": "正在生成安裝計畫…",
+    "note": "紅燈項點一下有人話解釋。這一頁不改動你的系統。"
+  },
+  "s3": {
+    "title": "安裝計畫",
+    "building": "正在生成安裝計畫…",
+    "legendReuse": "已滿足",
+    "legendInstall": "將安裝",
+    "legendSkip": "無需",
+    "confirmTitle": "確認",
+    "route": "路線",
+    "channel": "通道",
+    "disk": "佔磁碟",
+    "est": "預計",
+    "confirmNote": "點「開始安裝」才會真正動手。"
+  },
+  "s4": {
+    "title": "安裝中",
+    "phaseDownload": "下載中",
+    "phaseVerify": "校驗中",
+    "phaseInstall": "安裝中",
+    "phaseProbe": "探測中",
+    "channelIdle": "連線中…",
+    "units": "步",
+    "allDone": "全部任務完成。",
+    "doneList": "已完成",
+    "viewLog": "檢視日誌",
+    "logEmpty": "還沒有日誌。",
+    "logNote": "日誌只讀，key 已脫敏。",
+    "switched": "{{from}} 超時，已切換 {{to}}"
+  },
+  "s5": {
+    "title": "連線模型",
+    "subtitle": "選一條路線，之後可以換。",
+    "recommended": "推薦",
+    "rebate": "我們可能獲得返佣",
+    "todo": "即將上線",
+    "todoTitle": "還沒做好",
+    "todoDetail": "這條路線會在後續版本開放。現在先選上面三條完整路線，一樣能用。",
+    "nav1": "1 選路",
+    "nav2": "2 弄 key",
+    "nav3": "3 粘 key",
+    "nav4": "4 選模型",
+    "nav5": "5 寫入",
+    "guideTitle": "去哪弄 key",
+    "openSite": "開啟官網",
+    "stepReg": "在官網註冊個賬號（郵箱就行）。",
+    "stepTopup": "充值一點金額，夠起步用就行。",
+    "stepCreateKey": "建立 API key，整段複製下來。",
+    "shotNote": "步驟截圖位（用官網構建期靜態資源）",
+    "safetyTitle": "key 安全三條",
+    "safety1": "任何情況下不把 key 發給任何人（包括我們）。",
+    "safety2": "截圖裡記得給 key 打碼。",
+    "safety3": "洩露了就去服務商後臺立刻吊銷。",
+    "pasteTitle": "貼上 key",
+    "pasteHint": "API key（一長串專屬密碼，誰拿到都能花你的錢）會先在本地校驗格式，不會離開你的電腦。",
+    "keyLabel": "API key",
+    "keyOk": "格式看起來沒錯",
+    "c4Title": "選個模型",
+    "modelsEmpty": "沒拉到模型清單，先用內建預設。",
+    "writeTitle": "寫入配置",
+    "writeNote": "會先備份原檔案再合併寫入，你已有的設定都保留。",
+    "write": "寫入",
+    "writing": "寫入中…",
+    "writeFail": "寫入沒成功，原檔案沒動過，重試一次。",
+    "backupOk": "已備份原檔案",
+    "backupLabel": "備份檔案",
+    "written": "配置寫好了。下一步：發一條真實測試訊息。",
+    "toVerify": "發測試",
+    "price": {
+      "low": "便宜",
+      "mid": "中等",
+      "high": "偏貴",
+      "free": "免費",
+      "included": "訂閱內"
+    }
+  },
+  "s6": {
+    "title": "發一條真實訊息",
+    "subtitle": "真發一條請求，真收到回覆才算通。",
+    "pending": "等回覆…",
+    "retry": "再試一次",
+    "success": "它真的能用。",
+    "failGeneric": "模型沒回話，檢查 key 後再試。",
+    "errKey": "服務商說這個 key 無效（401），去他們後臺核對一下。",
+    "errNet": "網路沒通，請求根本沒發出去。檢查網路後再試。",
+    "errWeak": "有響應但沒有正文，這不算通過——我們要真收到模型回的文字。"
+  },
+  "s7": {
+    "title": "裝好了。它真的能用。",
+    "subtitle": "下面這些已經在你電腦上了。",
+    "listTitle": "已裝清單",
+    "listEmpty": "暫無記錄。",
+    "nextTitle": "下一步",
+    "nextDesc": "繫結 Telegram / WhatsApp 等渠道，讓 AI 找得到你。",
+    "nextCta": "開啟教程",
+    "again": "再裝一個",
+    "feedback": "反饋",
+    "share": "分享"
+  },
+  "ss": {
+    "title": "Windows 提示「未知釋出者」？",
+    "back": "返回",
+    "intro": "首次執行下載的應用，Windows 會攔一下，很正常。四步就過：",
+    "whenTitle": "什麼時候會出現這個警告？",
+    "whenBody": "只在你第一次執行從網上下載的檔案時出現。Windows 沒見過這個檔案，所以請你再確認一次——它不是說 AiBOX 有病毒。",
+    "step1": "藍色畫面上點「更多資訊」。",
+    "step2": "點底部「仍要執行」。",
+    "step3": "若詢問，點「是」確認。",
+    "step4": "安裝器打開了，完事。",
+    "shotPlaceholder": "截圖位",
+    "shaTitle": "怎麼確認檔案是真的",
+    "shaBody": "每個釋出檔案的 SHA-256 校驗值都寫在 GitHub Releases 頁面上。和你下載的檔案比對一下——不一致就不要執行。AiBOX 安裝前也會自動校驗每一次下載。",
+    "shaOpen": "開啟 Releases 頁面",
+    "note": "目前是免安裝、未簽名的版本。等預算夠了會買證書籤名——任何時候都別把 key 發給任何人。"
+  },
+  "gk": {
+    "title": "macOS 提示「無法開啟」？",
+    "intro": "首次開啟從網上下載的應用，Gatekeeper 會攔一下，很正常。四步就過：",
+    "whenTitle": "什麼時候會出現這個警告？",
+    "whenBody": "只在你第一次開啟從網上下載的應用時出現。Apple 沒見過這個應用，所以請你再確認一次——它不是說 AiBOX 有病毒。",
+    "step1": "在訪達裡右鍵點 AiBOX →「開啟」。",
+    "step2": "在彈窗裡點「開啟」（不是「移到廢紙簍」）。",
+    "step3": "還是打不開？蘋果選單 → 系統設定 → 隱私與安全性 → 下滑 →「仍要開啟」。",
+    "step4": "用觸控 ID 或密碼確認。AiBOX 打開了，完事。",
+    "note": "當前版本是臨時簽名（ad-hoc），尚未做 Apple 公證——首次開啟必被攔，屬正常設計。公證等預算夠了就上——任何時候都別把 key 發給別人。"
+  },
+  "err": {
+    "title": "出了點問題",
+    "code": "錯誤碼",
+    "retry": "重試",
+    "switchSource": "換個下載源",
+    "skip": "跳過這項",
+    "export": "匯出診斷",
+    "close": "關閉",
+    "cancelled": "你取消了安裝，系統沒有改動。",
+    "registry": "應用列表拉不到，檢查網路後重試。",
+    "scanFailed": "體檢沒跑成，重試或匯出診斷。",
+    "netDead": "所有下載源都超時了。檢查網路後重試。",
+    "hashMismatch": "下載檔案校驗對不上，可能被篡改了。換個下載源再試。",
+    "execFailed": "安裝程式無法執行或返回錯誤。請匯出診斷後重試。",
+    "probeFailed": "已安裝，但版本核對未通過。可重試或跳過此元件。",
+    "downloadFailed": "下載沒有完成。請檢查網路後重試。",
+    "generic": "出了點問題。可以重試，或匯出診斷。"
+  },
+  "resume": {
+    "title": "繼續上次安裝？",
+    "desc": "上次安裝沒走完，可以從斷點接著來。",
+    "yes": "繼續",
+    "no": "重新開始"
+  },
+  "net": {
+    "back": "返回",
+    "regionTitle": "地區",
+    "region": {
+      "auto": "自動",
+      "cn": "國內",
+      "global": "國際"
+    },
+    "regionHint": "自動會幫你選更快的路。",
+    "proxyTitle": "使用系統代理",
+    "proxyAddr": "代理地址",
+    "customTitle": "自定義下載字首",
+    "customPrefix": "下載字首",
+    "doctorTitle": "立即體檢",
+    "doctorDesc": "測一下 DNS、代理和下載源。",
+    "doctorRun": "體檢一下",
+    "doctorRunning": "體檢中…",
+    "doctorSlow": "體檢較慢（網路探測中），可稍後檢視結果",
+    "doctorFail": "體檢沒跑成，檢查網路後重試。",
+    "doctorDone": "體檢完成",
+    "status": {
+      "ok": "正常",
+      "warn": "注意",
+      "fail": "失敗"
+    },
+    "fixHint": {
+      "R1": "自動修復：後臺自動處理，無需操作",
+      "R2": "建議修復：確認後我們幫你處理",
+      "R3": "高階修復：需要你明確授權"
+    },
+    "detailToggle": "詳情",
+    "diagTitle": "匯出診斷",
+    "diagDesc": "把日誌、體檢報告和計畫打包成 zip（不含 key）。",
+    "diagSymptom": "從網路設定頁匯出。",
+    "tab": "網路"
+  },
+  "e1": {
+    "title": "網路好像有問題",
+    "desc": "這個任務連續失敗了 2 次。最近一次網路體檢：",
+    "close": "關閉",
+    "retry": "重試",
+    "r2Tag": "建議修復",
+    "r2Advice": "可能走了代理或被網路過濾。去 設定 → 網路 把地區切成「國際」，或開啟代理開關，然後重試。",
+    "r2AdviceCn": "已走國內映象通道；若持續失敗，檢查網路或稍後重試。",
+    "adviceHashMismatch": "下載源返回了異常內容，已中止安裝。點「換個下載源」換一個通道再試。",
+    "failHint": "部分下載源暫時不可達，安裝器會繼續嘗試其他映象。",
+    "symptom": "安裝任務連續失敗 2 次。"
+  },
+  "update": {
+    "banner": "發現新版本 {{version}}",
+    "download": "去下載",
+    "later": "稍後"
+  },
+  "scan": {
+    "os": "系統版本",
+    "arch": "架構",
+    "disk": "磁碟剩餘",
+    "mem": "記憶體",
+    "node": "Node.js",
+    "git": "Git",
+    "wsl": "WSL",
+    "port": "埠 18789",
+    "installed": "已裝版本",
+    "hint": {
+      "disk": "至少要剩 5GB 空間。清一清再來，沒別的毛病。",
+      "node": "還沒裝 Node.js。我們會靜默裝好，不需要管理員許可權。",
+      "wsl": "沒裝 WSL。只有部分應用用得上，不需要會自動跳過。",
+      "port": "另一個 AI 助手正在佔用這個埠。不影響安裝，裝完後大不了換個入口。"
+    },
+    "node.unsupported": "當前 Node 版本不受目標應用支援——我們會在旁邊另裝一個新版，不動你現有的。"
+  },
+  "config": {
+    "key": {
+      "empty": "先把 key 粘進來",
+      "pastedPage": "你粘的像是複製了整個網頁，只複製 key 就行",
+      "badFormat": "格式看著不對，key 一般以 sk- 開頭",
+      "tooShort": "太短了，key 是很長一串隨機字元",
+      "wrongPrefix": "不是 {{prefix}} 開頭的，是不是複製錯 key 了？"
+    },
+    "p": {
+      "openrouter": {
+        "name": "OpenRouter",
+        "desc": "一個 key 通吃所有模型，支援人民幣卡。",
+        "models": "自動選模型：聊天夠便宜，難題夠聰明。"
+      },
+      "anthropic": {
+        "name": "Anthropic 官方",
+        "desc": "Claude 官方 API，長文寫作最穩。",
+        "models": "Sonnet 價格聰明兼顧，Haiku 最便宜。"
+      },
+      "openai": {
+        "name": "OpenAI 官方",
+        "desc": "GPT 官方 API，生態最大。",
+        "models": "mini 系列便宜快，大模型更會想。"
+      },
+      "google": {
+        "name": "Google AI Studio",
+        "desc": "有免費額度，即將上線。"
+      },
+      "claudeOAuth": {
+        "name": "Claude 訂閱複用",
+        "desc": "用已有訂閱登入，免 key，即將上線。"
+      },
+      "ollama": {
+        "name": "本地 Ollama",
+        "desc": "完全免費離線，需 8GB+ 記憶體，即將上線。"
+      }
+    }
+  },
+  "diag": {
+    "export": "匯出診斷",
+    "exporting": "匯出中…",
+    "fail": "匯出失敗",
+    "failHint": "診斷包沒匯出來，再試一次。",
+    "issue": "一鍵新建 Issue",
+    "issueNote": "會開啟預填好的 Issue——版本、系統、錯誤碼都在，絕不含你的 key。"
+  },
+  "set": {
+    "title": "設定"
+  },
+  "gen": {
+    "title": "通用",
+    "autostart": "開機自啟動",
+    "autostartDesc": "開機自動開啟 AiBOX，無需管理員許可權",
+    "autostartFail": "未能設定開機自啟，可能被安全軟體阻止",
+    "trayTitle": "托盤常駐",
+    "trayHint": "關閉視窗會最小化到托盤；右擊托盤圖示可退出"
+  },
+  "tray": {
+    "open": "開啟 AiBOX",
+    "check": "檢查更新",
+    "quit": "退出",
+    "firstUpdate": "有新版本 {{version}} → 下載",
+    "appUpdates": "{{count}} 個應用可升級",
+    "tip": "AiBOX",
+    "tipUpdate": "AiBOX · 有新版本",
+    "tipApps": "AiBOX · {{count}} 個可升級"
+  },
+  "quit": {
+    "title": "退出 AiBOX？",
+    "desc": "正在安裝應用，現在退出會中斷安裝。",
+    "stay": "繼續執行",
+    "quit": "退出"
+  }
+}

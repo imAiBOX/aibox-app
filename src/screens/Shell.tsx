@@ -5,6 +5,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { NAV_STEPS, navIndex, type Status } from "../state";
+import { isMacPlatform } from "../platform";
 
 export interface BarAction {
   labelKey: string;
@@ -86,7 +87,7 @@ export function LeftNav({
         <button
           type="button"
           onClick={onOpenSmartScreen}
-          title={t("nav.smartscreen")}
+          title={t(isMacPlatform() ? "nav.gatekeeper" : "nav.smartscreen")}
           className="flex h-8 w-8 items-center justify-center rounded-[4px] border border-aibox-line font-mono text-xs text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
         >
           ?

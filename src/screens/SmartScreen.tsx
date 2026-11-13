@@ -1,20 +1,26 @@
 /**
- * SmartScreen 引导页：
- * 「Windows 已保护你的电脑」分步图文 + 警告出现时机说明 + SHA256 核对说明位（指向 Release 页）。
- * 文案 key 化（en/zh），截图位占位（官网构建期静态资源，不入 registry）。
+ * SmartScreen / Gatekeeper 双平台引导页：
+ * Windows =「已保护你的电脑」四步；macOS = Gatekeeper「无法打开」四步（右键打开 / 隐私与安全性仍要打开）。
+ * 文案 key 化（en/zh），按运行平台切换前缀（ss.* / gk.*）；截图位占位（官网构建期静态资源，不入 registry）。
  */
 import { useTranslation } from "react-i18next";
+import { isMacPlatform } from "../platform";
 
 export const RELEASES_URL = "https://github.com/imAiBOX/aibox-app/releases";
 
 export default function SmartScreen({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
-  const steps = ["ss.step1", "ss.step2", "ss.step3", "ss.step4"];
+  const mac = isMacPlatform();
+  const steps = mac
+    ? ["gk.step1", "gk.step2", "gk.step3", "gk.step4"]
+    : ["ss.step1", "ss.step2", "ss.step3", "ss.step4"];
 
   return (
     <div className="mx-auto flex h-full max-w-xl flex-col gap-5 overflow-y-auto pb-6">
       <header className="flex items-center justify-between">
-        <h1 className="font-display text-xl font-bold text-aibox-cream">{t("ss.title")}</h1>
+        <h1 className="font-display text-xl font-bold text-aibox-cream">
+          {t(mac ? "gk.title" : "ss.title")}
+        </h1>
         <button
           type="button"
           onClick={onClose}
@@ -24,17 +30,21 @@ export default function SmartScreen({ onClose }: { onClose: () => void }) {
         </button>
       </header>
 
-      <p className="text-sm leading-relaxed text-aibox-text2">{t("ss.intro")}</p>
+      <p className="text-sm leading-relaxed text-aibox-text2">
+        {t(mac ? "gk.intro" : "ss.intro")}
+      </p>
 
       {/* 什么时候会出现警告（R1：先解释再操作，消除恐惧） */}
       <section className="rounded-[6px] border border-aibox-line bg-aibox-raised p-4">
         <h2 className="mb-1.5 font-display text-sm font-semibold text-aibox-cream">
-          {t("ss.whenTitle")}
+          {t(mac ? "gk.whenTitle" : "ss.whenTitle")}
         </h2>
-        <p className="text-xs leading-relaxed text-aibox-text2">{t("ss.whenBody")}</p>
+        <p className="text-xs leading-relaxed text-aibox-text2">
+          {t(mac ? "gk.whenBody" : "ss.whenBody")}
+        </p>
       </section>
 
-      {/* 竖向时间线（四步：更多信息 → 仍要运行） */}
+      {/* 竖向时间线（四步：Windows = 更多信息→仍要运行；macOS = 右键打开→仍要打开） */}
       <ol className="flex flex-col">
         {steps.map((k, i) => (
           <li key={k} className="flex gap-3">
@@ -77,7 +87,7 @@ export default function SmartScreen({ onClose }: { onClose: () => void }) {
       </section>
 
       <p className="rounded-[6px] border border-aibox-line bg-aibox-raised p-3 font-mono text-[11px] leading-relaxed text-aibox-text2">
-        {t("ss.note")}
+        {t(mac ? "gk.note" : "ss.note")}
       </p>
     </div>
   );

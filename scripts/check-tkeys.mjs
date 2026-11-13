@@ -61,7 +61,7 @@ for (const file of walk(join(root, "src"))) {
   for (const m of src.matchAll(/\bt\(\s*`([^`]+)`/g)) dynTemplates.add(m[1]);
   for (const m of src.matchAll(/(?:labelKey|messageKey|hintKey|noteKey):\s*"([^"]+)"/g)) used.add(m[1]);
   // 所有形如 family.key 的字符串字面量（含数组里的 ss.step1、config.p.*.name 等间接 t() 引用）
-  for (const m of src.matchAll(/"((?:scan|err|btn|nav|ss|s[1-7]|net|e1|update|resume|config|diag|app)\.[A-Za-z0-9_.]+)"/g)) {
+  for (const m of src.matchAll(/"((?:scan|err|btn|nav|ss|gk|s[1-7]|net|e1|update|resume|config|diag|app)\.[A-Za-z0-9_.]+)"/g)) {
     if (!NON_I18N_LITERALS.has(m[1])) used.add(m[1]);
   }
 }

@@ -23,7 +23,8 @@
     "config": "Configure",
     "verify": "Verify",
     "settings": "Settings",
-    "smartscreen": "SmartScreen help"
+    "smartscreen": "SmartScreen help",
+    "gatekeeper": "Gatekeeper help"
   },
   "btn": {
     "startInstall": "Start install",
@@ -180,6 +181,17 @@
     "shaBody": "Every release file has a SHA-256 checksum on the GitHub Releases page. Compare it with the file you downloaded — if they differ, don't run the file. AiBOX also verifies every download automatically before installing.",
     "shaOpen": "Open Releases page",
     "note": "We are an unsigned portable app for now. Signing arrives when we can afford a certificate — never send your key to anyone."
+  },
+  "gk": {
+    "title": "macOS says the app “can’t be opened”?",
+    "intro": "Gatekeeper shows this the first time you open an app downloaded from the internet. It is normal. Four steps and it is gone:",
+    "whenTitle": "When does this warning appear?",
+    "whenBody": "Only the first time you open an app downloaded from the internet. Apple hasn’t seen this app before, so it asks you to double-check. It is not a virus warning about AiBOX itself.",
+    "step1": "Right-click AiBOX in Finder → “Open”.",
+    "step2": "Click “Open” on the dialog (not “Move to Trash”).",
+    "step3": "Still blocked? Apple menu → System Settings → Privacy & Security → scroll down → “Open Anyway”.",
+    "step4": "Confirm with Touch ID or your password. AiBOX opens. You are done.",
+    "note": "This build is ad-hoc signed and not notarized yet — macOS warns on first open by design. Notarization arrives when we can afford it; never send your key to anyone."
   },
   "err": {
     "title": "Something went wrong",

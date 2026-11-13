@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * i18n 覆盖率检查：en / zh-CN key 集合必须相等，否则 exit 1。
+ * i18n 覆盖率检查：en / zh-CN / zh-TW key 集合必须相等，否则 exit 1。
  * key 拍平算法与 src/i18n/loader.ts 的 flatten 一致。
  * 用法：node scripts/check-i18n.mjs [localesDir]
  */
@@ -28,7 +28,7 @@ function load(lang) {
   return flatten(JSON.parse(raw));
 }
 
-const langs = ["en", "zh-CN"];
+const langs = ["en", "zh-CN", "zh-TW"];
 let failed = false;
 
 let sets;
