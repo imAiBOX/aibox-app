@@ -11,6 +11,7 @@
  * key 只活在 flow 内存态：不进主 reducer、不进持久化、不进日志（硬规则）。
  */
 import { useCallback, useEffect, useReducer } from "react";
+import { openExternal } from "../lib/openExternal";
 import { useTranslation } from "react-i18next";
 import { PROVIDERS, maskKey, priceHintKey, providerById } from "../config/providers";
 import {
@@ -209,7 +210,7 @@ export default function S5Config({
             <button
               type="button"
               onClick={() =>
-                window.open(wizardMeta(w)?.getKeyUrl ?? provider.siteUrl, "_blank")
+                void openExternal(wizardMeta(w)?.getKeyUrl ?? provider.siteUrl ?? "https://aibox.im/")
               }
               className="rounded-[4px] bg-aibox-green px-5 py-2 font-display text-sm font-semibold text-aibox-bg"
             >

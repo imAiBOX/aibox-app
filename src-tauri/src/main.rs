@@ -30,6 +30,7 @@ fn main() {
     tauri::Builder::default()
         // SQLite（断点续装）：只注册，表结构与读写在 TS 侧
         .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_opener::init())
         // 开机自启（官方插件；Windows = HKCU Run 键，免提权）
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,

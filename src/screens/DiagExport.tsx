@@ -5,6 +5,7 @@
  * 导出中 loading；失败人话。不自动 dispatch 状态机事件（EXPORT_DIAG 由调用方决定）。
  */
 import { useCallback, useState } from "react";
+import { openExternal } from "../lib/openExternal";
 import { useTranslation } from "react-i18next";
 import { api } from "../net/client";
 import { buildIssueUrl } from "../net/issue";
@@ -100,7 +101,7 @@ export default function DiagExport({
           </p>
           <button
             type="button"
-            onClick={() => window.open(issueUrl ?? "#", "_blank")}
+            onClick={() => issueUrl && void openExternal(issueUrl)}
             className="rounded-[4px] bg-aibox-info px-3 py-1.5 font-display text-xs font-semibold text-aibox-bg hover:opacity-90"
           >
             {t("diag.issue")}

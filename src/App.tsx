@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { openExternal } from "./lib/openExternal";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import { setLang, SUPPORTED_LANGS, type Lang } from "./i18n";
@@ -185,7 +186,7 @@ export default function App() {
       onEvent((e) => {
         if (e.event !== "tray_action") return;
         if (e.payload.action === "download") {
-          window.open(OFFICIAL_DOWNLOAD_URL, "_blank");
+          void openExternal(OFFICIAL_DOWNLOAD_URL);
         } else if (e.payload.action === "check") {
           void recheckAppUpdates({ force: true });
           banner.recheck();
@@ -390,7 +391,7 @@ export default function App() {
       case "DONE":
         return [
           { labelKey: "btn.again", onClick: () => dispatch({ type: "RESTART" }) },
-          { labelKey: "btn.docs", primary: true, onClick: () => window.open("https://aibox.im/docs", "_blank") },
+          { labelKey: "btn.docs", primary: true, onClick: () => void openExternal("https://aibox.im/docs") },
         ];
       case "ERROR":
         return [];
@@ -420,7 +421,7 @@ export default function App() {
                 <button
                   type="button"
                   className="font-semibold underline"
-                  onClick={() => window.open(banner.url, "_blank")}
+                  onClick={() => void openExternal(banner.url)}
                 >
                   {t("update.download")}
                 </button>
