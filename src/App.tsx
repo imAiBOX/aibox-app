@@ -29,6 +29,7 @@ import S6Verify from "./screens/S6Verify";
 import S7Done from "./screens/S7Done";
 import ErrorOverlay from "./screens/ErrorOverlay";
 import Settings from "./screens/Settings";
+import S8Manage from "./screens/S8Manage";
 import SmartScreen from "./screens/SmartScreen";
 import { useUpdateBanner, OFFICIAL_DOWNLOAD_URL } from "./hooks/useUpdateBanner";
 import { useUpdateChecks } from "./hooks/useUpdateChecks";
@@ -39,7 +40,7 @@ import E1DiagPanel from "./screens/E1DiagPanel";
 import { runVerify } from "./config/flow";
 import type { ConfigCreds } from "./screens/S5Config";
 
-type Overlay = "none" | "settings" | "smartscreen";
+type Overlay = "none" | "settings" | "smartscreen" | "manage";
 
 export default function App() {
   const { t, i18n: i18next } = useTranslation();
@@ -411,6 +412,7 @@ export default function App() {
         bar={isOverlay ? [] : bar}
         onOpenSettings={() => setOverlay("settings")}
         onOpenSmartScreen={() => setOverlay("smartscreen")}
+        onOpenManage={() => setOverlay("manage")}
         banner={
           banner.visible ? (
             <div className="flex items-center justify-between bg-[#f5c518] px-5 py-2 text-sm text-aibox-bg">
@@ -438,6 +440,15 @@ export default function App() {
         {isOverlay ? (
           overlay === "settings" ? (
             <Settings onClose={() => setOverlay("none")} />
+          ) : overlay === "manage" ? (
+            <S8Manage
+              onClose={() => setOverlay("none")}
+              onGotoInstall={(id) => {
+                setOverlay("none");
+                setSelectedId(id);
+                dispatch({ type: "RESTART" });
+              }}
+            />
           ) : (
             <SmartScreen onClose={() => setOverlay("none")} />
           )

@@ -24,7 +24,8 @@
     "verify": "验证",
     "settings": "设置",
     "smartscreen": "SmartScreen 帮助",
-    "gatekeeper": "Gatekeeper 帮助"
+    "gatekeeper": "Gatekeeper 帮助",
+    "manage": "管理已装"
   },
   "btn": {
     "startInstall": "开始安装",
@@ -32,7 +33,7 @@
     "back": "返回",
     "confirm": "下一步",
     "begin": "开始安装",
-    "cancel": "取消安装",
+    "cancel": "取消",
     "viewLog": "查看日志",
     "skipConfig": "跳过配置",
     "verify": "发送测试",
@@ -360,5 +361,37 @@
     "desc": "正在安装应用，现在退出会中断安装。",
     "stay": "继续运行",
     "quit": "退出"
+  },
+  "s8": {
+    "title": "管理已装应用",
+    "lede": "对用 AiBOX 装的应用做 升级 / 卸载 / 重装。卸载前会先备份你的数据。",
+    "empty": "还没有装过应用——先去目录装一个。",
+    "loadErr": "已装列表加载失败，检查网络后重试。",
+    "installed": "已装",
+    "updatable": "可升级到 {{version}}",
+    "noUpdate": "已是最新",
+    "checkUpdate": "检查更新",
+    "upgrade": "升级",
+    "uninstall": "卸载",
+    "reinstall": "重装",
+    "noMaint": "该应用暂无维护数据。",
+    "riskTitle": "继续之前请确认",
+    "riskDefault": "卸载会删除该应用的文件，你的数据也会被删除。",
+    "riskPaths": "这些文件夹装着你的数据和配置：",
+    "backupLabel": "先备份我的数据（推荐）",
+    "noBackupAck": "我已明白：不备份就直接删除数据",
+    "confirmUninstall": "卸载",
+    "confirmReinstall": "重装",
+    "working": "处理中…",
+    "doneTitle": "完成",
+    "doneRemoved": "已删除 {{count}} 项",
+    "doneBackup": "备份保存在",
+    "doneSkipped": "跳过 {{count}} 项（未找到）",
+    "goInstall": "重新安装",
+    "close": "关闭",
+    "errTitle": "出了点问题",
+    "errRemove": "操作失败，数据未完全变更——看下面的说明后重试。",
+    "errNoManifest": "该应用在 registry 里没有维护数据，AiBOX 不会删除任何东西。",
+    "retry": "重试"
   }
 }

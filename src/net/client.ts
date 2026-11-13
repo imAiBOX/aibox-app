@@ -30,9 +30,13 @@ import {
   mockConfigWrite,
   mockDownloadStart,
   mockDownloadCancel,
+  mockManageBackup,
+  mockManageRemove,
+  mockManageManifestList,
   getMockScenario,
 } from "./mock";
 import type { ProviderId, ProviderMeta } from "../config/types";
+import type { MaintenanceInfo } from "../state/manage";
 
 export type { ProviderId, ProviderMeta };
 /** mock 场景开关读取（App 的 EXECUTE 失败注入用；真分支不读） */
@@ -148,6 +152,29 @@ export interface AppManifest {
   routePlans?: Record<string, RoutePlan>;
   /** registry modelProviders（C3 keyFormat / C4 recommendedModels 真源；可缺省→本地回落） */
   modelProviders?: Record<string, ProviderMeta>;
+  /** registry maintenance（MANAGE 维护模式数据源：升级/卸载清单/数据路径/风险提示） */
+  maintenance?: MaintenanceInfo;
+}
+
+/** MANAGE：备份结果（Rust manage_backup 返回） */
+export interface ManageBackupResult {
+  backupDir: string;
+  files: string[];
+  skipped?: string[];
+}
+
+/** MANAGE：卸载结果（Rust manage_remove 返回） */
+export interface ManageRemoveResult {
+  backupDir?: string;
+  removed: string[];
+  skipped: { path: string; reason: string }[];
+}
+
+/** MANAGE：已装清单条目（Rust manage_manifest_list 返回） */
+export interface ManifestEntry {
+  appId: string;
+  version?: string;
+  installedAt?: number;
 }
 
 /** DownloadTask（download_start payload；appId/sizeBytes/skipChannels 为可选扩展字段） */
@@ -330,6 +357,15 @@ function mockDispatch<T>(cmd: string, a?: unknown): T {
       return mockCheckAppUpdates() as T;
     case "install_record":
       return "~/.aibox/install-manifest.json" as T;
+    case "manage_backup":
+      return mockManageBackup(
+        String((a as { appId?: string })?.appId ?? ""),
+        ((a as { dataPaths?: string[] })?.dataPaths ?? []) as string[],
+      ) as T;
+    case "manage_remove":
+      return mockManageRemove(a as Parameters<typeof mockManageRemove>[0]) as T;
+    case "manage_manifest_list":
+      return mockManageManifestList() as T;
     case "tray_sync":
       return undefined as T;
     case "app_quit":
@@ -373,6 +409,19 @@ export const api = {
   /** 安装完成登记 install-manifest（任务全部完成后调用） */
   installRecord: (appId: string, version?: string) =>
     invoke<string>("install_record", { appId, version }),
+  /** MANAGE：备份 dataPaths → ~/.aibox/backup/<ts>/<appId>/（只碰声明路径） */
+  manageBackup: (appId: string, dataPaths: string[]) =>
+    invoke<ManageBackupResult>("manage_backup", { appId, dataPaths }),
+  /** MANAGE：卸载（backupFirst 自动备份 → 白名单删除；backup=false 仅风险卡二次确认后传） */
+  manageRemove: (input: {
+    appId: string;
+    residualPaths: string[];
+    dataPaths: string[];
+    steps: string[];
+    backup?: boolean;
+  }) => invoke<ManageRemoveResult>("manage_remove", input),
+  /** MANAGE：已装清单 [{appId, version?, installedAt?}] */
+  manageManifestList: () => invoke<ManifestEntry[]>("manage_manifest_list"),
   /** 托盘文案同步（tooltip + 菜单项 + 首项动作） */
   traySync: (ui: TraySync) => invoke<void>("tray_sync", { ui }),
   /** 退出（真正结束进程） */

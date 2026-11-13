@@ -19,6 +19,9 @@ import type {
   ScanReport,
   UpdateInfo,
   VerifyInput,
+  ManageBackupResult,
+  ManageRemoveResult,
+  ManifestEntry,
 } from "./client";
 import { diffAppUpdates } from "../state/appUpdates";
 
@@ -220,6 +223,22 @@ export function mockRegistryApp(id: string): AppManifest {
       },
     },
     // C3 keyFormat / C4 recommendedModels 真源兑底（与 aibox-registry app.json 同构）
+    maintenance: {
+      upgrade: { type: "rerun-dag", notes: "重跑依赖 DAG 覆盖安装" },
+      uninstall: {
+        steps: [
+          "Windows: Settings → Apps → OpenClaw → Uninstall",
+          "按 dataPaths 删除配置与对话数据",
+        ],
+        residualPaths: ["~/.config/openclaw", "~/AppData/Roaming/OpenClaw"],
+      },
+      dataPaths: ["~/.config/openclaw", "~/AppData/Roaming/OpenClaw"],
+      risk: {
+        onUninstall:
+          "配置与对话历史将被删除，建议先备份 / Configuration and chat history will be deleted — back up first.",
+        backupFirst: true,
+      },
+    },
     modelProviders: {
       openrouter: {
         authType: "api-key",
@@ -449,6 +468,46 @@ export function mockCheckAppUpdates(): AppUpdateRow[] {
     ],
     { openclaw: "2026.11.2", "openclaw-old": "0.9.2" },
   );
+}
+
+/* ── MANAGE 维护模式 ── */
+export function mockManageBackup(appId: string, dataPaths: string[]): ManageBackupResult {
+  const existing = dataPaths.filter(() => true); // mock：声明的都算存在
+  if (existing.length === 0) return { backupDir: "", files: [] };
+  return {
+    backupDir: `C:\\Users\\dev\\.aibox\\backup\\20261113170000\\${appId}`,
+    files: existing.map((p) => p.replace(/^~\//, "")),
+    skipped: [],
+  };
+}
+
+export function mockManageRemove(input: {
+  appId: string;
+  residualPaths: string[];
+  dataPaths: string[];
+  steps: string[];
+  backup?: boolean;
+}): ManageRemoveResult {
+  void input.steps;
+  const backup = input.backup !== false;
+  const skipped = input.residualPaths
+    .filter((p) => p.includes("ghost"))
+    .map((p) => ({ path: p, reason: "not found" }));
+  const removed = input.residualPaths.filter((p) => !p.includes("ghost"));
+  return {
+    ...(backup
+      ? { backupDir: `C:\\Users\\dev\\.aibox\\backup\\20261113170000\\${input.appId}` }
+      : {}),
+    removed,
+    skipped,
+  };
+}
+
+export function mockManageManifestList(): ManifestEntry[] {
+  return [
+    { appId: "openclaw", version: "2026.11.1", installedAt: 1791000000000 },
+    { appId: "openclaw-old", version: "0.9.2", installedAt: 1790000000000 },
+  ];
 }
 
 /** 开机自启 mock（内存态，toggle 即时生效） */

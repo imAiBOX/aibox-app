@@ -491,6 +491,8 @@ pub fn record_install(id: &str, version: Option<&str>) -> CoreResult<String> {
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_else(|| serde_json::json!({"apps": []}));
     upsert_install_manifest(&mut v, id, version);
+    // 首次登记 → 记 installedAt（unix ms；MANAGE 已装列表用；重复登记不覆盖）
+    stamp_installed_at(&mut v, id, crate::registry::now_ms() as u64);
     if let Some(dir) = path.parent() {
         paths::ensure_dir(dir).map_err(|e| io_err("create install-manifest dir", e))?;
     }
@@ -498,6 +500,45 @@ pub fn record_install(id: &str, version: Option<&str>) -> CoreResult<String> {
         .map_err(|e| CoreError::new("INSTALL_RECORD", format!("serialize install-manifest: {e}")))?;
     std::fs::write(&path, text)
         .map_err(|e| io_err("write install-manifest", e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// 首次登记时间戳（已有 installedAt 不覆盖；纯函数，单测）。
+pub fn stamp_installed_at(v: &mut Value, id: &str, now_ms: u64) {
+    let Some(arr) = v.get_mut("apps").and_then(|a| a.as_array_mut()) else {
+        return;
+    };
+    if let Some(e) = arr
+        .iter_mut()
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id))
+    {
+        if e.get("installedAt").is_none() {
+            e["installedAt"] = serde_json::json!(now_ms);
+        }
+    }
+}
+
+/// 卸载后注销：从 install-manifest 移除条目（不存在 → 幂等成功）。
+pub fn remove_install(id: &str) -> CoreResult<String> {
+    crate::registry::validate_id(id)?;
+    let path = paths::install_manifest_file();
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(path.to_string_lossy().into_owned());
+    };
+    let Ok(mut v) = serde_json::from_str::<Value>(&text) else {
+        return Ok(path.to_string_lossy().into_owned());
+    };
+    let before = v.get("apps").and_then(|a| a.as_array()).map(|a| a.len());
+    if let Some(arr) = v.get_mut("apps").and_then(|a| a.as_array_mut()) {
+        arr.retain(|e| e.get("id").and_then(|x| x.as_str()) != Some(id));
+    }
+    let after = v.get("apps").and_then(|a| a.as_array()).map(|a| a.len());
+    if before == after {
+        return Ok(path.to_string_lossy().into_owned()); // 幂等（无该条目）
+    }
+    let out = serde_json::to_string_pretty(&v)
+        .map_err(|e| CoreError::new("INSTALL_FORGET", format!("serialize: {e}")))?;
+    std::fs::write(&path, out).map_err(|e| io_err("write install-manifest", e))?;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -871,6 +912,17 @@ mod tests {
         // 幂等：重复 upsert 不产生重复条目
         upsert_install_manifest(&mut legacy, "jan", Some("1.1"));
         assert_eq!(legacy["apps"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn stamp_installed_at_only_once() {
+        let mut v = serde_json::json!({"apps": [{"id": "jan"}]});
+        stamp_installed_at(&mut v, "jan", 1000);
+        assert_eq!(v["apps"][0]["installedAt"], 1000);
+        stamp_installed_at(&mut v, "jan", 2000); // 已有 → 不覆盖
+        assert_eq!(v["apps"][0]["installedAt"], 1000);
+        stamp_installed_at(&mut v, "missing", 3000); // 无条目 → 不新建
+        assert_eq!(v["apps"].as_array().unwrap().len(), 1);
     }
 
     #[test]

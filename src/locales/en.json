@@ -24,7 +24,8 @@
     "verify": "Verify",
     "settings": "Settings",
     "smartscreen": "SmartScreen help",
-    "gatekeeper": "Gatekeeper help"
+    "gatekeeper": "Gatekeeper help",
+    "manage": "Manage installed"
   },
   "btn": {
     "startInstall": "Start install",
@@ -32,7 +33,7 @@
     "back": "Back",
     "confirm": "Next",
     "begin": "Install now",
-    "cancel": "Cancel install",
+    "cancel": "Cancel",
     "viewLog": "View log",
     "skipConfig": "Skip setup",
     "verify": "Send test",
@@ -360,5 +361,37 @@
     "desc": "An install is still running. Quitting now will interrupt it.",
     "stay": "Keep running",
     "quit": "Quit"
+  },
+  "s8": {
+    "title": "Manage installed apps",
+    "lede": "Update, uninstall or reinstall apps you installed with AiBOX. Uninstalling backs up your data first.",
+    "empty": "No apps installed yet — install one from the catalog first.",
+    "loadErr": "Could not load the installed list. Check your network and retry.",
+    "installed": "Installed",
+    "updatable": "update {{version}} available",
+    "noUpdate": "up to date",
+    "checkUpdate": "Check updates",
+    "upgrade": "Upgrade",
+    "uninstall": "Uninstall",
+    "reinstall": "Reinstall",
+    "noMaint": "No maintenance data for this app yet.",
+    "riskTitle": "Before you continue",
+    "riskDefault": "Uninstalling removes this app's files. Your data will be deleted.",
+    "riskPaths": "These folders contain your data and settings:",
+    "backupLabel": "Back up my data first (recommended)",
+    "noBackupAck": "I understand my data will be deleted without a backup",
+    "confirmUninstall": "Uninstall",
+    "confirmReinstall": "Reinstall",
+    "working": "Working…",
+    "doneTitle": "Done",
+    "doneRemoved": "{{count}} item(s) removed",
+    "doneBackup": "Backup saved to",
+    "doneSkipped": "{{count}} item(s) skipped (not found)",
+    "goInstall": "Install again",
+    "close": "Close",
+    "errTitle": "Something went wrong",
+    "errRemove": "The operation failed. Your data was not fully changed — check the message and retry.",
+    "errNoManifest": "This app has no maintenance data in the registry, so AiBOX will not delete anything.",
+    "retry": "Retry"
   }
 }

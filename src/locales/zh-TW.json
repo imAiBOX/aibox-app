@@ -24,7 +24,8 @@
     "verify": "驗證",
     "settings": "設定",
     "smartscreen": "SmartScreen 幫助",
-    "gatekeeper": "Gatekeeper 幫助"
+    "gatekeeper": "Gatekeeper 幫助",
+    "manage": "管理已安裝"
   },
   "btn": {
     "startInstall": "開始安裝",
@@ -32,7 +33,7 @@
     "back": "返回",
     "confirm": "下一步",
     "begin": "開始安裝",
-    "cancel": "取消安裝",
+    "cancel": "取消",
     "viewLog": "檢視日誌",
     "skipConfig": "跳過配置",
     "verify": "傳送測試",
@@ -360,5 +361,37 @@
     "desc": "正在安裝應用，現在退出會中斷安裝。",
     "stay": "繼續執行",
     "quit": "退出"
+  },
+  "s8": {
+    "title": "管理已安裝應用",
+    "lede": "對用 AiBOX 安裝的應用做 升級 / 解除安裝 / 重灌。解除安裝前會先備份你的資料。",
+    "empty": "還沒有安裝過應用——先去目錄裝一個。",
+    "loadErr": "已安裝清單載入失敗，檢查網路後重試。",
+    "installed": "已安裝",
+    "updatable": "可升級到 {{version}}",
+    "noUpdate": "已是最新",
+    "checkUpdate": "檢查更新",
+    "upgrade": "升級",
+    "uninstall": "解除安裝",
+    "reinstall": "重灌",
+    "noMaint": "該應用暫無維護資料。",
+    "riskTitle": "繼續之前請確認",
+    "riskDefault": "解除安裝會刪除該應用的檔案，你的資料也會被刪除。",
+    "riskPaths": "這些資料夾裝著你的資料和設定：",
+    "backupLabel": "先備份我的資料（推薦）",
+    "noBackupAck": "我已明白：不備份就直接刪除資料",
+    "confirmUninstall": "解除安裝",
+    "confirmReinstall": "重灌",
+    "working": "處理中…",
+    "doneTitle": "完成",
+    "doneRemoved": "已刪除 {{count}} 項",
+    "doneBackup": "備份保存在",
+    "doneSkipped": "跳過 {{count}} 項（未找到）",
+    "goInstall": "重新安裝",
+    "close": "關閉",
+    "errTitle": "出了點問題",
+    "errRemove": "操作失敗，資料未完全變更——看下面的說明後重試。",
+    "errNoManifest": "該應用在 registry 裡沒有維護資料，AiBOX 不會刪除任何東西。",
+    "retry": "重試"
   }
 }

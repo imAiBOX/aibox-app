@@ -16,6 +16,7 @@ use aibox_core::config::{self, ConfigWriteInput, ConfigWriteResult};
 use aibox_core::diagzip;
 use aibox_core::download::{self, DownloadSpec};
 use aibox_core::exec::{self, ExecKind, ExecSpec};
+use aibox_core::manage::{self, BackupOutcome, ManifestEntry, RemoveOutcome};
 use aibox_core::matrix::{self, ProbeTarget};
 use aibox_core::probe::{self, ProbeSpec};
 use aibox_core::scan::{self, ScanReport};
@@ -651,6 +652,56 @@ pub async fn check_app_updates() -> Cmd<Vec<update::AppUpdateRow>> {
 #[tauri::command]
 pub async fn install_record(app_id: String, version: Option<String>) -> Cmd<String> {
     blocking(move || aibox_core::scan::record_install(&app_id, version.as_deref())).await
+}
+
+// ── MANAGE 维护模式（已装应用 升级复用安装链 / 卸载 / 备份 / 清单）──────
+
+/// 数据备份：dataPaths（展开 ~、只读存在的）→ `~/.aibox/backup/<ts>/<appId>/data.zip`
+/// + `manifest.json`（条目↔原路径还原映射）。只碰声明路径，绝不越界。
+#[tauri::command]
+pub async fn manage_backup(app_id: String, data_paths: Vec<String>) -> Cmd<BackupOutcome> {
+    blocking(move || manage::backup_app(&app_id, &data_paths, &manage::default_backup_root())).await
+}
+
+/// 卸载：backupFirst 自动备份 → 白名单内（residualPaths ∪ dataPaths）删除 →
+/// 成功后注销 install-manifest。失败收集不中断；零提权；steps 只写日志不执行。
+#[tauri::command]
+pub async fn manage_remove(
+    app_id: String,
+    residual_paths: Vec<String>,
+    data_paths: Vec<String>,
+    steps: Vec<String>,
+    backup: Option<bool>,
+) -> Cmd<RemoveOutcome> {
+    let do_backup = backup.unwrap_or(true); // backupFirst 硬规则：缺省 true
+    let id_for_remove = app_id.clone();
+    let out = blocking(move || {
+        manage::remove_app(
+            &id_for_remove,
+            &residual_paths,
+            &data_paths,
+            &steps,
+            do_backup,
+            &manage::default_backup_root(),
+        )
+    })
+    .await?;
+    // 无真失败（skipped 只允许 not found）→ 注销已装登记（幂等）
+    let clean = out
+        .skipped
+        .iter()
+        .all(|s| s.reason == "not found");
+    if clean {
+        let id = app_id.clone();
+        let _ = blocking(move || aibox_core::scan::remove_install(&id)).await;
+    }
+    Ok(out)
+}
+
+/// 已装清单：`[{appId, version?, installedAt?}]`（读 install-manifest；MANAGE 屏数据源）。
+#[tauri::command]
+pub async fn manage_manifest_list() -> Cmd<Vec<ManifestEntry>> {
+    blocking(|| Ok(manage::manifest_list())).await
 }
 
 /// 托盘文案同步（前端 i18n 后下发；tooltip + 菜单项 + 首项动作）。

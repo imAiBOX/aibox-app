@@ -72,6 +72,10 @@ fn main() {
             // 托盘 / 自启 / 应用更新
             commands::check_app_updates,
             commands::install_record,
+            // MANAGE 维护模式
+            commands::manage_backup,
+            commands::manage_remove,
+            commands::manage_manifest_list,
             commands::tray_sync,
             commands::app_quit,
             commands::autostart_get,

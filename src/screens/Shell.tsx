@@ -30,11 +30,13 @@ export function LeftNav({
   errorFrom,
   onOpenSettings,
   onOpenSmartScreen,
+  onOpenManage,
 }: {
   status: Status;
   errorFrom?: Status;
   onOpenSettings: () => void;
   onOpenSmartScreen: () => void;
+  onOpenManage: () => void;
 }) {
   const { t } = useTranslation();
   const active = navIndex(status, errorFrom);
@@ -76,6 +78,14 @@ export function LeftNav({
         })}
       </ol>
       <div className="flex flex-col items-center gap-3">
+        <button
+          type="button"
+          onClick={onOpenManage}
+          title={t("nav.manage")}
+          className="flex h-8 w-8 items-center justify-center rounded-[4px] border border-aibox-line font-mono text-xs text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
+        >
+          ⊞
+        </button>
         <button
           type="button"
           onClick={onOpenSettings}
@@ -133,6 +143,7 @@ export function AppShell({
   bar,
   onOpenSettings,
   onOpenSmartScreen,
+  onOpenManage,
   banner,
   children,
 }: {
@@ -141,6 +152,7 @@ export function AppShell({
   bar: BarAction[];
   onOpenSettings: () => void;
   onOpenSmartScreen: () => void;
+  onOpenManage: () => void;
   banner?: ReactNode;
   children: ReactNode;
 }) {
@@ -151,6 +163,7 @@ export function AppShell({
         errorFrom={errorFrom}
         onOpenSettings={onOpenSettings}
         onOpenSmartScreen={onOpenSmartScreen}
+        onOpenManage={onOpenManage}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         {banner}

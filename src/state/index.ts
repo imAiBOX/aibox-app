@@ -7,3 +7,4 @@ export * from "./e1";
 export * from "./plan";
 export * from "./orchestrate";
 export * from "./appFilter";
+export * from "./manage";
