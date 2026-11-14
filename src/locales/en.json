@@ -61,7 +61,8 @@
     "searchClear": "Clear",
     "noMatches": "No apps match your search.",
     "statsSr": "{{views}} views, {{installs}} installs",
-    "all": "All"
+    "all": "All",
+    "offlineSnapshot": "Offline catalog (snapshot)"
   },
   "s2": {
     "title": "Checkup report",
@@ -344,6 +345,9 @@
     "autostart": "Launch at startup",
     "autostartDesc": "Start AiBOX when you sign in. No admin rights needed.",
     "autostartFail": "Couldn't turn on launch at startup — security software may have blocked it.",
+    "prefetch": "Background prefetch",
+    "prefetchDesc": "When an installed app has an update, download its main installer in the background so upgrades are instant.",
+    "prefetchFail": "Couldn't save the prefetch setting.",
     "trayTitle": "System tray",
     "trayHint": "Closing the window keeps AiBOX in the tray. Right-click the tray icon to quit."
   },

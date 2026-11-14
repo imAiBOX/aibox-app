@@ -134,6 +134,10 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           node scripts/set-version.mjs "$VERSION"
 
+      # 目录快照：发布二进制内嵌最新 registry index（失败沿用仓库内快照，不阻断）
+      - name: Refresh registry catalog snapshot
+        run: node scripts/gen-registry-snapshot.mjs
+
       # --no-bundle：只要 exe（Win10+ 自带 WebView2，
       # 双击即跑的 portable），不做 NSIS/MSI 安装包
       # （bundle.active=true 只服务 release-macos 的 dmg 打包，此处 --no-bundle 覆盖）
@@ -201,6 +205,10 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           node scripts/set-version.mjs "$VERSION"
+
+      # 目录快照：发布二进制内嵌最新 registry index（失败沿用仓库内快照，不阻断）
+      - name: Refresh registry catalog snapshot
+        run: node scripts/gen-registry-snapshot.mjs
 
       # Tauri v2 官方 Universal 方式：一次构建 lipo 合并 arm64+x86_64
       - name: Build universal dmg

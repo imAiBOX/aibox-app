@@ -169,7 +169,18 @@ export default function S1Idle({
     <div className="flex h-full gap-5">
       <div className="min-w-0 flex-1">
         <header className="mb-4 flex items-baseline justify-between">
-          <h1 className="font-display text-xl font-bold text-aibox-cream">{t("s1.title")}</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="font-display text-xl font-bold text-aibox-cream">{t("s1.title")}</h1>
+            {/* 离线目录（快照）：网络+缓存全挂时构建时嵌入的 registry 快照兑底 */}
+            {index?.offlineSnapshot && (
+              <span
+                className="rounded-[4px] border border-[#f5c518] px-2 py-0.5 font-mono text-[10px] text-[#f5c518]"
+                title={t("s1.offlineSnapshot")}
+              >
+                {t("s1.offlineSnapshot")}
+              </span>
+            )}
+          </div>
           <span className="font-mono text-[11px] text-aibox-text2">{t("s1.subtitle")}</span>
         </header>
 

@@ -83,6 +83,10 @@ fn main() {
             commands::app_quit,
             commands::autostart_get,
             commands::autostart_set,
+            // 后台预下载（空闲资源榨干）
+            commands::prefetch_start,
+            commands::prefetch_get,
+            commands::prefetch_set,
             // 保留
             commands::channel_types,
         ])

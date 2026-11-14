@@ -3,7 +3,7 @@
  * kind 映射（registry 5 种 → Rust ExecKind 3 种）、destName/spec 展开。
  */
 import { describe, expect, it } from "vitest";
-import { buildPlan, destNameOf, KIND_MAP, matchesMachine, specOf } from "./plan";
+import { buildPlan, cacheFileName, destNameOf, KIND_MAP, matchesMachine, specOf } from "./plan";
 import type { AppManifest, RegistryPackage, ScanReport } from "../net/client";
 
 const SHA = "a".repeat(64);
@@ -59,6 +59,18 @@ describe("destNameOf", () => {
   });
 });
 
+describe("cacheFileName（内容寻址；与 Rust content_name 同构）", () => {
+  it("sha + 扩展名；无扩展名/前导点不拼", () => {
+    const sha = "a".repeat(64);
+    expect(cacheFileName("Hub-Setup.exe", sha)).toBe(`${sha}.exe`);
+    // trim + 小写（registry sha 可能大写/带空白）
+    expect(cacheFileName("node-v26.msi", ` ${sha.toUpperCase()} `)).toBe(`${sha}.msi`);
+    expect(cacheFileName("noext", sha)).toBe(sha);
+    expect(cacheFileName(".hidden", sha)).toBe(sha);
+    expect(cacheFileName("tail.", sha)).toBe(sha);
+  });
+});
+
 describe("matchesMachine", () => {
   it("platform 不匹配 → false；arch any/缺省 → true", () => {
     expect(matchesMachine(pkg({ platforms: ["macos"] }), "windows", "x64")).toBe(false);
@@ -83,7 +95,7 @@ describe("specOf", () => {
     expect(r.spec.exec.kind).toBe("script");
     expect(r.spec.exec.exe).toBe("msiexec");
     expect(r.spec.exec.args[0]).toBe("/i");
-    expect(r.spec.exec.args[1]).toBe("/home/u/.aibox/cache/downloads/node-v26.msi");
+    expect(r.spec.exec.args[1]).toBe(`/home/u/.aibox/cache/downloads/${SHA}.msi`);
     expect(r.spec.download.destName).toBe("node-v26.msi");
     expect(r.spec.download.sha256).toBe(SHA);
     expect(r.spec.probe?.cmd).toBe("node --version");
@@ -92,7 +104,7 @@ describe("specOf", () => {
   it("nsis-silent → exe=安装包绝对路径；npm-prefix → cmd /c npm（Win 可 CreateProcess）", () => {
     const nsis = specOf(hub, "C:/Users/u")!;
     expect(nsis.spec.exec.kind).toBe("nsis-silent");
-    expect(nsis.spec.exec.exe).toBe("C:/Users/u/.aibox/cache/downloads/Hub-Setup.exe");
+    expect(nsis.spec.exec.exe).toBe(`C:/Users/u/.aibox/cache/downloads/${SHA}.exe`);
 
     const npm = specOf(cli, "~")!;
     expect(npm.spec.exec.kind).toBe("npm-prefix");

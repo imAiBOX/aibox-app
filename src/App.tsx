@@ -33,6 +33,7 @@ import S8Manage from "./screens/S8Manage";
 import SmartScreen from "./screens/SmartScreen";
 import { useUpdateBanner, OFFICIAL_DOWNLOAD_URL } from "./hooks/useUpdateBanner";
 import { useUpdateChecks } from "./hooks/useUpdateChecks";
+import { usePrefetch } from "./hooks/usePrefetch";
 import { buildTrayLabels } from "./state/tray";
 import { APP_UPDATE_TTL_MS } from "./state/appUpdates";
 import { useSessionResume } from "./hooks/useSessionResume";
@@ -75,6 +76,8 @@ export default function App() {
   const exportedRef = useRef(false);
   const banner = useUpdateBanner();
   const checks = useUpdateChecks();
+  // 空闲预下载：已装应用有新版 + 常驻 IDLE → 后台静默预下主安装包（升级秒装闭环）
+  usePrefetch(checks.appUpdates, state.status);
   const resume = useSessionResume(persistence, dispatch, state);
 
   // 版本号：Tauri 壳优先，失败回落构建期注入

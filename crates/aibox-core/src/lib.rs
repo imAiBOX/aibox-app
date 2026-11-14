@@ -7,7 +7,8 @@
 //! |---|---|
 //! | [`paths`] | `~/` / `%LOCALAPPDATA%` 路径展开、`~/.aibox/` 数据根 |
 //! | [`redact`] | key 脱敏 `sk-****1234` + 诊断导出正则扫描 |
-//! | [`download`] | 包装 aibox-net `download_fallback`（dest 落 cache/downloads，进度闭包上抛） |
+//! | [`download`] | 包装 aibox-net `download_fallback`（内容寻址 dest 落 cache/downloads，进度闭包上抛） |
+//! | [`prefetch`] | 后台预下载：选主安装包 + settings 开关 + 缓存命中秒过（空闲资源榨干） |
 //! | [`verify`] | SHA-256 校验（复用 net 的 `sha256_file`，S1 零豁免） |
 //! | [`exec`] | 静默安装执行（nsis-silent / npm-prefix / script，零提权，超时+4KB 截断） |
 //! | [`probe`] | 运行探测命令 + regex expect → 真实版本字符串（V2 不变量） |
@@ -31,6 +32,7 @@ pub mod fsops;
 pub mod manage;
 pub mod matrix;
 pub mod paths;
+pub mod prefetch;
 pub mod probe;
 pub mod redact;
 pub mod region;

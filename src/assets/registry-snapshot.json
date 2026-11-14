@@ -1,0 +1,312 @@
+{
+  "registryVersion": "2026.11.14.1",
+  "generatedAt": "2026-11-14T08:30:00Z",
+  "note": "SSOT for AiBOX.im (aibox-site + AiBOX installer both read this repo). Data baselines were live-verified on 2026-11-09/11/12/14 (see README).",
+  "apps": [
+    {
+      "id": "openclaw",
+      "name": "OpenClaw",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "把大模型接到你的聊天软件：多渠道 AI 网关",
+        "en": "Multi-channel AI gateway that plugs LLMs into your messengers"
+      },
+      "icon": "icons/openclaw.png",
+      "difficulty": 3,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "category": "local-llm",
+      "tagline": {
+        "zh-CN": "本地跑开源大模型：一条命令下载即用，离线免费",
+        "en": "Run open-source LLMs locally — one command to download, fully offline and free"
+      },
+      "icon": "icons/ollama.png",
+      "difficulty": 1,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-11T21:45:00Z"
+    },
+    {
+      "id": "cherry-studio",
+      "name": "Cherry Studio",
+      "category": "chat",
+      "tagline": {
+        "zh-CN": "颜值在线的桌面 AI 工作台，一个客户端连多家模型",
+        "en": "A polished desktop AI workspace that connects to many model providers"
+      },
+      "icon": "icons/cherry-studio.png",
+      "difficulty": 1,
+      "popularity": 4,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-11T21:45:00Z"
+    },
+    {
+      "id": "chatbox",
+      "name": "Chatbox",
+      "category": "chat",
+      "tagline": {
+        "zh-CN": "轻量跨平台 AI 聊天客户端，对话数据存自己电脑",
+        "en": "Lightweight cross-platform AI chat client — conversations stay on your machine"
+      },
+      "icon": "icons/chatbox.png",
+      "difficulty": 1,
+      "popularity": 3,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-11T21:45:00Z"
+    },
+    {
+      "id": "jan",
+      "name": "Jan",
+      "category": "chat",
+      "tagline": {
+        "zh-CN": "离线优先的本地 AI 工作台，数据留在自己电脑",
+        "en": "Offline-first local AI workspace that keeps your data on your own computer"
+      },
+      "icon": "icons/jan.png",
+      "difficulty": 2,
+      "popularity": 3,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-11T21:45:00Z"
+    },
+    {
+      "id": "aidog",
+      "name": "AiDog",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "本地运行的个人 AI 伙伴：接 Telegram、飞书、钉钉，网页控制台自己管",
+        "en": "Self-hosted personal AI companion — talks to you on Telegram, Feishu and DingTalk, managed from a local web console"
+      },
+      "icon": "icons/aidog.png",
+      "difficulty": 4,
+      "popularity": 1,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "experimental",
+      "updatedAt": "2026-11-12T12:30:00Z"
+    },
+    {
+      "id": "hermes-agent",
+      "name": "Hermes Agent",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "Nous Research 出品的开源个人 Agent：一条命令装好，终端里越用越懂你",
+        "en": "Open-source personal agent from Nous Research — one-command install, grows with you in your terminal"
+      },
+      "icon": "icons/hermes-agent.png",
+      "difficulty": 3,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-12T12:30:00Z"
+    },
+    {
+      "id": "nanobot",
+      "name": "nanobot",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "超轻量个人 Agent：浏览器、终端、聊天应用里都能干活，数据存本地",
+        "en": "Ultra-lightweight personal agent that works in your browser, terminal or chat app — your data stays local"
+      },
+      "icon": "icons/nanobot.png",
+      "difficulty": 2,
+      "popularity": 4,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-12T12:30:00Z"
+    },
+    {
+      "id": "cowagent",
+      "name": "CowAgent",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "中文圈个人 AI 助手：网页控制台一站式聊天、连渠道、装技能",
+        "en": "Personal AI assistant with a one-stop web console — chat, connect channels and install skills"
+      },
+      "icon": "icons/cowagent.png",
+      "difficulty": 2,
+      "popularity": 4,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-12T12:30:00Z"
+    },
+    {
+      "id": "cline",
+      "name": "Cline",
+      "category": "coding",
+      "tagline": {
+        "zh-CN": "VS Code 里的开源编码代理：改文件、跑命令，每一步你点头",
+        "en": "Open-source coding agent inside VS Code — edits files and runs commands, with your approval at every step"
+      },
+      "icon": "icons/cline.png",
+      "difficulty": 2,
+      "popularity": 4,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-12T14:30:00Z"
+    },
+    {
+      "id": "llamafile",
+      "name": "llamafile",
+      "category": "local-llm",
+      "tagline": {
+        "zh-CN": "单文件跑大模型：一个可执行文件零安装，离线免费",
+        "en": "Run an LLM from a single file — zero install, fully offline and free"
+      },
+      "icon": "icons/llamafile.png",
+      "difficulty": 2,
+      "popularity": 3,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-12T14:30:00Z"
+    },
+    {
+      "id": "anything-llm",
+      "name": "AnythingLLM",
+      "category": "knowledge",
+      "tagline": {
+        "zh-CN": "把文档变成私人知识库：拖入文件自动向量化，问答带出处",
+        "en": "Turn documents into a private knowledge base — answers cite their sources"
+      },
+      "icon": "icons/anything-llm.png",
+      "difficulty": 1,
+      "popularity": 4,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-12T14:30:00Z"
+    },
+    {
+      "id": "gpt4all",
+      "name": "GPT4All",
+      "category": "local-llm",
+      "tagline": {
+        "zh-CN": "完全离线的本地大模型客户端：聊天、建知识库都不联网",
+        "en": "Fully offline local LLM desktop app — chat and knowledge bases without any network"
+      },
+      "icon": "icons/gpt4all.png",
+      "difficulty": 1,
+      "popularity": 4,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-12T14:30:00Z"
+    },
+    {
+      "id": "continue",
+      "name": "Continue",
+      "category": "coding",
+      "tagline": {
+        "zh-CN": "VS Code 里的开源 AI 编程副驾：对话改代码，配置全存本地",
+        "en": "Open-source AI coding assistant in VS Code — chat-driven edits, config stays local"
+      },
+      "icon": "icons/continue.png",
+      "difficulty": 2,
+      "popularity": 4,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-14T08:30:00Z"
+    },
+    {
+      "id": "aider",
+      "name": "Aider",
+      "category": "coding",
+      "tagline": {
+        "zh-CN": "终端 AI 结对编程：一句话在 git 仓库里改代码",
+        "en": "AI pair programming in your terminal — one prompt, edits straight into your git repo"
+      },
+      "icon": "icons/aider.png",
+      "difficulty": 3,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-14T08:30:00Z"
+    },
+    {
+      "id": "lobechat",
+      "name": "LobeHub",
+      "category": "chat",
+      "tagline": {
+        "zh-CN": "开源 AI 聊天工作台：多 Agent、多模型，桌面原生",
+        "en": "Open-source AI chat workspace — many agents, many models, native desktop app"
+      },
+      "icon": "icons/lobechat.png",
+      "difficulty": 1,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-14T08:30:00Z"
+    },
+    {
+      "id": "comfyui",
+      "name": "ComfyUI",
+      "category": "media",
+      "tagline": {
+        "zh-CN": "节点式 AI 图像视频创作：便携版开箱即用",
+        "en": "Node-based AI image & video creation — portable build, ready out of the box"
+      },
+      "icon": "icons/comfyui.png",
+      "difficulty": 5,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable",
+      "updatedAt": "2026-11-14T08:30:00Z"
+    }
+  ]
+}

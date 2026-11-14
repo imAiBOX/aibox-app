@@ -61,7 +61,8 @@
     "searchClear": "清空",
     "noMatches": "没有匹配的应用",
     "statsSr": "{{views}} 次浏览，{{installs}} 次安装",
-    "all": "全部"
+    "all": "全部",
+    "offlineSnapshot": "离线目录（快照）"
   },
   "s2": {
     "title": "体检报告",
@@ -344,6 +345,9 @@
     "autostart": "开机自启动",
     "autostartDesc": "开机自动打开 AiBOX，无需管理员权限",
     "autostartFail": "未能设置开机自启，可能被安全软件阻止",
+    "prefetch": "后台预下载",
+    "prefetchDesc": "已装应用发现新版时，后台静默预下载主安装包，升级秒装",
+    "prefetchFail": "未能保存预下载设置",
     "trayTitle": "托盘常驻",
     "trayHint": "关闭窗口会最小化到托盘；右击托盘图标可退出"
   },

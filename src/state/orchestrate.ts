@@ -9,6 +9,7 @@
  *   stop() 中止循环并取消在途下载（不派发 ERROR，由调用方决定）。
  */
 import { isMock, type AiboxEvent, type DownloadTask, type ExecTask, type ProbeSpec } from "../net/client";
+import { cacheFileName } from "./plan";
 import type { Event, SessionSnapshot, Task } from "./types";
 
 /* ── 错误码 → 人话 i18n key（ErrorOverlay t(messageKey)） ── */
@@ -91,8 +92,9 @@ export interface ExecuteHandle {
 
 type RunResult = "done" | "stopped" | "error";
 
-function downloadPath(destName: string): string {
-  return `~/.aibox/cache/downloads/${destName}`;
+/** 安装产物路径：内容寻址（`<sha256><ext>`，与 Rust download 落盘同构） */
+function downloadPath(destName: string, sha256: string): string {
+  return `~/.aibox/cache/downloads/${cacheFileName(destName, sha256)}`;
 }
 
 /**
@@ -228,7 +230,7 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     let verified: boolean;
     try {
       verified = await deps.api.verifySha256(
-        downloadPath(spec.download.destName),
+        downloadPath(spec.download.destName, spec.download.sha256),
         spec.download.sha256,
       );
     } catch (e) {

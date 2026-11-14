@@ -25,6 +25,9 @@ import {
   mockStatsFetch,
   mockAutostartGet,
   mockAutostartSet,
+  mockPrefetchGet,
+  mockPrefetchSet,
+  mockPrefetchStart,
   mockVerifySend,
   mockVerifySha256,
   mockDiagExport,
@@ -108,6 +111,8 @@ export interface AppIndex {
   registryVersion?: string;
   generatedAt?: string;
   note?: string;
+  /** 网络+缓存全挂 → 构建时嵌入快照兜底（S1 渲染「离线目录（快照）」徽章） */
+  offlineSnapshot?: boolean;
   apps: AppIndexEntry[];
 }
 
@@ -273,6 +278,17 @@ export interface AutostartState {
   /** 最近一次注册失败原因（人话提示由 i18n 提供，这里仅详情） */
   error?: string;
 }
+/** 后台预下载开关（prefetch_get / prefetch_set 返回；settings.json prefetch.enabled） */
+export interface PrefetchState {
+  enabled: boolean;
+}
+/** 后台预下载结果（prefetch_start 返回；前端零 UI，只作日志/调试） */
+export interface PrefetchOutcome {
+  appId: string;
+  /** downloaded | cached | busy | disabled | no-package | failed | cancelled */
+  status: string;
+  detail?: string;
+}
 /** 托盘文案同步（前端 i18n 后下发；Rust 只展示） */
 export interface TraySync {
   tooltip: string;
@@ -390,6 +406,12 @@ function mockDispatch<T>(cmd: string, a?: unknown): T {
       return mockAutostartGet() as T;
     case "autostart_set":
       return mockAutostartSet(Boolean(args.enabled)) as T;
+    case "prefetch_get":
+      return mockPrefetchGet() as T;
+    case "prefetch_set":
+      return mockPrefetchSet(Boolean(args.enabled)) as T;
+    case "prefetch_start":
+      return mockPrefetchStart(String(args.appId ?? "")) as T;
     case "locales_load":
       return mockLocalesLoad(String(args?.lang ?? "en")) as T;
     default:
@@ -449,6 +471,11 @@ export const api = {
   autostartGet: () => invoke<AutostartState>("autostart_get"),
   /** 即时生效；失败返回 error（设置页人话提示） */
   autostartSet: (enabled: boolean) => invoke<AutostartState>("autostart_set", { enabled }),
+  /** 后台预下载开关（settings.json prefetch.enabled；缺省开） */
+  prefetchGet: () => invoke<PrefetchState>("prefetch_get"),
+  prefetchSet: (enabled: boolean) => invoke<PrefetchState>("prefetch_set", { enabled }),
+  /** 空闲预下载主安装包（常驻 IDLE + 有新版时顺序调；静默，无 UI 事件） */
+  prefetchStart: (appId: string) => invoke<PrefetchOutcome>("prefetch_start", { appId }),
   localesLoad: (lang: string) => invoke<Record<string, string>>("locales_load", { lang }),
 };
 

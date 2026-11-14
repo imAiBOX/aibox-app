@@ -6,7 +6,8 @@
   "packageManager": "pnpm@11.20.0",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/gen-registry-snapshot.mjs && tsc --noEmit && vite build",
+    "snapshot": "node scripts/gen-registry-snapshot.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "check:i18n": "node scripts/check-i18n.mjs",

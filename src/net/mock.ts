@@ -23,6 +23,8 @@ import type {
   ManageBackupResult,
   ManageRemoveResult,
   ManifestEntry,
+  PrefetchOutcome,
+  PrefetchState,
 } from "./client";
 import { diffAppUpdates } from "../state/appUpdates";
 
@@ -533,6 +535,19 @@ export function mockAutostartGet(): AutostartState {
 export function mockAutostartSet(enabled: boolean): AutostartState {
   mockAutostart = { enabled };
   return { ...mockAutostart };
+}
+
+/** 后台预下载 mock（内存开关；start 恒 busy = 开发态不真下） */
+let mockPrefetch: PrefetchState = { enabled: true };
+export function mockPrefetchGet(): PrefetchState {
+  return { ...mockPrefetch };
+}
+export function mockPrefetchSet(enabled: boolean): PrefetchState {
+  mockPrefetch = { enabled };
+  return { ...mockPrefetch };
+}
+export function mockPrefetchStart(appId: string): PrefetchOutcome {
+  return { appId, status: "busy", detail: "mock" };
 }
 
 const localesCache: Record<string, Record<string, string>> = {

@@ -100,7 +100,7 @@ describe("真分支四阶段推进（注入 fake api）", () => {
       "ALL_DONE",
     ]);
     expect(h.api.verifySha256).toHaveBeenCalledWith(
-      "~/.aibox/cache/downloads/a.bin",
+      `~/.aibox/cache/downloads/${"0".repeat(64)}.bin`,
       "0".repeat(64),
     );
     expect(h.api.execInstall).toHaveBeenCalledTimes(1);

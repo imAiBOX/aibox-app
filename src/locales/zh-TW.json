@@ -61,7 +61,8 @@
     "searchClear": "清空",
     "noMatches": "沒有匹配的應用",
     "statsSr": "{{views}} 次瀏覽，{{installs}} 次安裝",
-    "all": "全部"
+    "all": "全部",
+    "offlineSnapshot": "離線目錄（快照）"
   },
   "s2": {
     "title": "體檢報告",
@@ -344,6 +345,9 @@
     "autostart": "開機自啟動",
     "autostartDesc": "開機自動開啟 AiBOX，無需管理員許可權",
     "autostartFail": "未能設定開機自啟，可能被安全軟體阻止",
+    "prefetch": "背景預先下載",
+    "prefetchDesc": "已裝應用程式發現新版時，背景靜默預先下載主安裝包，升級秒裝",
+    "prefetchFail": "未能儲存預先下載設定",
     "trayTitle": "托盤常駐",
     "trayHint": "關閉視窗會最小化到托盤；右擊托盤圖示可退出"
   },

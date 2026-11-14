@@ -47,6 +47,18 @@ export function destNameOf(url: string): string {
   return seg || "download.bin";
 }
 
+/**
+ * 内容寻址缓存文件名：`<sha256><扩展名>`（扩展名取自 destName，保留安装器语义）。
+ * 与 Rust `aibox_core::download::content_name` 同构（改一处必改另一处）：
+ * 跨应用/重装/断点天然去重；安装 exe 路径与 verify 路径都指向它。
+ */
+export function cacheFileName(destName: string, sha256: string): string {
+  const sha = sha256.trim().toLowerCase();
+  const i = destName.lastIndexOf(".");
+  const ext = i > 0 && i + 1 < destName.length ? destName.slice(i) : "";
+  return `${sha}${ext}`;
+}
+
 function downloadsPath(home: string, destName: string): string {
   const h = home.replace(/\/+$/, "");
   return `${h}/.aibox/cache/downloads/${destName}`;
@@ -59,7 +71,7 @@ export function specOf(pkg: RegistryPackage, home: string): { spec: TaskSpec; ex
   const install = pkg.install;
   if (!url || !sha256 || !install) return null;
   const destName = destNameOf(url);
-  const destPath = downloadsPath(home, destName);
+  const destPath = downloadsPath(home, cacheFileName(destName, sha256));
   const args = install.args ?? [];
   const kind = KIND_MAP[install.type];
   if (!kind) return null;

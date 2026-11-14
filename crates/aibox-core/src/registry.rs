@@ -337,6 +337,20 @@ pub fn fetch_crosschecked(
     }
 }
 
+/// 构建时嵌入的目录快照（`scripts/gen-registry-snapshot.mjs` 拉 registry index.json
+/// 写入 `src/assets/registry-snapshot.json`，随版本发布；网络失败沿用仓库内上一次快照）。
+/// 本地缓存与全部网络源都不可用时的最后兑底 → **断网首开也有目录**。
+pub const INDEX_SNAPSHOT: &str = include_str!("../../../src/assets/registry-snapshot.json");
+
+/// 可用性类失败（0~1 源可达且无缓存）→ 允许回落嵌入快照；
+/// 源间互不一致（`REGISTRY_MISMATCH`，防篡改）等拒绝类错误**不**回落。
+pub fn is_availability_err(e: &CoreError) -> bool {
+    matches!(
+        e.code.as_str(),
+        "REGISTRY_UNAVAILABLE" | "REGISTRY_SINGLE_SOURCE"
+    )
+}
+
 /// 解析正文为 JSON（registry 文档必须是合法 JSON）。
 pub fn parse_doc(text: &str, what: &str) -> CoreResult<Value> {
     serde_json::from_str(text)
@@ -344,9 +358,19 @@ pub fn parse_doc(text: &str, what: &str) -> CoreResult<Value> {
 }
 
 /// `registry_index(force?)` → index.json 全文文档。
+/// 降级链：新鲜缓存 → 多源交叉 → 旧缓存（cache-stale）→ **嵌入快照**（`source = "snapshot"`）。
 pub fn fetch_index(force: bool) -> CoreResult<(Value, String)> {
-    let (text, src) = fetch_crosschecked("index.json", "index.json", force)?;
-    Ok((parse_doc(&text, "index")?, src))
+    match fetch_crosschecked("index.json", "index.json", force) {
+        Ok((text, src)) => Ok((parse_doc(&text, "index")?, src)),
+        Err(e) if is_availability_err(&e) => {
+            // 网络全挂且无本地缓存（新机器首装/断网）→ 构建时嵌入的快照兑底
+            Ok((
+                parse_doc(INDEX_SNAPSHOT, "registry snapshot")?,
+                "snapshot".to_string(),
+            ))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// `registry_app(id)` → `apps/<id>/app.json` 全文文档。
@@ -630,5 +654,31 @@ mod tests {
         assert!(cache_fresh(&name));
         let _ = std::fs::remove_file(cache_path(&name));
         let _ = std::fs::remove_file(cache_path(&name).with_extension("meta.json"));
+    }
+
+    #[test]
+    fn embedded_snapshot_parses_with_apps() {
+        // 构建时嵌入的快照必须是合法 index 文档（scripts/gen-registry-snapshot.mjs 产物）
+        let doc = parse_doc(INDEX_SNAPSHOT, "registry snapshot").expect("snapshot must parse");
+        assert!(
+            doc.get("apps").and_then(|a| a.as_array()).is_some(),
+            "快照必须含 apps 数组"
+        );
+    }
+
+    #[test]
+    fn availability_err_gates_snapshot_fallback() {
+        // 可用性失败（源全挂/单源无缓存）→ 允许嵌入快照
+        assert!(is_availability_err(&CoreError::new(
+            "REGISTRY_UNAVAILABLE",
+            "x"
+        )));
+        assert!(is_availability_err(&CoreError::new(
+            "REGISTRY_SINGLE_SOURCE",
+            "x"
+        )));
+        // 源间不一致（防篡改）/其他错误 → 拒绝回落
+        assert!(!is_availability_err(&CoreError::new("REGISTRY_MISMATCH", "x")));
+        assert!(!is_availability_err(&CoreError::new("REGISTRY_BAD_JSON", "x")));
     }
 }

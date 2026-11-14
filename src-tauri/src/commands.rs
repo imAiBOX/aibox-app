@@ -19,6 +19,7 @@ use aibox_core::exec::{self, ExecKind, ExecSpec};
 use aibox_core::manage::{self, BackupOutcome, ManifestEntry, RemoveOutcome};
 use aibox_core::matrix::{self, ProbeTarget};
 use aibox_core::probe::{self, ProbeSpec};
+use aibox_core::prefetch::{self, PrefetchStatus};
 use aibox_core::scan::{self, ScanReport};
 use aibox_core::update::{self, UpdateInfo};
 use aibox_core::verify_send::{self, VerifyInput, VerifyResult};
@@ -51,7 +52,11 @@ pub async fn scan_system() -> Cmd<ScanReport> {
 
 #[tauri::command]
 pub async fn registry_index(force: Option<bool>) -> Cmd<Value> {
-    let (mut doc, _) = blocking(move || registry::fetch_index(force.unwrap_or(false))).await?;
+    let (mut doc, src) = blocking(move || registry::fetch_index(force.unwrap_or(false))).await?;
+    if src == "snapshot" {
+        // 网络+缓存全挂 → 构建时嵌入快照兑底；标记给前端渲染「离线目录（快照）」徽章
+        doc["offlineSnapshot"] = json!(true);
+    }
     enrich_installed(&mut doc);
     Ok(doc)
 }
@@ -265,6 +270,9 @@ pub async fn download_start(
     };
 
     std::thread::spawn(move || {
+        // 安装下载开跑前：取消在途后台预下载并等它退出（≤15s）——
+        // 避免同一内容寻址文件 / `.part` 被并发写（预下载是 best-effort，让路安装）
+        cancel_running_prefetch();
         let app_progress = app.clone();
         let app_log = app.clone();
         let cancel_flag = cancel.clone();
@@ -272,14 +280,14 @@ pub async fn download_start(
         let log_app_progress = log_app.clone();
         let job_for_log = job_id.clone();
 
-        // 任务日志：通道序 / 跳过源 / 期望大小 / sha 起点
+        // 任务日志：通道序 / 跳过源 / 期望大小 / sha 起点（dest = 内容寻址文件名）
         let sha_head: String = spec.sha256.chars().take(16).collect();
         let _ = aibox_core::tasklog::append(
             &log_app,
             &job_for_log,
             &format!(
                 "download start: dest={} channels=[{}] skip=[{}] sizeBytes={} sha256={}…",
-                spec.dest_name,
+                download::content_name(&spec.dest_name, &spec.sha256),
                 spec.channels
                     .iter()
                     .map(|c| c.channel.as_str())
@@ -385,8 +393,40 @@ pub async fn download_start(
     Ok(id)
 }
 
-fn spec_log_name(spec: &DownloadSpec) -> &str {
-    &spec.dest_name
+fn spec_log_name(spec: &DownloadSpec) -> String {
+    // 内容寻址文件名（与实际落盘一致，日志/诊断一眼对上）
+    download::content_name(&spec.dest_name, &spec.sha256)
+}
+
+/// 安装下载开跑前取消在途预下载并等它退出（≤15s）。
+/// 预下载 job 以 `prefetch:` 前缀登记；取消位置位后其进度闭包中断（保留 `.part` 断点），
+/// 线程退出才移除 job → 等到 job 消失即保证不会并发写同一文件。
+fn cancel_running_prefetch() {
+    const WAIT_MS: u64 = 15_000;
+    let ids: Vec<String> = {
+        let jobs = state::jobs();
+        jobs.keys()
+            .filter(|k| k.starts_with("prefetch:"))
+            .cloned()
+            .collect()
+    };
+    for id in &ids {
+        if let Some(job) = state::jobs().get(id) {
+            job.cancel.store(true, Ordering::Relaxed);
+        }
+    }
+    let mut waited: u64 = 0;
+    loop {
+        let running = {
+            let jobs = state::jobs();
+            jobs.keys().any(|k| k.starts_with("prefetch:"))
+        };
+        if !running || waited >= WAIT_MS {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        waited += 50;
+    }
 }
 
 #[tauri::command]
@@ -759,4 +799,149 @@ pub fn autostart_get(app: AppHandle) -> crate::autostart::AutostartState {
 #[tauri::command]
 pub fn autostart_set(app: AppHandle, enabled: bool) -> crate::autostart::AutostartState {
     crate::autostart::set(&app, enabled)
+}
+
+// ── 后台预下载（空闲资源榨干；设置-通用页开关 `prefetch.enabled` 默认开）────
+
+/// 预下载开关状态（`prefetch_get` / `prefetch_set` 返回）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrefetchState {
+    pub enabled: bool,
+}
+
+/// 预下载结果（`prefetch_start` 返回；全程静默：不发进度事件，只写任务日志）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrefetchOutcome {
+    pub app_id: String,
+    /// downloaded | cached | busy | disabled | no-package | failed | cancelled
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+fn pf_outcome(app_id: &str, status: &str, detail: Option<String>) -> PrefetchOutcome {
+    PrefetchOutcome {
+        app_id: app_id.to_string(),
+        status: status.to_string(),
+        detail,
+    }
+}
+
+/// 读预下载开关（settings.json `prefetch.enabled`；缺省 = 默认开）。
+#[tauri::command]
+pub async fn prefetch_get() -> Cmd<PrefetchState> {
+    blocking(|| Ok(PrefetchState {
+        enabled: prefetch::enabled(),
+    }))
+    .await
+}
+
+/// 写预下载开关（合并保键；关 = 不再触发新预下载，已有缓存保留）。
+#[tauri::command]
+pub async fn prefetch_set(enabled: bool) -> Cmd<PrefetchState> {
+    blocking(move || {
+        prefetch::set_enabled(enabled)?;
+        Ok(PrefetchState { enabled })
+    })
+    .await
+}
+
+/// 空闲预下载主安装包（TS 在 check_app_updates 发现新版 + IDLE 时顺序调用）：
+/// - 单飞 + 不抢带宽：job 表非空（安装中/另一路预下载）→ `busy`
+/// - 幂等：内容寻址缓存已命中 → `cached`（零网络）
+/// - 全程 best-effort：失败/取消 → 静默状态码，下轮 4h 再试；不 emit 任何事件
+#[tauri::command]
+pub async fn prefetch_start(app_id: String) -> Cmd<PrefetchOutcome> {
+    blocking(move || {
+        let id = app_id.trim().to_string();
+        if id.is_empty() {
+            return Err(CoreError::new("PREFETCH_BAD_APP", "App id is empty"));
+        }
+        if !prefetch::enabled() {
+            return Ok(pf_outcome(&id, "disabled", None));
+        }
+        let job_id = format!("prefetch:{id}");
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        {
+            let mut jobs = state::jobs();
+            if !jobs.is_empty() {
+                return Ok(pf_outcome(&id, "busy", None));
+            }
+            // job 先登记（覆盖拉 manifest 阶段）→ download_start 能取消/等待它
+            jobs.insert(job_id.clone(), JobHandle { cancel: cancel.clone() });
+        }
+        // 选主安装包（routes 当前序；manifest 12h 缓存，检查更新刚拉过通常直接命中）
+        let plan = match prefetch::plan_for_app(&id) {
+            Ok(p) => p,
+            Err(e) => {
+                state::jobs().remove(&job_id);
+                let status = if e.code == "PREFETCH_NO_PACKAGE" {
+                    "no-package"
+                } else {
+                    "failed"
+                };
+                return Ok(pf_outcome(&id, status, Some(e.human)));
+            }
+        };
+        if cancel.load(Ordering::Relaxed) {
+            state::jobs().remove(&job_id);
+            return Ok(pf_outcome(&id, "cancelled", None));
+        }
+        let target = prefetch::target_path(&plan);
+        let _ = aibox_core::tasklog::append(
+            &id,
+            &job_id,
+            &format!(
+                "prefetch start: pkg={} dest={} size={}",
+                plan.pkg_id,
+                target.display(),
+                plan.size_bytes
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "unknown".into()),
+            ),
+        );
+        let outcome = prefetch::run(&plan, &cancel);
+        state::jobs().remove(&job_id);
+        let out = match outcome {
+            Ok(PrefetchStatus::Cached) => {
+                let _ = aibox_core::tasklog::append(
+                    &id,
+                    &job_id,
+                    &format!("prefetch ok: cache hit ({})", target.display()),
+                );
+                pf_outcome(&id, "cached", None)
+            }
+            Ok(PrefetchStatus::Downloaded { bytes, channel }) => {
+                let _ = aibox_core::tasklog::append(
+                    &id,
+                    &job_id,
+                    &format!(
+                        "prefetch ok: {bytes} bytes via {channel} ({})",
+                        target.display()
+                    ),
+                );
+                pf_outcome(&id, "downloaded", None)
+            }
+            Err(e) if e.code == "PREFETCH_CANCELLED" => {
+                let _ = aibox_core::tasklog::append(
+                    &id,
+                    &job_id,
+                    "prefetch cancelled (partial kept for resume)",
+                );
+                pf_outcome(&id, "cancelled", None)
+            }
+            Err(e) => {
+                let _ = aibox_core::tasklog::append(
+                    &id,
+                    &job_id,
+                    &format!("prefetch failed [{}]: {}", e.code, e.human),
+                );
+                pf_outcome(&id, "failed", Some(e.human))
+            }
+        };
+        Ok(out)
+    })
+    .await
 }
