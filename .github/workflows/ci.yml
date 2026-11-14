@@ -170,6 +170,23 @@ jobs:
           files: ${{ env.ASSET_NAME }}
           generate_release_notes: true
 
+      # R2 mirror upload → dl.aibox.im serves it with zero-egress streaming.
+      # Best-effort only: the GitHub Release above is the primary channel, so a
+      # mirror failure warns (step summary) but never fails the release job.
+      - name: Sync asset to R2 mirror (best-effort)
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          if npx --yes wrangler@4.62.0 r2 object put "aibox-releases/$ASSET_NAME" --file "$ASSET_NAME" --remote; then
+            echo "R2 mirror synced: $ASSET_NAME"
+            echo "✅ R2 mirror synced: \`$ASSET_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::R2 mirror sync failed for $ASSET_NAME (best-effort, release unaffected)"
+            echo "⚠️ R2 mirror sync failed for \`$ASSET_NAME\` (best-effort; GitHub Release is unaffected)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # ── 打 tag v*：macOS 出 Universal dmg（ad-hoc 签名，暂不公证）→ 挂到同一 GitHub Release ──
   release-macos:
     if: startsWith(github.ref, 'refs/tags/')
@@ -250,6 +267,22 @@ jobs:
           fi
           gh release upload "$TAG" "$ASSET_NAME" --clobber
           gh release view "$TAG" --json assets --jq '.assets[].name'
+
+      # R2 mirror upload → dl.aibox.im serves it with zero-egress streaming.
+      # Best-effort only: the GitHub Release above is the primary channel, so a
+      # mirror failure warns (step summary) but never fails the release job.
+      - name: Sync asset to R2 mirror (best-effort)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          if npx --yes wrangler@4.62.0 r2 object put "aibox-releases/$ASSET_NAME" --file "$ASSET_NAME" --remote; then
+            echo "R2 mirror synced: $ASSET_NAME"
+            echo "✅ R2 mirror synced: \`$ASSET_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::R2 mirror sync failed for $ASSET_NAME (best-effort, release unaffected)"
+            echo "⚠️ R2 mirror sync failed for \`$ASSET_NAME\` (best-effort; GitHub Release is unaffected)" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # ── 脱敏复检：全历史 + 工作树内部引用/凭据扫描（scripts/prepush-scan.mjs）──
   sanitization:
