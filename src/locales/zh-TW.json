@@ -60,6 +60,7 @@
     "searchPlaceholder": "搜尋應用…",
     "searchClear": "清空",
     "noMatches": "沒有匹配的應用",
+    "statsSr": "{{views}} 次瀏覽，{{installs}} 次安裝",
     "all": "全部"
   },
   "s2": {

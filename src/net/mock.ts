@@ -17,6 +17,7 @@ import type {
   NetProbeRow,
   ProbeSpec,
   ScanReport,
+  StatsPayload,
   UpdateInfo,
   VerifyInput,
   ManageBackupResult,
@@ -471,6 +472,20 @@ export function mockCheckAppUpdates(): AppUpdateRow[] {
 }
 
 /* ── MANAGE 维护模式 ── */
+/** 应用计数（形状 = Rust stats_fetch；示例数据供 UI 开发） */
+export function mockStatsFetch(): StatsPayload {
+  return {
+    apps: {
+      openclaw: { views: 4210, installs: 863 },
+      ollama: { views: 3087, installs: 651 },
+      cherry: { views: 1893, installs: 402 },
+      chatbox: { views: 1240, installs: 318 },
+      jan: { views: 986, installs: 244 },
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function mockManageBackup(appId: string, dataPaths: string[]): ManageBackupResult {
   const existing = dataPaths.filter(() => true); // mock：声明的都算存在
   if (existing.length === 0) return { backupDir: "", files: [] };

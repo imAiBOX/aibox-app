@@ -60,6 +60,7 @@
     "searchPlaceholder": "搜索应用…",
     "searchClear": "清空",
     "noMatches": "没有匹配的应用",
+    "statsSr": "{{views}} 次浏览，{{installs}} 次安装",
     "all": "全部"
   },
   "s2": {

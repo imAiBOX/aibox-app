@@ -1,10 +1,11 @@
-//! 壳侧进程内状态：下载 job 注册表 + update_check 5min 缓存（全局单例，无 Tauri State 依赖）。
+//! 壳侧进程内状态：下载 job 注册表 + update_check 5min 缓存 + 应用统计 10min 缓存（全局单例，无 Tauri State 依赖）。
 
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Instant;
 
+use aibox_core::stats::StatsData;
 use aibox_core::update::UpdateInfo;
 
 use crate::tray::TrayUi;
@@ -29,6 +30,14 @@ static UPDATE_CACHE: LazyLock<Mutex<Option<(Instant, UpdateInfo)>>> =
 
 pub fn update_cache() -> MutexGuard<'static, Option<(Instant, UpdateInfo)>> {
     UPDATE_CACHE.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// 应用统计 10min 内存缓存（S1 卡片计数拉取）。
+static STATS_CACHE: LazyLock<Mutex<Option<(Instant, StatsData)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+pub fn stats_cache() -> MutexGuard<'static, Option<(Instant, StatsData)>> {
+    STATS_CACHE.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 /// 托盘文案状态（前端 tray_sync 下发；首项动作在点击时读取）。

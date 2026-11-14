@@ -69,6 +69,9 @@ fn main() {
             commands::diag_export,
             commands::update_check,
             commands::locales_load,
+            // 应用统计（卡片计数 + 安装上报）
+            commands::stats_fetch,
+            commands::track_install,
             // 托盘 / 自启 / 应用更新
             commands::check_app_updates,
             commands::install_record,

@@ -60,6 +60,7 @@
     "searchPlaceholder": "Search apps…",
     "searchClear": "Clear",
     "noMatches": "No apps match your search.",
+    "statsSr": "{{views}} views, {{installs}} installs",
     "all": "All"
   },
   "s2": {

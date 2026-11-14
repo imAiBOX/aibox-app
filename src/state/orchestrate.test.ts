@@ -345,3 +345,71 @@ describe("canSwitchSource（换源按钮展示条件）", () => {
     expect(canSwitchSource("REGISTRY_FETCH")).toBe(false);
   });
 });
+
+describe("安装上报（track_install 时机与幂等）", () => {
+  it("首个待执行任务前上报一次；多任务不重复", async () => {
+    const order: string[] = [];
+    const h = harness({});
+    h.api.trackInstall = vi.fn(async () => {
+      order.push("track");
+    });
+    h.api.downloadStart = vi.fn(async (t) => {
+      order.push("download");
+      setTimeout(() => h.emit(ok(`download ok: 1 bytes via x (${t.destName})`)), 0);
+      return t.id;
+    });
+    const handle = startExecute(h.deps, {
+      appId: "openclaw",
+      tasks: [task("a"), task("b")],
+    });
+    await handle.promise;
+    expect(h.api.trackInstall).toHaveBeenCalledTimes(1); // 同轮幂等
+    expect(order[0]).toBe("track"); // 上报先于首个 download_start
+    expect(order.filter((x) => x === "download")).toHaveLength(2);
+    expect(last(h.events)).toMatchObject({ type: "ALL_DONE" });
+  });
+
+  it("上报 reject / 同步抛 → 主流程照常（静默不阻塞）", async () => {
+    const drive = async (h: Harness) => {
+      h.api.downloadStart = vi.fn(async () => {
+        setTimeout(() => h.emit(ok("download ok: 1 bytes via x (a.bin)")), 0);
+        return "t1";
+      });
+      await startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
+      expect(last(h.events)).toMatchObject({ type: "ALL_DONE" });
+      expect(h.api.verifySha256).toHaveBeenCalled(); // 四阶段照走
+    };
+
+    const h1 = harness({});
+    h1.api.trackInstall = vi.fn(async () => {
+      throw new Error("net down");
+    });
+    await drive(h1);
+    expect(h1.api.trackInstall).toHaveBeenCalledTimes(1);
+
+    const h2 = harness({});
+    h2.api.trackInstall = vi.fn(() => {
+      throw new Error("sync boom");
+    });
+    await drive(h2);
+  });
+
+  it("无 appId / 本轮无可执行任务 → 不上报", async () => {
+    const h = harness({});
+    h.api.trackInstall = vi.fn(async () => undefined);
+    h.api.downloadStart = vi.fn(async () => {
+      setTimeout(() => h.emit(ok("download ok: 1 bytes via x (a.bin)")), 0);
+      return "t1";
+    });
+    await startExecute(h.deps, { appId: null, tasks: [task()] }).promise;
+    expect(h.api.trackInstall).not.toHaveBeenCalled();
+
+    const h2 = harness({});
+    h2.api.trackInstall = vi.fn(async () => undefined);
+    await startExecute(h2.deps, {
+      appId: "app",
+      tasks: [task("a", "done"), task("b", "skipped")],
+    }).promise;
+    expect(h2.api.trackInstall).not.toHaveBeenCalled(); // 全处置 = 无安装动作
+  });
+});

@@ -5,11 +5,14 @@
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { AppIndex, AppIndexEntry, AppUpdateRow } from "../net/client";
+import type { AppIndex, AppIndexEntry, AppUpdateRow, StatsPayload } from "../net/client";
+import { api } from "../net/client";
 import {
   ALL_CATEGORIES,
+  appCounts,
   deriveCategories,
   filterApps,
+  formatCount,
   sidebarScanRows,
   type ScanReport,
 } from "../state";
@@ -68,6 +71,23 @@ function StatusBadge({ entry, upgradeTo }: { entry: AppIndexEntry; upgradeTo?: s
   );
 }
 
+/** 卡片计数（灰调小字，克制不抢视觉）；无数据/全零不渲染；sr-only 三语可读 */
+function StatLine({ stats, id }: { stats: StatsPayload | null; id: string }) {
+  const { t } = useTranslation();
+  const c = appCounts(stats, id);
+  if (!c) return null;
+  const views = formatCount(c.views);
+  const installs = formatCount(c.installs);
+  return (
+    <>
+      <span aria-hidden className="font-mono text-[10px] text-aibox-text2 opacity-70">
+        👁 {views} · ⬇ {installs}
+      </span>
+      <span className="sr-only">{t("s1.statsSr", { views, installs })}</span>
+    </>
+  );
+}
+
 export default function S1Idle({
   index,
   scan,
@@ -93,6 +113,8 @@ export default function S1Idle({
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.resolvedLanguage ?? "en";
+  /** 卡片计数（site 边缘统计；Rust 侧 10min 缓存；拉取失败静默不显示） */
+  const [stats, setStats] = useState<StatsPayload | null>(null);
   const [updatesOpen, setUpdatesOpen] = useState(false);
   /** 分类 chips（默认 All）+ 搜索框；过滤经 175ms 防抖后与分类组合生效 */
   const [category, setCategory] = useState(ALL_CATEGORIES);
@@ -103,6 +125,18 @@ export default function S1Idle({
     const id = window.setTimeout(() => setDebouncedQuery(query), 175);
     return () => window.clearTimeout(id);
   }, [query]);
+
+  // 启动拉一次计数（失败 = stats 留空，卡片不渲染该行，零阻塞）
+  useEffect(() => {
+    let alive = true;
+    api
+      .statsFetch()
+      .then((s) => alive && setStats(s))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const allApps = index?.apps ?? [];
   /** 先分类后搜索的组合过滤（纯函数，见 state/appFilter） */
@@ -294,6 +328,7 @@ export default function S1Idle({
               <span className="text-xs leading-relaxed text-aibox-text2">
                 {taglineOf(a, lang)}
               </span>
+              <StatLine stats={stats} id={a.id} />
               <div className="mt-auto flex items-center justify-between gap-2 pt-1">
                 <Difficulty n={a.difficulty ?? 3} />
                 <span className="flex gap-1">

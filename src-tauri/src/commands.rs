@@ -601,6 +601,33 @@ pub async fn locales_load(lang: String) -> Cmd<std::collections::BTreeMap<String
     .await
 }
 
+// ── 应用统计（site 边缘 API；两条链路均 best-effort）──────────
+
+/// S1 卡片计数拉取（10min 内存缓存；失败 → Err，前端不显示零阻塞）。
+#[tauri::command]
+pub async fn stats_fetch() -> Cmd<aibox_core::stats::StatsData> {
+    {
+        let cache = state::stats_cache();
+        if let Some((at, data)) = cache.as_ref() {
+            if at.elapsed() < Duration::from_secs(10 * 60) {
+                return Ok(data.clone());
+            }
+        }
+    }
+    let data = blocking(aibox_core::stats::fetch_stats).await?;
+    // 成功才缓存（失败不缓存 → 下次重试）
+    let mut cache = state::stats_cache();
+    *cache = Some((Instant::now(), data.clone()));
+    Ok(data)
+}
+
+/// 安装上报：EXECUTE 任务队列启动（首个任务 download_start 前）调一次。
+/// 5s 超时；失败 → Err 由前端静默吞，绝不阻塞安装流。
+#[tauri::command]
+pub async fn track_install(app_id: String) -> Cmd<()> {
+    blocking(move || aibox_core::stats::track_install(&app_id)).await
+}
+
 // ── 保留：壳 ↔ net 最小链路 ──────────────────────────────────
 
 #[tauri::command]

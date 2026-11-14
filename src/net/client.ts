@@ -22,6 +22,7 @@ import {
   mockScanSystem,
   mockUpdateCheck,
   mockCheckAppUpdates,
+  mockStatsFetch,
   mockAutostartGet,
   mockAutostartSet,
   mockVerifySend,
@@ -281,6 +282,17 @@ export interface TraySync {
   quitLabel: string;
 }
 
+/** 单应用计数（`GET /api/stats` 条目） */
+export interface AppStat {
+  views: number;
+  installs: number;
+}
+/** `stats_fetch` 返回（`{apps: {"<id>": {views, installs}}, updatedAt}`） */
+export interface StatsPayload {
+  apps: Record<string, AppStat>;
+  updatedAt?: string;
+}
+
 /* ── 事件总线 ── */
 export type AiboxEvent =
   | { event: "download_progress"; payload: { jobId: string; done: number; total: number; channel: string } }
@@ -355,6 +367,10 @@ function mockDispatch<T>(cmd: string, a?: unknown): T {
       return mockUpdateCheck() as T;
     case "check_app_updates":
       return mockCheckAppUpdates() as T;
+    case "stats_fetch":
+      return mockStatsFetch() as T;
+    case "track_install":
+      return undefined as T;
     case "install_record":
       return "~/.aibox/install-manifest.json" as T;
     case "manage_backup":
@@ -406,6 +422,10 @@ export const api = {
   updateCheck: () => invoke<UpdateInfo>("update_check"),
   /** 已装应用更新检查（Rust 读 install-manifest + 拉 registry 比对；4h 缓存门控在 TS） */
   checkAppUpdates: () => invoke<AppUpdateRow[]>("check_app_updates"),
+  /** 应用计数拉取（10min Rust 内存缓存；失败 reject → S1 不显示零阻塞） */
+  statsFetch: () => invoke<StatsPayload>("stats_fetch"),
+  /** 安装上报（EXECUTE 首任务前一次；失败 reject 由调用方静默吞） */
+  trackInstall: (appId: string) => invoke<void>("track_install", { appId }),
   /** 安装完成登记 install-manifest（任务全部完成后调用） */
   installRecord: (appId: string, version?: string) =>
     invoke<string>("install_record", { appId, version }),

@@ -1,4 +1,4 @@
-//! `update_check`：GitHub releases/latest → 有新版黄条。
+//! `update_check`：releases/latest → 有新版黄条。双源：aibox.im 受控代理优先，GitHub 直连回落。
 //! **只查不替换**（便携升级：跳官网下载，不做自替换）。5min 缓存由壳侧持有。
 
 use serde::Serialize;
@@ -18,6 +18,8 @@ pub struct UpdateInfo {
 }
 
 const LATEST_URL: &str = "https://api.github.com/repos/imAiBOX/aibox-app/releases/latest";
+/// 受控代理源（site 边缘缓存，30min）：优先，失败/坏体回落 GitHub 直连。
+const PROXY_LATEST_URL: &str = "https://aibox.im/api/github/repos/imAiBOX/aibox-app/releases/latest";
 
 /// 已装应用更新行（契约：`check_app_updates` 返回 `[{appId, installed?, latest?, hasUpdate}]`）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -98,36 +100,35 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
     false
 }
 
-/// 拉 releases/latest（同步；调用方放入 spawn_blocking）。
-pub fn check_update(current_version: &str) -> CoreResult<UpdateInfo> {
+/// 拉一个 releases/latest 端点（同步；调用方放入 spawn_blocking）。
+fn http_text(url: &str) -> CoreResult<String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(10))
         .timeout_connect(std::time::Duration::from_secs(5))
         .user_agent("aibox-app/0.0.1")
         .build();
-    let body = match agent
-        .get(LATEST_URL)
+    match agent
+        .get(url)
         .set("Accept", "application/vnd.github+json")
         .call()
     {
         Ok(r) => r.into_string().map_err(|e| {
             CoreError::new("UPDATE_BAD_RESPONSE", format!("Read release body: {e}"))
-        })?,
-        Err(ureq::Error::Status(code, _)) => {
-            return Err(CoreError::new(
-                "UPDATE_HTTP_ERROR",
-                format!("GitHub releases/latest returned HTTP {code}"),
-            ))
-        }
-        Err(ureq::Error::Transport(t)) => {
-            return Err(CoreError::new(
-                "UPDATE_NET_FAIL",
-                format!("Could not reach GitHub releases: {t}"),
-            ))
-        }
-    };
+        }),
+        Err(ureq::Error::Status(code, _)) => Err(CoreError::new(
+            "UPDATE_HTTP_ERROR",
+            format!("releases/latest returned HTTP {code}"),
+        )),
+        Err(ureq::Error::Transport(t)) => Err(CoreError::new(
+            "UPDATE_NET_FAIL",
+            format!("Could not reach releases endpoint: {t}"),
+        )),
+    }
+}
 
-    let v: serde_json::Value = serde_json::from_str(&body)
+/// releases/latest 响应 → UpdateInfo（纯函数；tag_name 缺失/非 JSON → Err）。
+fn parse_latest(body: &str, current_version: &str) -> CoreResult<UpdateInfo> {
+    let v: serde_json::Value = serde_json::from_str(body)
         .map_err(|e| CoreError::new("UPDATE_BAD_RESPONSE", format!("Release JSON invalid: {e}")))?;
     let tag = v
         .get("tag_name")
@@ -142,12 +143,33 @@ pub fn check_update(current_version: &str) -> CoreResult<UpdateInfo> {
     }
     let url = v.get("html_url").and_then(|t| t.as_str()).map(String::from);
 
-    let has_update = is_newer(&tag, current_version);
+    let has_update = is_newer(tag.as_str(), current_version);
     Ok(UpdateInfo {
         has_update,
         version: Some(tag),
         url: if has_update { url } else { None },
     })
+}
+
+/// 拉 releases/latest（同步；调用方放入 spawn_blocking）。
+/// **双源容错**：aibox.im 受控代理（边缘缓存）优先 → 失败（请求或坏体）回落 GitHub 直连。
+pub fn check_update(current_version: &str) -> CoreResult<UpdateInfo> {
+    check_update_with(current_version, http_text)
+}
+
+/// `check_update` 的可注入主体（fetch = 取一个 URL 的响应文本）。
+/// 顺序契约：先代理源（至多一次尝试），其 fetch/解析任一失败 → 直连源；直连失败才 Err。
+pub fn check_update_with(
+    current_version: &str,
+    fetch: impl Fn(&str) -> CoreResult<String>,
+) -> CoreResult<UpdateInfo> {
+    if let Ok(body) = fetch(PROXY_LATEST_URL) {
+        if let Ok(info) = parse_latest(&body, current_version) {
+            return Ok(info);
+        }
+    }
+    let body = fetch(LATEST_URL)?;
+    parse_latest(&body, current_version)
 }
 
 #[cfg(test)]
@@ -220,5 +242,68 @@ mod tests {
         assert_eq!(v["installed"], "1.0.0");
         assert_eq!(v["latest"], "1.1.0");
         assert_eq!(v["hasUpdate"], true);
+    }
+
+    // ── 双源容错：aibox.im 代理优先 → GitHub 直连回落 ──
+
+    const GOOD_BODY: &str = r#"{"tag_name":"v0.0.2","html_url":"https://example/rel"}"#;
+
+    /// 注入 fetch：代理源按注入结果应答，直连源固定成功；返回结果 + 调用序列。
+    fn probe(proxy: CoreResult<String>) -> (CoreResult<UpdateInfo>, Vec<String>) {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let out = check_update_with("0.0.1", |url| {
+            calls.borrow_mut().push(url.to_string());
+            if url == PROXY_LATEST_URL {
+                proxy.clone()
+            } else {
+                Ok(GOOD_BODY.to_string())
+            }
+        });
+        (out, calls.into_inner())
+    }
+
+    #[test]
+    fn proxy_healthy_wins_without_touching_github() {
+        let (info, calls) = probe(Ok(GOOD_BODY.to_string()));
+        let info = info.unwrap();
+        assert!(info.has_update);
+        assert_eq!(info.version.as_deref(), Some("v0.0.2"));
+        assert_eq!(calls, vec![PROXY_LATEST_URL], "代理源健康时只打一次、不碰直连");
+    }
+
+    #[test]
+    fn proxy_failure_or_bad_body_falls_back_to_direct() {
+        // 1) 代理网络失败 → 回落直连成功
+        let (info, calls) = probe(Err(CoreError::new("UPDATE_NET_FAIL", "down")));
+        assert!(info.unwrap().has_update);
+        assert_eq!(calls, vec![PROXY_LATEST_URL, LATEST_URL]);
+
+        // 2) 代理返回坏体（解析失败）→ 同样回落直连
+        let (info, calls) = probe(Ok("<html>oops</html>".to_string()));
+        assert!(info.unwrap().has_update);
+        assert_eq!(calls, vec![PROXY_LATEST_URL, LATEST_URL]);
+    }
+
+    #[test]
+    fn both_sources_down_returns_error() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let out = check_update_with("0.0.1", |url| {
+            calls.borrow_mut().push(url.to_string());
+            Err(CoreError::new("UPDATE_NET_FAIL", "down"))
+        });
+        assert_eq!(out.unwrap_err().code, "UPDATE_NET_FAIL");
+        assert_eq!(calls.into_inner(), vec![PROXY_LATEST_URL, LATEST_URL]);
+    }
+
+    #[test]
+    fn direct_bad_body_is_error() {
+        let out = check_update_with("0.0.1", |url| {
+            if url == PROXY_LATEST_URL {
+                Err(CoreError::new("UPDATE_NET_FAIL", "down"))
+            } else {
+                Ok("nope".to_string())
+            }
+        });
+        assert_eq!(out.unwrap_err().code, "UPDATE_BAD_RESPONSE");
     }
 }
