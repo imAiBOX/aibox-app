@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { openExternal } from "./lib/openExternal";
+import { isMacPlatform } from "./platform";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import { setLang, SUPPORTED_LANGS, type Lang } from "./i18n";
@@ -426,7 +427,19 @@ export default function App() {
                 <button
                   type="button"
                   className="font-semibold underline"
-                  onClick={() => void openExternal(banner.url)}
+                  onClick={() => {
+                    // 直链直下：dl.aibox.im/vX.Y.Z/<platform>（拍板项）；短链不可用回落官网页
+                    const ver = banner.version ? String(banner.version).replace(/^v/, "") : "";
+                    const platform = isMacPlatform() ? "mac" : "win";
+                    const direct = ver ? `https://dl.aibox.im/v${ver}/${platform}` : null;
+                    if (!direct) {
+                      void openExternal(banner.url);
+                      return;
+                    }
+                    fetch(direct, { method: "HEAD", redirect: "follow" })
+                      .then((r) => void openExternal(r.ok ? direct : banner.url))
+                      .catch(() => void openExternal(banner.url));
+                  }}
                 >
                   {t("update.download")}
                 </button>

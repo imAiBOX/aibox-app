@@ -91,9 +91,39 @@ pub fn fetch_stats() -> CoreResult<StatsData> {
     }
 }
 
-/// 上报请求体（纯函数）：`{appId, type: "install"}`。
-pub fn track_body(app_id: &str) -> Value {
-    serde_json::json!({ "appId": app_id, "type": "install" })
+/// 匿名设备标识（拍板项：按设备去重，不关联任何个人/硬件信息）。
+/// 首次生成后持久化到 settings.json 的 `anonymousId`（32 位 hex，服务端白名单 [0-9a-f-]{8,64}）。
+pub fn anonymous_id() -> String {
+    let settings = crate::region::read_settings();
+    if let Some(id) = settings.pointer("/anonymousId").and_then(|v| v.as_str()) {
+        if !id.is_empty() {
+            return id.to_string();
+        }
+    }
+    // 无外部依赖的随机 hex：SystemTime 纳秒 + 线程局部随机状态混合
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let mut h = RandomState::new().build_hasher();
+    h.write_u128(nanos);
+    let rand = h.finish();
+    let id = format!("{:016x}{:016x}", rand, nanos as u64 ^ rand);
+    // 持久化（best-effort：失败下次会重新生成，不影响上报）
+    let path = crate::paths::settings_file();
+    if let Ok(mut settings) = crate::fsops::read_json5(&path) {
+        crate::fsops::merge_preserve(&mut settings, &serde_json::json!({ "anonymousId": id }));
+        let _ = crate::fsops::write_json_atomic(&path, &settings);
+    }
+    id
+}
+
+/// 上报请求体（纯函数）：`{appId, type: "install", aid?}`。
+pub fn track_body(app_id: &str, aid: Option<&str>) -> Value {
+    match aid {
+        Some(a) => serde_json::json!({ "appId": app_id, "type": "install", "aid": a }),
+        None => serde_json::json!({ "appId": app_id, "type": "install" }),
+    }
 }
 
 /// 安装上报（同步；调用方放入 spawn_blocking）。
@@ -104,7 +134,7 @@ pub fn track_install(app_id: &str) -> CoreResult<()> {
     if id.is_empty() {
         return Err(CoreError::new("STATS_BAD_APP_ID", "Empty appId"));
     }
-    let body = track_body(id).to_string();
+    let body = track_body(id, Some(&anonymous_id())).to_string();
     match agent()
         .post(STATS_URL)
         .set("Content-Type", "application/json")
@@ -158,10 +188,23 @@ mod tests {
 
     #[test]
     fn track_body_shape() {
-        let b = track_body("openclaw");
+        let b = track_body("openclaw", None);
         assert_eq!(b["appId"], "openclaw");
         assert_eq!(b["type"], "install");
         assert_eq!(b.as_object().unwrap().len(), 2);
+        let b2 = track_body("openclaw", Some("abc12345"));
+        assert_eq!(b2["aid"], "abc12345");
+        assert_eq!(b2.as_object().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn anonymous_id_is_stable_hex() {
+        let a = anonymous_id();
+        assert!(a.len() >= 8 && a.len() <= 64, "len {}", a.len());
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit() || c == '-'), "chars {}", a);
+        // 第二次调用读同一 settings（生成失败也会重试生成但格式恒定）
+        let b = anonymous_id();
+        assert!(b.len() >= 8 && b.len() <= 64);
     }
 
     #[test]
