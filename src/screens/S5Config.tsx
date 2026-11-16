@@ -10,6 +10,7 @@
  * 流程逻辑在 src/config/flow.ts（纯 reducer，可 vitest 驱动），本文件只做渲染与事件。
  * key 只活在 flow 内存态：不进主 reducer、不进持久化、不进日志（硬规则）。
  */
+import KeyStepDiagram from "../components/KeyStepDiagram";
 import { useCallback, useEffect, useReducer } from "react";
 import { openExternal } from "../lib/openExternal";
 import { useTranslation } from "react-i18next";
@@ -233,8 +234,12 @@ export default function S5Config({
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-aibox-text1">{t(k)}</p>
                   {/* 截图占位（官网构建期静态资源） */}
-                  <div className="mt-1.5 rounded-[4px] border border-dashed border-aibox-line px-3 py-2 font-mono text-[11px] text-aibox-text2">
-                    {t("s5.shotNote")}
+                  <div className="mt-2">
+                    <KeyStepDiagram
+                      step={(i + 1) as 1 | 2 | 3}
+                      domain={(wizardMeta(w)?.getKeyUrl ?? provider.siteUrl ?? "https://provider.example").replace(/^https?:\/\//, "").split("/")[0]}
+                      title={t(k)}
+                    />
                   </div>
                 </div>
               </li>
