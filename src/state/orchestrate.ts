@@ -122,6 +122,11 @@ function waitDownload(
       if (e.event === "download_progress" || e.event === "log_line") {
         state.lastEventAt = deps.now();
       }
+      // 结构化终态优先（download_finished）；log_line 正则保留为旧版/回退兼容
+      if (e.event === "download_finished") {
+        const p = e.payload as { ok?: boolean; code?: string };
+        return p.ok ? finish({ ok: true }) : finish({ ok: false, code: p.code ?? "DOWNLOAD_FAILED" });
+      }
       if (e.event !== "log_line") return;
       const t = e.payload.text;
       if (DL_OK.test(t)) return finish({ ok: true });

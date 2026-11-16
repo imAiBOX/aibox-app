@@ -315,6 +315,7 @@ export type AiboxEvent =
   | { event: "task_phase"; payload: { taskId: string; phase: string } }
   | { event: "channel_switched"; payload: { from: string; to: string; reason: string } }
   | { event: "log_line"; payload: { text: string } }
+  | { event: "download_finished"; payload: { ok: boolean; jobId?: string; code?: string; bytes?: number; channel?: string; sha256?: string } }
   | { event: "tray_action"; payload: { action: "open" | "check" | "quit" | "download" } };
 
 type Handler = (e: AiboxEvent) => void;

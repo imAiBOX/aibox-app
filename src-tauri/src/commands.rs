@@ -353,7 +353,7 @@ pub async fn download_start(
             download::download_to_cache(&spec, &mut progress)
         }));
 
-        let (note, terminal) = match outcome {
+        let (note, terminal, fin) = match outcome {
             Ok(Ok(receipt)) => {
                 let n = format!(
                     "download ok: {} bytes via {} ({})",
@@ -362,12 +362,15 @@ pub async fn download_start(
                     spec_log_name(&spec)
                 );
                 let t = format!("{n}, sha256={}", receipt.sha256);
-                (n, t)
+                let f = json!({ "ok": true, "jobId": job_id, "bytes": receipt.bytes,
+                                "channel": receipt.channel.as_str(), "sha256": receipt.sha256 });
+                (n, t, f)
             }
             Ok(Err(e)) => {
                 let n = format!("download failed [{}]: {}", e.code, e.human);
                 let t = n.clone();
-                (n, t)
+                let f = json!({ "ok": false, "jobId": job_id, "code": e.code });
+                (n, t, f)
             }
             Err(payload) => {
                 let cancelled = payload
@@ -381,12 +384,16 @@ pub async fn download_start(
                     "download panicked".to_string()
                 };
                 let t = n.clone();
-                (n, t)
+                let code = if cancelled { "USER_CANCELLED" } else { "DOWNLOAD_PANIC" };
+                let f = json!({ "ok": false, "jobId": job_id, "code": code });
+                (n, t, f)
             }
         };
         // 任务日志终态（含 sha 结果；与事件文本独立，不改冻结的 log_line 格式）
         let _ = aibox_core::tasklog::append(&log_app, &job_for_log, &terminal);
         let _ = app_log.emit("log_line", json!({ "text": note }));
+        // 结构化下载终态（契约事件 download_finished；log_line 文本保留为兼容回退）
+        let _ = app_log.emit("download_finished", fin);
         state::jobs().remove(&job_id);
     });
 

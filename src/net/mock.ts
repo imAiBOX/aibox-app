@@ -380,6 +380,10 @@ export function mockDownloadStart(task: DownloadTask): string {
         payload: { text: `download ok: ${total} bytes via ${channel} (${task?.destName ?? "file"})` },
       });
       globalThis.__aiboxEmit?.({
+        event: "download_finished",
+        payload: { ok: true, jobId, bytes: total, channel },
+      });
+      globalThis.__aiboxEmit?.({
         event: "task_phase",
         payload: { taskId, phase: "verify" },
       });
@@ -397,6 +401,10 @@ export function mockDownloadCancel(jobId: string): void {
   globalThis.__aiboxEmit?.({
     event: "log_line",
     payload: { text: "download cancelled (partial kept for resume)" },
+  });
+  globalThis.__aiboxEmit?.({
+    event: "download_finished",
+    payload: { ok: false, jobId, code: "USER_CANCELLED" },
   });
 }
 

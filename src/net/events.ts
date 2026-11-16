@@ -14,6 +14,7 @@ const EVENT_NAMES = [
   "task_phase",
   "channel_switched",
   "log_line",
+  "download_finished",
   "tray_action",
 ] as const;
 

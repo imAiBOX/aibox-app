@@ -227,6 +227,43 @@ describe("真分支四阶段推进（注入 fake api）", () => {
     expect(h.api.downloadCancel).toHaveBeenCalledWith("t1");
     expect(h.events.every((e) => e.type !== "ERROR")).toBe(true);
   });
+
+  it("download_finished 结构化终态可独立驱动（不依赖 log_line 文本）", async () => {
+    const h = harness({});
+    h.api.downloadStart = vi.fn(async () => {
+      setTimeout(
+        () => h.emit({ event: "download_finished", payload: { ok: true, jobId: "t1", bytes: 10, channel: "direct" } }),
+        0,
+      );
+      return "t1";
+    });
+    const handle = startExecute(h.deps, { appId: "app", tasks: [task()] });
+    await handle.promise;
+    expect(h.events.map((e) => e.type)).toEqual([
+      "TASK_PHASE",
+      "TASK_PHASE",
+      "TASK_PHASE",
+      "TASK_PHASE",
+      "TASK_DONE",
+      "ALL_DONE",
+    ]);
+  });
+
+  it("download_finished 失败码 → ERROR 事件透传（结构化错误分支）", async () => {
+    const h = harness({});
+    h.api.downloadStart = vi.fn(async () => {
+      setTimeout(
+        () => h.emit({ event: "download_finished", payload: { ok: false, jobId: "t1", code: "NET_HASH_MISMATCH" } }),
+        0,
+      );
+      return "t1";
+    });
+    const handle = startExecute(h.deps, { appId: "app", tasks: [task()] });
+    await handle.promise;
+    expect(h.events).toHaveLength(2);
+    expect(h.events[0]).toMatchObject({ type: "TASK_PHASE", phase: "download" });
+    expect(h.events[1]).toMatchObject({ type: "ERROR", code: "NET_HASH_MISMATCH", taskId: "t1" });
+  });
 });
 
 describe("mock 回落（行为保持）", () => {
