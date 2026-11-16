@@ -37,6 +37,7 @@ const DYNAMIC_FAMILIES = [
   "err.",
   "btn.",
   "nav.",
+  "app.category.",
 ];
 
 function walk(dir, acc = []) {

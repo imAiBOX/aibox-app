@@ -268,7 +268,7 @@ export default function S1Idle({
                 </button>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto">
               {chips.map((c) => {
                 const active = category === c.id;
                 const label =
