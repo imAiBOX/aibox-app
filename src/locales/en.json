@@ -397,6 +397,7 @@
     "errTitle": "Something went wrong",
     "errRemove": "The operation failed. Your data was not fully changed — check the message and retry.",
     "errNoManifest": "This app has no maintenance data in the registry, so AiBOX will not delete anything.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "doneFailed": "{{count}} item(s) could NOT be removed — check permissions and retry"
   }
 }

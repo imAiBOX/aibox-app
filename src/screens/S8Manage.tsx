@@ -125,9 +125,24 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
             </p>
           )}
           {m.backupDir && <p className="font-mono text-xs text-aibox-green">{t("s8.doneBackup")}: {m.backupDir}</p>}
-          {m.skipped.length > 0 && (
-            <p className="text-aibox-text2">{t("s8.doneSkipped", { count: m.skipped.length })}</p>
-          )}
+          {(() => {
+            // skipped 同时承载"本就未找到"与"删除失败"：必须分开呈现，
+            // 否则用户会把失败误读为"没有这项数据"（数据安全语义）。
+            const notFound = m.skipped.filter((s) => s.reason === "not found").length;
+            const failed = m.skipped.length - notFound;
+            return (
+              <>
+                {notFound > 0 && (
+                  <p className="text-aibox-text2">{t("s8.doneSkipped", { count: notFound })}</p>
+                )}
+                {failed > 0 && (
+                  <p className="text-aibox-danger">
+                    {t("s8.doneFailed", { count: failed })}
+                  </p>
+                )}
+              </>
+            );
+          })()}
         </div>
         <div className="flex gap-3">
           {reinstall && m.appId && (

@@ -397,6 +397,7 @@
     "errTitle": "出了點問題",
     "errRemove": "操作失敗，資料未完全變更——看下面的說明後重試。",
     "errNoManifest": "該應用在 registry 裡沒有維護資料，AiBOX 不會刪除任何東西。",
-    "retry": "重試"
+    "retry": "重試",
+    "doneFailed": "有 {{count}} 項沒能刪除——請檢查權限後重試"
   }
 }
