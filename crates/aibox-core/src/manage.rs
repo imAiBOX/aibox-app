@@ -89,6 +89,19 @@ fn entry_name(root: &Path, f: &Path, home: &Path) -> String {
     }
 }
 
+/// 解析声明根的**真实路径**，并要求它落在 home 的真实路径之内（V3 不变式）。
+/// 用 `canonicalize` 一次性消解所有中间链接：根为链接、祖先为链接、指向外部，
+/// 都会被判为越界（审计 P1）。返回 `None` = 不存在/不可解析/越界。
+fn resolve_within_home(root: &Path, home: &Path) -> Option<PathBuf> {
+    let real = fs::canonicalize(root).ok()?;
+    let home_real = fs::canonicalize(home).ok()?;
+    if real == home_real || real.starts_with(&home_real) {
+        Some(real)
+    } else {
+        None
+    }
+}
+
 /// 递归收集目录下全部文件（跳过目录本身与任何 symlink——
 /// 声明目录下的符号链接可能指向白名单外，跟随即越界）。
 fn walk_files(root: &Path, out: &mut Vec<PathBuf>) {
@@ -117,27 +130,47 @@ pub fn backup_app(
     data_paths: &[String],
     backup_root: &Path,
 ) -> CoreResult<BackupOutcome> {
+    backup_app_in(app_id, data_paths, backup_root, &paths::home_dir())
+}
+
+/// 可注入 home 的实现（测试用；生产经 `backup_app` 传入真实 home）。
+pub fn backup_app_in(
+    app_id: &str,
+    data_paths: &[String],
+    backup_root: &Path,
+    home: &Path,
+) -> CoreResult<BackupOutcome> {
     crate::registry::validate_id(app_id)?;
 
-    let home = paths::home_dir();
+    let home = home.to_path_buf();
     let mut entries: Vec<(String, PathBuf)> = Vec::new();
     let mut used: HashSet<String> = HashSet::new();
     let mut skipped: Vec<String> = Vec::new();
 
     for raw in data_paths {
         let root = paths::expand(raw);
-        if fs::symlink_metadata(&root).is_err() {
+        let Ok(meta) = fs::symlink_metadata(&root) else {
             skipped.push(raw.clone());
             continue;
+        };
+        // 声明根本身是链接 → 拒绝（避免被换成任意目标，审计 P1）
+        if meta.file_type().is_symlink() {
+            skipped.push(format!("{raw} (symlink refused)"));
+            continue;
         }
+        // 解析真实路径并要求仍在 home 内（祖先链接/越界目标一网打尽）
+        let Some(real_root) = resolve_within_home(&root, &home) else {
+            skipped.push(format!("{raw} (outside home after resolving links)"));
+            continue;
+        };
         let mut files = Vec::new();
-        if root.is_dir() {
-            walk_files(&root, &mut files);
+        if real_root.is_dir() {
+            walk_files(&real_root, &mut files);
         } else {
-            files.push(root.clone());
+            files.push(real_root.clone());
         }
         for f in files {
-            let mut name = entry_name(&root, &f, &home);
+            let mut name = entry_name(&real_root, &f, &home);
             if !used.insert(name.clone()) {
                 // 条目名冲突（同名声明根在 home 外）→ 序号前缀消歧
                 let n = used.len();
@@ -334,6 +367,27 @@ pub fn remove_app(
     backup: bool,
     backup_root: &Path,
 ) -> CoreResult<RemoveOutcome> {
+    remove_app_in(
+        app_id,
+        residual_paths,
+        data_paths,
+        steps,
+        backup,
+        backup_root,
+        &paths::home_dir(),
+    )
+}
+
+/// 可注入 home 的实现（测试用）。
+pub fn remove_app_in(
+    app_id: &str,
+    residual_paths: &[String],
+    data_paths: &[String],
+    steps: &[String],
+    backup: bool,
+    backup_root: &Path,
+    home: &Path,
+) -> CoreResult<RemoveOutcome> {
     crate::registry::validate_id(app_id)?;
 
     // 人话指引 → 任务日志（绝不执行）
@@ -363,7 +417,7 @@ pub fn remove_app(
             .cloned()
             .collect();
         if !existing.is_empty() {
-            let out = backup_app(app_id, &existing, backup_root).map_err(|e| {
+            let out = backup_app_in(app_id, &existing, backup_root, home).map_err(|e| {
                 CoreError::new(
                     "MANAGE_BACKUP_FAILED",
                     format!("backup before removal failed: {}", e.human),
@@ -475,7 +529,7 @@ mod tests {
         write(&root.join("outside/secret.txt"), "nope");
 
         let declared = vec![data.to_string_lossy().into_owned()];
-        let out = backup_app("jan", &declared, &root.join("backup")).unwrap();
+        let out = backup_app_in("jan", &declared, &root.join("backup"), &root).unwrap();
 
         assert!(!out.backup_dir.is_empty());
         assert_eq!(out.files.len(), 2);
@@ -508,10 +562,11 @@ mod tests {
     #[test]
     fn backup_skips_missing_and_empty() {
         let root = tmpdir("bk2");
-        let out = backup_app(
+        let out = backup_app_in(
             "jan",
             &["/definitely/not/here/at/all".into()],
             &root.join("backup"),
+            &root,
         )
         .unwrap();
         assert_eq!(out.backup_dir, "");
@@ -629,13 +684,14 @@ mod tests {
         let residual = vec![data.to_string_lossy().into_owned()];
         // 声明 dataPaths 为空但 backup=true → 有存在的 residual 不备份（无 dataPaths），
         // 这里 dataPaths 声明同路径 → 自动备份
-        let out = remove_app(
+        let out = remove_app_in(
             "jan",
             &residual,
             &residual,
             &["Windows: Settings → Jan → uninstall".into()],
             true,
             &root.join("backup"),
+            &root,
         )
         .unwrap();
 
@@ -658,7 +714,7 @@ mod tests {
         let blocker = root.join("blocker");
         fs::write(&blocker, "file not dir").unwrap();
         let residual = vec![data.to_string_lossy().into_owned()];
-        let err = remove_app("jan", &residual, &residual, &[], true, &blocker).unwrap_err();
+        let err = remove_app_in("jan", &residual, &residual, &[], true, &blocker, &root).unwrap_err();
         assert_eq!(err.code, "MANAGE_BACKUP_FAILED");
         assert!(data.exists(), "备份失败 → 数据必须还在");
     }
@@ -718,7 +774,7 @@ mod tests {
         // 指向外部目录的链接
         symlink(root.join("outside"), data.join("linkdir")).ok();
 
-        let out = backup_app("jan", &[data.to_string_lossy().into_owned()], &root.join("bk")).unwrap();
+        let out = backup_app_in("jan", &[data.to_string_lossy().into_owned()], &root.join("bk"), &root).unwrap();
         assert_eq!(out.files, vec!["data/real.txt".to_string()], "only the real file may be packed");
         // 备份内容不得含外部密钥
         let zip_path = Path::new(&out.backup_dir).join("data.zip");
@@ -755,6 +811,54 @@ mod tests {
         assert_eq!(err.code, "MANAGE_SYMLINK_ESCAPE");
         assert_eq!(called.get(), 0, "must not touch the filesystem");
         assert!(victim.join("important.txt").exists(), "outside data intact");
+    }
+
+
+    /// 审计回归 P1（第二轮）：声明根**本身**是 symlink → 必须拒绝备份。
+    #[cfg(unix)]
+    #[test]
+    fn backup_refuses_symlinked_declared_root() {
+        use std::os::unix::fs::symlink;
+        let root = tmpdir("sym-root");
+        let outside = root.join("outside");
+        write(&outside.join("secret.txt"), "TOP-SECRET");
+        let link_root = root.join("declared-link");
+        symlink(&outside, &link_root).unwrap();
+
+        let out = backup_app_in(
+            "jan",
+            &[link_root.to_string_lossy().into_owned()],
+            &root.join("bk"),
+            &root,
+        )
+        .unwrap();
+        assert!(out.files.is_empty(), "symlinked root must not be packed");
+        assert!(!out.skipped.is_empty(), "refusal must be reported");
+        assert_eq!(out.backup_dir, "", "no backup dir for refused root");
+    }
+
+    /// 审计回归 P1（第二轮）：中间目录是 symlink 时，备份目标解析后越界 → 拒绝。
+    #[cfg(unix)]
+    #[test]
+    fn backup_refuses_path_traversing_symlinked_dir() {
+        use std::os::unix::fs::symlink;
+        let root = tmpdir("sym-mid");
+        let outside = root.join("outside");
+        write(&outside.join("data/secret.txt"), "TOP-SECRET");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        // home/link -> ../outside  （解析后落到 home 之外）
+        symlink(&outside, home.join("link")).unwrap();
+
+        let out = backup_app_in(
+            "jan",
+            &[home.join("link/data").to_string_lossy().into_owned()],
+            &root.join("bk"),
+            &home,
+        )
+        .unwrap();
+        assert!(out.files.is_empty(), "escaping path must not be packed");
+        assert!(!out.skipped.is_empty());
     }
 
 }

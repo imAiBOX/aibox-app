@@ -94,6 +94,22 @@ pub fn fetch_stats() -> CoreResult<StatsData> {
 /// 匿名设备标识（拍板项：按设备去重，不关联任何个人/硬件信息）。
 /// 首次生成后持久化到 settings.json 的 `anonymousId`（UUID v4，服务端白名单 [0-9a-f-]{8,64}）。
 pub fn anonymous_id() -> String {
+    // 进程级缓存：真正兑现"持久化失败也在本进程内保持同一 ID"的去重语义
+    // （否则每次上报都重新生成 UUID，按设备去重形同虚设）。
+    let mut guard = ID_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(id) = guard.as_ref() {
+        return id.clone();
+    }
+    let id = resolve_or_create_id();
+    *guard = Some(id.clone());
+    id
+}
+
+/// 进程级匿名 ID 缓存（跨调用稳定；测试可重置）。
+static ID_CACHE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// 解析已存 ID，或生成新 ID 并 best-effort 持久化。
+fn resolve_or_create_id() -> String {
     let settings = crate::region::read_settings();
     if let Some(id) = settings.pointer("/anonymousId").and_then(|v| v.as_str()) {
         if !id.is_empty() {
@@ -102,14 +118,20 @@ pub fn anonymous_id() -> String {
     }
     // CSPRNG（uuid v4，getrandom 系）——审计 P2：时间戳+RandomState 的可预测性不达标。
     let id = new_anonymous_id();
-    // 持久化（best-effort）：持久化失败时**不换 ID**——内存里同一进程继续用刚生成的值，
-    // 避免“每次调用换 ID”破坏去重；下次进程启动才会重新生成（可接受的匿名聚合语义）。
+    // 持久化 best-effort：失败也在本进程内复用同一 ID（缓存由 anonymous_id 持有）
     let path = crate::paths::settings_file();
     if let Ok(mut settings) = crate::fsops::read_json5(&path) {
         crate::fsops::merge_preserve(&mut settings, &serde_json::json!({ "anonymousId": id }));
         let _ = crate::fsops::write_json_atomic(&path, &settings);
     }
     id
+}
+
+/// 测试用：清空进程级缓存，使下一次调用重新解析。
+#[cfg(test)]
+pub fn reset_anonymous_id_cache() {
+    let mut g = ID_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    *g = None;
 }
 
 /// 生成新的匿名设备标识（纯函数：CSPRNG UUID v4；服务端白名单 `^[0-9a-f-]{8,64}$`）。
@@ -242,6 +264,22 @@ mod tests {
         assert_ne!(new_anonymous_id(), new_anonymous_id());
         // 与服务端接受的正则一致
         assert!(id.len() >= 8 && id.len() <= 64);
+    }
+
+
+    /// 审计回归 P2（第二轮）：同一进程内 `anonymous_id()` 必须稳定（去重语义成立）。
+    #[test]
+    fn anonymous_id_is_stable_within_process() {
+        reset_anonymous_id_cache();
+        let a = anonymous_id();
+        let b = anonymous_id();
+        let c = anonymous_id();
+        assert_eq!(a, b, "second call must reuse the cached id");
+        assert_eq!(b, c);
+        // 长度不写死：历史版本可能已持久化 32 位 hex（仍在服务端白名单内，兼容保留）
+        assert!(a.len() >= 8 && a.len() <= 64, "whitelisted shape: {a}");
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit() || c == '-'));
+        reset_anonymous_id_cache();
     }
 
 }

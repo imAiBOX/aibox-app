@@ -119,35 +119,44 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// GitHub contents API JSON envelope → 原文，并做完整性校验：
-/// base64 解码 `content` 后计算 git blob sha1，与响应 `sha` 字段比对，一致才采信。
-/// （防 API 层/中间人篡改；不一致或解析失败 → 走既有错误路径。）
+/// 完整性校验错误的结构化前缀。GitHub API 路径上的**任何**响应验证失败
+/// （信封畸形、base64 非法、SHA 不符、内容非 UTF-8）都带此标签 → 判定为安全错误，
+/// 整体拒绝，绝不回退旧缓存/嵌入快照。用前缀而非子串匹配，避免文案变更导致漏判。
+pub const INTEGRITY_ERR_TAG: &str = "[integrity]";
+
+fn integrity_err(msg: impl std::fmt::Display) -> String {
+    format!("{INTEGRITY_ERR_TAG} {msg}")
+}
+
+/// GitHub contents API JSON envelope → 原文，并做完整性校验。
+/// **顺序很重要**：先对原始字节算 git blob sha1 并与响应 `sha` 比对，
+/// **通过之后**才做 UTF-8 转换——否则非 UTF-8 载荷会以 "utf8" 错误逃过完整性分类。
 pub fn decode_github_contents(raw: &str) -> Result<String, String> {
-    let v: Value = serde_json::from_str(raw).map_err(|e| format!("api json: {e}"))?;
+    let v: Value = serde_json::from_str(raw).map_err(|e| integrity_err(format!("api json: {e}")))?;
     let sha = v
         .get("sha")
         .and_then(Value::as_str)
-        .ok_or_else(|| "api json: missing sha".to_string())?;
+        .ok_or_else(|| integrity_err("api json: missing sha"))?;
     let b64 = v
         .get("content")
         .and_then(Value::as_str)
-        .ok_or_else(|| "api json: missing content".to_string())?;
-    let bytes = base64_decode(b64)?;
-    let text = String::from_utf8(bytes.clone()).map_err(|e| format!("content utf8: {e}"))?;
+        .ok_or_else(|| integrity_err("api json: missing content"))?;
+    let bytes = base64_decode(b64).map_err(|e| integrity_err(e))?;
+    // ① 先验哈希（原始字节，未做任何编码转换）
     let got = git_blob_sha1(&bytes);
     if !got.eq_ignore_ascii_case(sha) {
-        return Err(format!(
-            "blob sha mismatch (integrity check failed): computed {got} != api {sha}"
-        ));
+        return Err(integrity_err(format!(
+            "blob sha mismatch: computed {got} != api {sha}"
+        )));
     }
-    Ok(text)
+    // ② 哈希通过后才是 UTF-8（失败同样是完整性问题：内容不是预期文档）
+    String::from_utf8(bytes).map_err(|e| integrity_err(format!("content utf8: {e}")))
 }
 
 /// GitHub API 完整性校验失败判定（纯函数，单测覆盖）。
 /// 这类失败是**安全错误**：必须整体拒绝，绝不回退旧缓存/嵌入快照。
 pub fn is_api_integrity_failure(name: &str, r: &Result<String, String>) -> bool {
-    name == "github-api"
-        && matches!(r, Err(e) if e.contains("blob sha mismatch") || e.contains("invalid GitHub contents"))
+    name == "github-api" && matches!(r, Err(e) if e.starts_with(INTEGRITY_ERR_TAG))
 }
 
 /// 预处理网络结果：github-api 源返回 JSON envelope，解码为原文（含 blob 校验）；
@@ -699,21 +708,41 @@ mod tests {
         assert!(!is_availability_err(&CoreError::new("REGISTRY_BAD_JSON", "x")));
     }
 
-    /// 审计回归 P2：GitHub API blob 校验失败必须判为安全错误（禁止缓存降级）。
+    /// 审计回归 P2：GitHub API 完整性失败必须判为安全错误（禁止缓存降级）。
     #[test]
     fn api_integrity_failure_detection() {
-        let sha_err: Result<String, String> =
-            Err("blob sha mismatch (integrity check failed): computed a != api b".into());
-        assert!(is_api_integrity_failure("github-api", &sha_err));
-        let env_err: Result<String, String> = Err("invalid GitHub contents envelope".into());
-        assert!(is_api_integrity_failure("github-api", &env_err));
-        // 非 API 源的同名错误不算（它们没有 blob 校验语义）
-        assert!(!is_api_integrity_failure("raw", &sha_err));
-        // 网络错误不算完整性失败（应走可用性降级）
+        let tagged: Result<String, String> =
+            Err(format!("{INTEGRITY_ERR_TAG} blob sha mismatch: computed a != api b"));
+        assert!(is_api_integrity_failure("github-api", &tagged));
+        // 非 API 源不带该语义
+        assert!(!is_api_integrity_failure("raw", &tagged));
+        // 网络失败必须走可用性降级，不得误判为完整性错误
         let net_err: Result<String, String> = Err("timed out".into());
         assert!(!is_api_integrity_failure("github-api", &net_err));
-        // 成功不算
         assert!(!is_api_integrity_failure("github-api", &Ok("{}".into())));
     }
 
+    /// 审计回归 P2（第二轮）：SHA 必须先于 UTF-8 校验——
+    /// 非 UTF-8 载荷 + 错误 SHA 仍须判为完整性失败（旧实现会漏判并回落缓存）。
+    #[test]
+    fn non_utf8_payload_with_bad_sha_is_still_integrity_failure() {
+        // 0xFF 0xFE 不是合法 UTF-8；base64: "//4="
+        let raw = r#"{"sha":"0000000000000000000000000000000000000000","content":"//4="}"#;
+        let r = decode_github_contents(raw);
+        assert!(r.is_err(), "must reject");
+        let e = r.unwrap_err();
+        assert!(e.starts_with(INTEGRITY_ERR_TAG), "must be tagged integrity: {e}");
+        assert!(is_api_integrity_failure("github-api", &Err(e)));
+    }
+
+    /// 正确 SHA + 非 UTF-8 内容 → 仍是完整性问题（内容不符预期文档）。
+    #[test]
+    fn correct_sha_non_utf8_content_is_integrity_failure() {
+        let bytes = [0xFFu8, 0xFE];
+        let sha = git_blob_sha1(&bytes);
+        let b64 = "//4=";
+        let raw = format!(r#"{{"sha":"{sha}","content":"{b64}"}}"#);
+        let e = decode_github_contents(&raw).unwrap_err();
+        assert!(e.starts_with(INTEGRITY_ERR_TAG), "utf8 failure must carry tag: {e}");
+    }
 }

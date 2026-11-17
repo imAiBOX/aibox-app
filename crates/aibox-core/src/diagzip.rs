@@ -30,6 +30,23 @@ pub struct DiagInputs {
     pub generated: Vec<(String, String)>,
 }
 
+/// 有界读取：先打开句柄取长度，超限直接拒绝；读取时再以 `take(limit)` 硬封顶，
+/// 避免"检查后文件增长/被替换"造成的无界读（审计 P2）。
+fn read_bounded(path: &Path, limit: u64) -> std::io::Result<Vec<u8>> {
+    let f = fs::File::open(path)?;
+    let len = f.metadata()?.len();
+    if len > limit {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("file too large ({len} bytes, limit {limit})"),
+        ));
+    }
+    let mut buf = Vec::with_capacity(len as usize);
+    let mut h = f.take(limit);
+    h.read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
 /// 打包结果。
 #[derive(Debug, Clone)]
 pub struct DiagOutcome {
@@ -103,7 +120,7 @@ pub fn build_diag_zip(inputs: &DiagInputs) -> CoreResult<DiagOutcome> {
                     .to_string_lossy()
                     .into_owned()
             });
-        let bytes = match fs::read(&p) {
+        let bytes = match read_bounded(&p, MAX_FILE_BYTES) {
             Ok(b) => b,
             Err(e) => {
                 skipped.push(json!({"entry": rel, "reason": format!("read error: {e}")}));
@@ -138,11 +155,21 @@ pub fn build_diag_zip(inputs: &DiagInputs) -> CoreResult<DiagOutcome> {
             }));
             continue;
         }
-        total_logged += meta.len();
-        let Ok(bytes) = fs::read(src) else {
-            skipped.push(json!({"entry": name, "reason": "read error"}));
-            continue;
+        // 硬上限：读取本身也封顶（防止检查后被增长/替换）
+        let remaining = MAX_TOTAL_BYTES - total_logged;
+        let bytes = match read_bounded(src, MAX_FILE_BYTES.min(remaining)) {
+            Ok(b) => b,
+            Err(e) => {
+                skipped.push(json!({"entry": name, "reason": format!("read error: {e}")}));
+                continue;
+            }
         };
+        // 预算按**实际读取字节**计费（而非读取前的声明长度）
+        if total_logged + bytes.len() as u64 > MAX_TOTAL_BYTES {
+            skipped.push(json!({"entry": name, "reason": "attachment budget exceeded (40MB)"}));
+            continue;
+        }
+        total_logged += bytes.len() as u64;
         entries.push((name.clone(), bytes, true));
     }
 
@@ -444,6 +471,29 @@ mod tests {
         let outcome = build_diag_zip(&inputs).unwrap();
         let names = zip_entry_names(&out).unwrap();
         assert!(!names.iter().any(|n| n == "huge.bin"), "oversized attachment must be excluded");
+        assert!(names.iter().any(|n| n == "ok.json"));
+        assert!(outcome.skipped >= 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+
+    /// 审计回归 P2（第二轮）：generated 内容同样受单文件上限约束。
+    #[test]
+    fn oversized_generated_content_is_skipped() {
+        let dir = std::env::temp_dir().join(format!("aibox-diag-gen-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("d.zip");
+        let huge = "x".repeat((MAX_FILE_BYTES as usize) + 8);
+        let inputs = DiagInputs {
+            out_path: out.clone(),
+            logs_dir: dir.join("no-logs"),
+            extra_files: vec![],
+            generated: vec![("huge.json".into(), huge), ("ok.json".into(), "{}".into())],
+        };
+        let outcome = build_diag_zip(&inputs).unwrap();
+        let names = zip_entry_names(&out).unwrap();
+        assert!(!names.iter().any(|n| n == "huge.json"));
         assert!(names.iter().any(|n| n == "ok.json"));
         assert!(outcome.skipped >= 1);
         let _ = fs::remove_dir_all(&dir);
