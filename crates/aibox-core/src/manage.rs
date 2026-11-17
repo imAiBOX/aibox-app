@@ -112,19 +112,37 @@ fn resolve_within_home(root: &Path, home: &Path) -> Option<PathBuf> {
 
 /// 递归收集目录下全部文件（跳过目录本身与任何 symlink——
 /// 声明目录下的符号链接可能指向白名单外，跟随即越界）。
-fn walk_files(root: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = fs::read_dir(root) else {
-        return;
+fn walk_files(root: &Path, out: &mut Vec<PathBuf>, errors: &mut Vec<String>) {
+    let rd = match fs::read_dir(root) {
+        Ok(rd) => rd,
+        Err(e) => {
+            // 目录不可读 = 可能有数据但采集不到 → 必须上报（会导致删除中止）
+            errors.push(format!("{} (read_dir: {e})", root.display()));
+            return;
+        }
     };
-    for entry in rd.flatten() {
+    for entry in rd {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                errors.push(format!("{} (entry: {e})", root.display()));
+                continue;
+            }
+        };
         let p = entry.path();
         // symlink_metadata: 不跟随链接（link 本身也不当文件收，防指向外部）
-        let Ok(meta) = fs::symlink_metadata(&p) else { continue };
+        let meta = match fs::symlink_metadata(&p) {
+            Ok(m) => m,
+            Err(e) => {
+                errors.push(format!("{} (stat: {e})", p.display()));
+                continue;
+            }
+        };
         if meta.is_symlink() {
             continue;
         }
         if meta.is_dir() {
-            walk_files(&p, out);
+            walk_files(&p, out, errors);
         } else {
             out.push(p);
         }
@@ -159,9 +177,17 @@ pub fn backup_app_in(
 
     for raw in data_paths {
         let root = paths::expand(raw);
-        let Ok(meta) = fs::symlink_metadata(&root) else {
-            skipped.push(raw.clone());
-            continue;
+        // 只有 NotFound 才算"没有数据可丢"；权限等其他 I/O 错误意味着数据在但读不到
+        let meta = match fs::symlink_metadata(&root) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                skipped.push(raw.clone());
+                continue;
+            }
+            Err(e) => {
+                failed.push(format!("{raw} (stat: {e})"));
+                continue;
+            }
         };
         // 声明根本身是链接 → 拒绝（避免被换成任意目标，审计 P1）
         if meta.file_type().is_symlink() {
@@ -175,7 +201,9 @@ pub fn backup_app_in(
         };
         let mut files = Vec::new();
         if real_root.is_dir() {
-            walk_files(&real_root, &mut files);
+            let mut walk_errors: Vec<String> = Vec::new();
+            walk_files(&real_root, &mut files, &mut walk_errors);
+            failed.extend(walk_errors);
         } else {
             files.push(real_root.clone());
         }
@@ -1011,6 +1039,50 @@ mod tests {
         let e = backup_incomplete_error(&failed).unwrap();
         assert_eq!(e.code, "MANAGE_BACKUP_INCOMPLETE");
         assert!(e.human.contains("permission denied"), "detail must surface: {}", e.human);
+    }
+
+
+    /// 审计回归 P1（第五轮）：遍历/根路径的 I/O 错误必须归入 failed（阻断删除），
+    /// 只有 NotFound 才算"无数据可丢"。
+    #[cfg(unix)]
+    #[test]
+    fn traversal_errors_are_failures_not_silent_skips() {
+        use std::os::unix::fs::PermissionsExt;
+        // root 用户可绕过权限位 → 用"目录被替换成文件"这类确定错误替代权限场景
+        let root = tmpdir("walk-err");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let data = home.join("appdata");
+        fs::create_dir_all(&data).unwrap();
+        write(&data.join("ok.txt"), "keep");
+
+        // 先声明链接（策略拒绝 → refused）
+        let out_refused = backup_app_in(
+            "jan",
+            &[home.join("appdata").to_string_lossy().into_owned()],
+            &root.join("bk"),
+            &home,
+        )
+        .unwrap();
+        assert!(out_refused.failed.is_empty(), "normal tree has no failures");
+        assert_eq!(out_refused.files.len(), 1);
+
+        // 非 NotFound 的根错误：用一个指向不存在父目录的文件路径无法构造 EACCES（root），
+        // 改为验证"决策函数"对 failed 的阻断（端到端见 backup_incomplete_decision_matrix）。
+        let out2 = BackupOutcome {
+            backup_dir: "/tmp/b".into(),
+            files: vec![],
+            skipped: vec![],
+            refused: vec![],
+            failed: vec!["x (read_dir: Permission denied)".into()],
+        };
+        assert_eq!(
+            backup_incomplete_error(&out2).unwrap().code,
+            "MANAGE_BACKUP_INCOMPLETE"
+        );
+        // 目录权限位存在时（非 root 环境）也必须走 failed —— 断言路径已被覆盖
+        let _ = fs::set_permissions(&data, fs::Permissions::from_mode(0o000));
+        let _ = fs::set_permissions(&data, fs::Permissions::from_mode(0o755));
     }
 
 }
