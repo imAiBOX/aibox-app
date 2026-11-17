@@ -10,6 +10,7 @@ description = "AiBOX stable primitives: download/verify/exec/probe/fs/diag-zip/r
 aibox-net = { path = "../aibox-net" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+uuid = { version = "1", features = ["v4"] } # CSPRNG-backed anonymous device id
 # 探测 expect 与诊断脱敏扫描（regex 1.x 纯 Rust，已在 workspace lock）
 regex = "1"
 # HTTP：与 aibox-net 同款 ureq（rustls，无系统 C 库）——registry 多源交叉 / VERIFY 真实请求 / update_check

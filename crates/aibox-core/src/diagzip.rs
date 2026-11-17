@@ -118,6 +118,27 @@ pub fn build_diag_zip(inputs: &DiagInputs) -> CoreResult<DiagOutcome> {
             skipped.push(json!({"entry": name, "reason": "source file not found"}));
             continue;
         }
+        // Same bounded reads as log files: an unexpected oversized attachment
+        // must not be slurped into memory (resource-exhaustion guard).
+        let Ok(meta) = fs::metadata(src) else {
+            skipped.push(json!({"entry": name, "reason": "stat error"}));
+            continue;
+        };
+        if meta.len() > MAX_FILE_BYTES {
+            skipped.push(json!({
+                "entry": name,
+                "reason": format!("file too large ({} bytes)", meta.len()),
+            }));
+            continue;
+        }
+        if total_logged + meta.len() > MAX_TOTAL_BYTES {
+            skipped.push(json!({
+                "entry": name,
+                "reason": "attachment budget exceeded (40MB)",
+            }));
+            continue;
+        }
+        total_logged += meta.len();
         let Ok(bytes) = fs::read(src) else {
             skipped.push(json!({"entry": name, "reason": "read error"}));
             continue;
@@ -126,7 +147,20 @@ pub fn build_diag_zip(inputs: &DiagInputs) -> CoreResult<DiagOutcome> {
     }
 
     for (name, text) in &inputs.generated {
-        entries.push((name.clone(), text.as_bytes().to_vec(), true));
+        let bytes = text.as_bytes();
+        if bytes.len() as u64 > MAX_FILE_BYTES {
+            skipped.push(json!({
+                "entry": name,
+                "reason": format!("generated content too large ({} bytes)", bytes.len()),
+            }));
+            continue;
+        }
+        if total_logged + bytes.len() as u64 > MAX_TOTAL_BYTES {
+            skipped.push(json!({"entry": name, "reason": "attachment budget exceeded (40MB)"}));
+            continue;
+        }
+        total_logged += bytes.len() as u64;
+        entries.push((name.clone(), bytes.to_vec(), true));
     }
 
     // ── 强制脱敏扫描（硬规则：命中 → sk-****1234 并计入报告）──
@@ -387,4 +421,32 @@ mod tests {
         assert_eq!(outcome.entries, 2, "generated + report");
         let _ = fs::remove_dir_all(&dir);
     }
+
+    /// 审计回归 P1：超大附件必须跳过（不得整文件读入内存）。
+    #[test]
+    fn oversized_attachment_is_skipped_not_read() {
+        let dir = std::env::temp_dir().join(format!("aibox-diag-big-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let big = dir.join("huge.bin");
+        // 稀疏文件：> 4MB 上限，但不实际占盘
+        let f = fs::File::create(&big).unwrap();
+        f.set_len(MAX_FILE_BYTES + 1).unwrap();
+        drop(f);
+
+        let out = dir.join("aibox-diagnostic-2026-11-16.zip");
+        let inputs = DiagInputs {
+            out_path: out.clone(),
+            logs_dir: dir.join("no-logs"),
+            extra_files: vec![("huge.bin".into(), big.clone())],
+            generated: vec![("ok.json".into(), "{}".into())],
+        };
+        let outcome = build_diag_zip(&inputs).unwrap();
+        let names = zip_entry_names(&out).unwrap();
+        assert!(!names.iter().any(|n| n == "huge.bin"), "oversized attachment must be excluded");
+        assert!(names.iter().any(|n| n == "ok.json"));
+        assert!(outcome.skipped >= 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
 }

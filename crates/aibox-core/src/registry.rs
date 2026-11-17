@@ -143,6 +143,13 @@ pub fn decode_github_contents(raw: &str) -> Result<String, String> {
     Ok(text)
 }
 
+/// GitHub API 完整性校验失败判定（纯函数，单测覆盖）。
+/// 这类失败是**安全错误**：必须整体拒绝，绝不回退旧缓存/嵌入快照。
+pub fn is_api_integrity_failure(name: &str, r: &Result<String, String>) -> bool {
+    name == "github-api"
+        && matches!(r, Err(e) if e.contains("blob sha mismatch") || e.contains("invalid GitHub contents"))
+}
+
 /// 预处理网络结果：github-api 源返回 JSON envelope，解码为原文（含 blob 校验）；
 /// 校验失败 → 该源记为 Err（与网络失败同路径）。
 fn normalize_results(
@@ -278,10 +285,20 @@ pub fn fetch_crosschecked(
             .collect()
     });
 
-    // 「响应成功」计数按 HTTP 层算：github-api 若校验失败仍算 responded
-    // （→ 走 MISMATCH / SINGLE_SOURCE 既有错误路径，而不是伪装成 0 源）。
-    let ok_count = results.iter().filter(|(_, r)| r.is_ok()).count();
+    // Keep HTTP reachability separate from integrity validation: a GitHub blob
+    // checksum failure is a hard security error and must never be hidden by a
+    // stale cache fallback.
+    let http_ok_count = results.iter().filter(|(_, r)| r.is_ok()).count();
+    let api_integrity_error = results.iter().any(|(name, r)| is_api_integrity_failure(name, r));
     let results = normalize_results(results);
+    let api_integrity_error =
+        api_integrity_error || results.iter().any(|(name, r)| is_api_integrity_failure(name, r));
+    if api_integrity_error {
+        return Err(CoreError::new(
+            "REGISTRY_INTEGRITY",
+            "GitHub API content failed its git-blob SHA-1 integrity check; refusing all cache fallbacks",
+        ));
+    }
 
     if let Some((text, source)) = pick_agreed(&results) {
         let _ = write_cache(cache_name, &text, source)?;
@@ -303,7 +320,7 @@ pub fn fetch_crosschecked(
         })
         .collect();
 
-    if ok_count >= 2 {
+    if http_ok_count >= 2 {
         // ≥2 源可达但内容互不一致 → 不采信（S2 防篡改），即使有旧缓存也不静默降级
         return Err(CoreError::new(
             "REGISTRY_MISMATCH",
@@ -318,7 +335,7 @@ pub fn fetch_crosschecked(
     if let Ok(cached) = read_cache(cache_name) {
         return Ok((cached, "cache-stale".to_string()));
     }
-    if ok_count == 0 {
+    if http_ok_count == 0 {
         Err(CoreError::new(
             "REGISTRY_UNAVAILABLE",
             format!(
@@ -681,4 +698,22 @@ mod tests {
         assert!(!is_availability_err(&CoreError::new("REGISTRY_MISMATCH", "x")));
         assert!(!is_availability_err(&CoreError::new("REGISTRY_BAD_JSON", "x")));
     }
+
+    /// 审计回归 P2：GitHub API blob 校验失败必须判为安全错误（禁止缓存降级）。
+    #[test]
+    fn api_integrity_failure_detection() {
+        let sha_err: Result<String, String> =
+            Err("blob sha mismatch (integrity check failed): computed a != api b".into());
+        assert!(is_api_integrity_failure("github-api", &sha_err));
+        let env_err: Result<String, String> = Err("invalid GitHub contents envelope".into());
+        assert!(is_api_integrity_failure("github-api", &env_err));
+        // 非 API 源的同名错误不算（它们没有 blob 校验语义）
+        assert!(!is_api_integrity_failure("raw", &sha_err));
+        // 网络错误不算完整性失败（应走可用性降级）
+        let net_err: Result<String, String> = Err("timed out".into());
+        assert!(!is_api_integrity_failure("github-api", &net_err));
+        // 成功不算
+        assert!(!is_api_integrity_failure("github-api", &Ok("{}".into())));
+    }
+
 }

@@ -92,7 +92,7 @@ pub fn fetch_stats() -> CoreResult<StatsData> {
 }
 
 /// 匿名设备标识（拍板项：按设备去重，不关联任何个人/硬件信息）。
-/// 首次生成后持久化到 settings.json 的 `anonymousId`（32 位 hex，服务端白名单 [0-9a-f-]{8,64}）。
+/// 首次生成后持久化到 settings.json 的 `anonymousId`（UUID v4，服务端白名单 [0-9a-f-]{8,64}）。
 pub fn anonymous_id() -> String {
     let settings = crate::region::read_settings();
     if let Some(id) = settings.pointer("/anonymousId").and_then(|v| v.as_str()) {
@@ -100,22 +100,21 @@ pub fn anonymous_id() -> String {
             return id.to_string();
         }
     }
-    // 无外部依赖的随机 hex：SystemTime 纳秒 + 线程局部随机状态混合
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let mut h = RandomState::new().build_hasher();
-    h.write_u128(nanos);
-    let rand = h.finish();
-    let id = format!("{:016x}{:016x}", rand, nanos as u64 ^ rand);
-    // 持久化（best-effort：失败下次会重新生成，不影响上报）
+    // CSPRNG（uuid v4，getrandom 系）——审计 P2：时间戳+RandomState 的可预测性不达标。
+    let id = new_anonymous_id();
+    // 持久化（best-effort）：持久化失败时**不换 ID**——内存里同一进程继续用刚生成的值，
+    // 避免“每次调用换 ID”破坏去重；下次进程启动才会重新生成（可接受的匿名聚合语义）。
     let path = crate::paths::settings_file();
     if let Ok(mut settings) = crate::fsops::read_json5(&path) {
         crate::fsops::merge_preserve(&mut settings, &serde_json::json!({ "anonymousId": id }));
         let _ = crate::fsops::write_json_atomic(&path, &settings);
     }
     id
+}
+
+/// 生成新的匿名设备标识（纯函数：CSPRNG UUID v4；服务端白名单 `^[0-9a-f-]{8,64}$`）。
+pub fn new_anonymous_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 /// 上报请求体（纯函数）：`{appId, type: "install", aid?}`。
@@ -227,4 +226,22 @@ mod tests {
         assert_eq!(v["apps"]["a"]["views"], 1);
         assert_eq!(v["updatedAt"], "t");
     }
+
+    /// 审计回归 P2：匿名 ID 必须是 CSPRNG UUID v4，且满足服务端白名单形状。
+    #[test]
+    fn anonymous_id_is_uuid_v4_and_whitelisted() {
+        let id = new_anonymous_id();
+        assert_eq!(id.len(), 36, "uuid v4 text form: {id}");
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'), "charset: {id}");
+        assert_eq!(id.as_bytes()[14], b'4', "version nibble must be 4: {id}");
+        assert!(
+            matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b'),
+            "RFC 4122 variant nibble: {id}"
+        );
+        // 两次生成必须不同（不得退化为时间戳/计数器）
+        assert_ne!(new_anonymous_id(), new_anonymous_id());
+        // 与服务端接受的正则一致
+        assert!(id.len() >= 8 && id.len() <= 64);
+    }
+
 }

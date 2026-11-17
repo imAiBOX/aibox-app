@@ -44,6 +44,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "ureq",
+ "uuid",
  "windows-sys 0.61.2",
  "winreg",
  "zip",

@@ -89,14 +89,20 @@ fn entry_name(root: &Path, f: &Path, home: &Path) -> String {
     }
 }
 
-/// 递归收集目录下全部文件（跳过目录本身）。
+/// 递归收集目录下全部文件（跳过目录本身与任何 symlink——
+/// 声明目录下的符号链接可能指向白名单外，跟随即越界）。
 fn walk_files(root: &Path, out: &mut Vec<PathBuf>) {
     let Ok(rd) = fs::read_dir(root) else {
         return;
     };
     for entry in rd.flatten() {
         let p = entry.path();
-        if p.is_dir() {
+        // symlink_metadata: 不跟随链接（link 本身也不当文件收，防指向外部）
+        let Ok(meta) = fs::symlink_metadata(&p) else { continue };
+        if meta.is_symlink() {
+            continue;
+        }
+        if meta.is_dir() {
             walk_files(&p, out);
         } else {
             out.push(p);
@@ -234,6 +240,8 @@ fn normalize(p: &Path) -> PathBuf {
 }
 
 /// 白名单内删除：target 必须等于 allow 之一或在其之下，且非保护路径。
+/// **路径上任何组件是 symlink 都拒绝**：词法边界不解析链接，`remove_dir_all`
+/// 可能顺着声明目录内的链接删到外部（审计 P1：symlink 越界）。
 /// `deleter` 注入（单测模拟失败收集；生产传 `fs_delete`）。
 pub fn delete_within<F>(
     allow: &[PathBuf],
@@ -261,6 +269,14 @@ where
             format!("path not in declared list: {}", target.display()),
         ));
     }
+    // 逐段拒绝 symlink：target 自身与其每个祖先（直到 allow 根）都不得是链接，
+    // 否则删除可能经链接落到白名单之外。
+    if has_symlink_component(&t, allow) {
+        return Err(CoreError::new(
+            "MANAGE_SYMLINK_ESCAPE",
+            format!("path traverses a symlink: {}", target.display()),
+        ));
+    }
     if fs::symlink_metadata(&t).is_err() {
         return Ok(DeleteOutcome::NotFound);
     }
@@ -268,6 +284,28 @@ where
         CoreError::new("MANAGE_DELETE_FAILED", format!("{}: {e}", t.display()))
     })?;
     Ok(DeleteOutcome::Deleted)
+}
+
+/// target 自身或其到 allow 根的祖先链上是否存在 symlink。
+fn has_symlink_component(target: &Path, allow: &[PathBuf]) -> bool {
+    if fs::symlink_metadata(target).is_ok_and(|m| m.file_type().is_symlink()) {
+        return true;
+    }
+    // 沿 target 的每个前缀向上查到匹配的 allow 根为止
+    let mut cur = target.parent();
+    while let Some(p) = cur {
+        if allow.iter().any(|a| normalize(a) == p || p.starts_with(&normalize(a))) {
+            // p 在某 allow 内/即其根——继续查 p 自身是否链接（根也可能是指向外部的链接）
+            if fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink()) {
+                return true;
+            }
+        }
+        if fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink()) {
+            return true;
+        }
+        cur = p.parent();
+    }
+    false
 }
 
 /// 真实删除：目录 → remove_dir_all（symlink/文件 → remove_file，不跟随链接）。
@@ -664,4 +702,59 @@ mod tests {
         assert!(backup_app("../evil", &[], &root).is_err());
         assert!(remove_app("a/b", &[], &[], &[], false, &root).is_err());
     }
+
+    /// 审计回归 P1：备份不得跟随 symlink（声明目录内的链接可能指向白名单外）。
+    #[cfg(unix)]
+    #[test]
+    fn backup_skips_symlinks_inside_declared_dirs() {
+        use std::os::unix::fs::symlink;
+        let root = tmpdir("sym-backup");
+        let data = root.join("data");
+        write(&data.join("real.txt"), "real");
+        let secret = root.join("outside-secret.txt");
+        write(&secret, "TOP-SECRET");
+        // 声明目录内放一个指向外部文件的链接
+        symlink(&secret, data.join("leak.txt")).unwrap();
+        // 指向外部目录的链接
+        symlink(root.join("outside"), data.join("linkdir")).ok();
+
+        let out = backup_app("jan", &[data.to_string_lossy().into_owned()], &root.join("bk")).unwrap();
+        assert_eq!(out.files, vec!["data/real.txt".to_string()], "only the real file may be packed");
+        // 备份内容不得含外部密钥
+        let zip_path = Path::new(&out.backup_dir).join("data.zip");
+        let mut archive = zip::ZipArchive::new(fs::File::open(&zip_path).unwrap()).unwrap();
+        for i in 0..archive.len() {
+            let mut f = archive.by_index(i).unwrap();
+            let mut s = String::new();
+            use std::io::Read as _;
+            let _ = f.read_to_string(&mut s);
+            assert!(!s.contains("TOP-SECRET"), "symlinked outside content leaked: {}", f.name());
+        }
+    }
+
+    /// 审计回归 P1：删除路径上的 symlink 必须拒绝（MANAGE_SYMLINK_ESCAPE）。
+    #[cfg(unix)]
+    #[test]
+    fn delete_rejects_symlink_traversal() {
+        use std::os::unix::fs::symlink;
+        let root = tmpdir("sym-del");
+        let allowed = root.join("allowed");
+        let victim = root.join("victim");
+        write(&victim.join("important.txt"), "keep");
+        fs::create_dir_all(&allowed).unwrap();
+        // allowed/link -> ../victim ：词法在白名单内，实际指向外部
+        symlink(&victim, allowed.join("link")).unwrap();
+
+        let allow = vec![allowed.clone()];
+        let called = std::cell::Cell::new(0usize);
+        let mut del = |p: &Path| -> io::Result<()> {
+            called.set(called.get() + 1);
+            fs::remove_dir_all(p)
+        };
+        let err = delete_within(&allow, &allowed.join("link"), &mut del).unwrap_err();
+        assert_eq!(err.code, "MANAGE_SYMLINK_ESCAPE");
+        assert_eq!(called.get(), 0, "must not touch the filesystem");
+        assert!(victim.join("important.txt").exists(), "outside data intact");
+    }
+
 }
