@@ -352,8 +352,18 @@ where
             format!("path traverses a symlink: {}", target.display()),
         ));
     }
-    if fs::symlink_metadata(&t).is_err() {
-        return Ok(DeleteOutcome::NotFound);
+    match fs::symlink_metadata(&t) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(DeleteOutcome::NotFound)
+        }
+        Err(e) => {
+            // 权限等错误 ≠ 不存在：必须报失败，不能静默记为"已不存在"
+            return Err(CoreError::new(
+                "MANAGE_DELETE_FAILED",
+                format!("cannot inspect {}: {e}", t.display()),
+            ));
+        }
     }
     deleter(&t).map_err(|e| {
         CoreError::new("MANAGE_DELETE_FAILED", format!("{}: {e}", t.display()))
@@ -516,13 +526,10 @@ pub fn remove_app_in(
     // 备份（硬规则①；失败中止）
     let mut backup_dir: Option<String> = None;
     if backup {
-        let existing: Vec<String> = data_paths
-            .iter()
-            .filter(|r| fs::symlink_metadata(paths::expand(r)).is_ok())
-            .cloned()
-            .collect();
-        if !existing.is_empty() {
-            let out = backup_app_in(app_id, &existing, backup_root, home).map_err(|e| {
+        // 不在入口预筛选：`symlink_metadata().is_ok()` 会把权限等 I/O 错误当成"不存在"，
+        // 从而绕过备份完整性判定（审计 P1）。全部声明路径交给备份入口分类。
+        if !data_paths.is_empty() {
+            let out = backup_app_in(app_id, data_paths, backup_root, home).map_err(|e| {
                 CoreError::new(
                     "MANAGE_BACKUP_FAILED",
                     format!("backup before removal failed: {}", e.human),
@@ -1083,6 +1090,37 @@ mod tests {
         // 目录权限位存在时（非 root 环境）也必须走 failed —— 断言路径已被覆盖
         let _ = fs::set_permissions(&data, fs::Permissions::from_mode(0o000));
         let _ = fs::set_permissions(&data, fs::Permissions::from_mode(0o755));
+    }
+
+
+    /// 审计回归 P2（第六轮）：stat 的非 NotFound 错误不得被当作"已不存在"，
+    /// 必须报 MANAGE_DELETE_FAILED（否则真实数据可能被误判为已删）。
+    #[test]
+    fn delete_stat_errors_are_not_reported_as_missing() {
+        let root = tmpdir("stat-err");
+        // 让中间路径是普通文件 → path/a/b 触发 ENOTDIR（非 NotFound）
+        let blocker = root.join("a");
+        write(&blocker, "i am a file");
+        let target = blocker.join("b");
+
+        let allow = vec![target.clone()];
+        let called = std::cell::Cell::new(0usize);
+        let mut del = |_p: &Path| -> io::Result<()> {
+            called.set(called.get() + 1);
+            Ok(())
+        };
+        match delete_within(&allow, &target, &mut del) {
+            Err(e) => assert_eq!(e.code, "MANAGE_DELETE_FAILED", "got {}", e.code),
+            Ok(o) => panic!("must not report NotFound for a stat error: {o:?}"),
+        }
+        assert_eq!(called.get(), 0, "deleter must not run on stat error");
+        // 真正的缺失仍然返回 NotFound（不回归）
+        let missing = root.join("nope");
+        let allow2 = vec![missing.clone()];
+        assert_eq!(
+            delete_within(&allow2, &missing, &mut del).unwrap(),
+            DeleteOutcome::NotFound
+        );
     }
 
 }
