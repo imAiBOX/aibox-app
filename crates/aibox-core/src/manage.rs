@@ -36,6 +36,10 @@ pub struct BackupOutcome {
     /// 与 `skipped` 语义不同：这里有数据但可能备份不到 → 破坏性操作必须中止。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<String>,
+    /// **读取/写入失败**的条目（数据存在但没能进包）。
+    /// 同样意味着"备份不完整" → 破坏性操作必须中止。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub failed: Vec<String>,
 }
 
 /// 单条跳过（不存在 / 越界 / 保护路径 / 删除失败——收集不中断）。
@@ -151,6 +155,7 @@ pub fn backup_app_in(
     let mut used: HashSet<String> = HashSet::new();
     let mut skipped: Vec<String> = Vec::new();
     let mut refused: Vec<String> = Vec::new();
+    let mut failed: Vec<String> = Vec::new();
 
     for raw in data_paths {
         let root = paths::expand(raw);
@@ -194,6 +199,7 @@ pub fn backup_app_in(
             files: Vec::new(),
             skipped,
             refused,
+            failed,
         });
     }
     paths::ensure_dir(&dir).map_err(|e| io_err("create backup dir", e))?;
@@ -228,8 +234,8 @@ pub fn backup_app_in(
         let bytes = match read_entry_pinned(src, &home) {
             Ok(b) => b,
             Err(e) => {
-                // 单文件读失败收集进 skipped，不中断整体备份
-                skipped.push(format!("{} ({e})", src.display()));
+                // 读失败 = 数据在但没进包 → failed（会导致破坏性操作中止）
+                failed.push(format!("{} ({e})", src.display()));
                 continue;
             }
         };
@@ -247,6 +253,7 @@ pub fn backup_app_in(
         files: files_out,
         skipped,
         refused,
+        failed,
     })
 }
 
@@ -375,7 +382,18 @@ fn read_entry_pinned(path: &Path, home: &Path) -> io::Result<Vec<u8>> {
             return Err(io::Error::new(io::ErrorKind::Other, "path swapped during backup"));
         }
     }
-    // 兜底：真实路径必须仍在（canonical）根之内
+    #[cfg(not(unix))]
+    {
+        // Windows 无法用 dev/ino 固定句柄身份：任何重解析点一律 fail-closed
+        let m = fs::symlink_metadata(path)?;
+        if m.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "reparse point refused on this platform",
+            ));
+        }
+    }
+    // 兜底：真实路径必须仍在（canonical）home 之内
     let real = fs::canonicalize(path)?;
     let home_real = fs::canonicalize(home)?;
     if real != home_real && !real.starts_with(&home_real) {
@@ -384,6 +402,30 @@ fn read_entry_pinned(path: &Path, home: &Path) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
     f.read_to_end(&mut buf)?;
     Ok(buf)
+}
+
+/// 备份完整性判定（纯函数）：refused（策略拒绝）或 failed（读写失败）都必须中止破坏性操作。
+/// `skipped` 只表示"声明了但不存在"，没有数据可丢，不阻断。
+pub fn backup_incomplete_error(out: &BackupOutcome) -> Option<CoreError> {
+    if !out.refused.is_empty() {
+        return Some(CoreError::new(
+            "MANAGE_BACKUP_INCOMPLETE",
+            format!(
+                "refusing to delete: declared data refused by safety policy: {}",
+                out.refused.join(", ")
+            ),
+        ));
+    }
+    if !out.failed.is_empty() {
+        return Some(CoreError::new(
+            "MANAGE_BACKUP_INCOMPLETE",
+            format!(
+                "refusing to delete: declared data could not be backed up: {}",
+                out.failed.join(", ")
+            ),
+        ));
+    }
+    None
 }
 
 /// 按清单卸载：备份（backupFirst）→ 白名单内删除 → 成功后注销 install-manifest。
@@ -458,15 +500,9 @@ pub fn remove_app_in(
                     format!("backup before removal failed: {}", e.human),
                 )
             })?;
-            if !out.refused.is_empty() {
-                // 有声明数据但备份不到 → 不许删（数据保全优先于清理）
-                return Err(CoreError::new(
-                    "MANAGE_BACKUP_INCOMPLETE",
-                    format!(
-                        "refusing to delete: declared data could not be backed up: {}",
-                        out.refused.join(", ")
-                    ),
-                ));
+            if let Some(err) = backup_incomplete_error(&out) {
+                // 有声明数据但备份不到/没打包成功 → 不许删（数据保全优先于清理）
+                return Err(err);
             }
             if !out.backup_dir.is_empty() {
                 backup_dir = Some(out.backup_dir);
@@ -934,6 +970,47 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.code, "MANAGE_BACKUP_INCOMPLETE");
         assert!(outside.join("precious.txt").exists(), "must not delete without a backup");
+    }
+
+
+    /// 审计回归 P1（第四轮）：备份不完整判定——refused 与 failed 都必须阻断删除，
+    /// 只有"声明了但不存在"（skipped）允许继续。
+    #[test]
+    fn backup_incomplete_decision_matrix() {
+        let clean = BackupOutcome {
+            backup_dir: "/tmp/b".into(),
+            files: vec!["a".into()],
+            skipped: vec![],
+            refused: vec![],
+            failed: vec![],
+        };
+        assert!(backup_incomplete_error(&clean).is_none(), "完整备份不阻断");
+
+        let only_missing = BackupOutcome {
+            backup_dir: String::new(),
+            files: vec![],
+            skipped: vec!["~/gone".into()],
+            refused: vec![],
+            failed: vec![],
+        };
+        assert!(backup_incomplete_error(&only_missing).is_none(), "缺失无数据可丢，不阻断");
+
+        let refused = BackupOutcome {
+            refused: vec!["~/link".into()],
+            ..clean.clone()
+        };
+        assert_eq!(
+            backup_incomplete_error(&refused).unwrap().code,
+            "MANAGE_BACKUP_INCOMPLETE"
+        );
+
+        let failed = BackupOutcome {
+            failed: vec!["~/file (permission denied)".into()],
+            ..clean
+        };
+        let e = backup_incomplete_error(&failed).unwrap();
+        assert_eq!(e.code, "MANAGE_BACKUP_INCOMPLETE");
+        assert!(e.human.contains("permission denied"), "detail must surface: {}", e.human);
     }
 
 }
