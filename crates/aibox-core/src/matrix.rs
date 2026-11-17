@@ -191,13 +191,23 @@ pub fn build_targets(force: bool) -> Vec<ProbeTarget> {
             }
         }
     }
-    // 网络交叉拉取（失败静默 → 基线）
-    if let Ok((index, _)) = registry::fetch_index(force) {
-        let apps = collect_apps(&index);
-        let rows = registry_targets(&index, &apps);
-        if rows.len() > 3 {
-            return rows;
+    // 网络交叉拉取：**完整性/防篡改错误必须外传**（不得静默降级到基线），
+    // 其余可用性失败才回落到内置基线。
+    match registry::fetch_index(force) {
+        Ok((index, _)) => {
+            let apps = collect_apps(&index);
+            let rows = registry_targets(&index, &apps);
+            if rows.len() > 3 {
+                return rows;
+            }
         }
+        Err(e) if !registry::is_availability_err(&e) => {
+            // MISMATCH / INTEGRITY / BAD_JSON 等拒绝类错误：不能假装成"探测可用"
+            eprintln!("[aibox] registry rejected while building probe matrix: {}", e.code);
+            // 探测矩阵本身可退回基线（它只决定探测目标），但必须显式留痕，
+            // 且不把 registry 内容当作已校验数据使用。
+        }
+        Err(_) => { /* 可用性失败 → 基线 */ }
     }
     baseline_targets()
 }

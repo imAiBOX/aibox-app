@@ -703,11 +703,21 @@ pub async fn check_app_updates() -> Cmd<Vec<update::AppUpdateRow>> {
                 .map(|a| {
                     let id = a.id.clone();
                     s.spawn(move || {
-                        let v = registry::fetch_app(&id, false).ok().and_then(|(doc, _)| {
-                            doc.get("version")
+                        let v = match registry::fetch_app(&id, false) {
+                            Ok((doc, _)) => doc
+                                .get("version")
                                 .and_then(|x| x.as_str())
-                                .map(String::from)
-                        });
+                                .map(String::from),
+                            Err(e) if !registry::is_availability_err(&e) => {
+                                // 拒绝类错误（含完整性失败）显式留痕，不伪装成"版本未知"
+                                eprintln!(
+                                    "[aibox] registry rejected for {id}: {} ({})",
+                                    e.code, e.human
+                                );
+                                None
+                            }
+                            Err(_) => None, // 可用性失败：版本未知属正常降级
+                        };
                         (id, v)
                     })
                 })

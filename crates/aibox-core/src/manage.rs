@@ -29,9 +29,13 @@ pub struct BackupOutcome {
     pub backup_dir: String,
     /// zip 内条目名（相对 home / 声明根，`/` 分隔）——还原时按 manifest 映射回原路径
     pub files: Vec<String>,
-    /// 声明但不存在（跳过不报错）
+    /// 声明但不存在（跳过不报错——没有可丢的数据）
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub skipped: Vec<String>,
+    /// **被安全策略拒绝**的声明路径（symlink / 解析后越界）。
+    /// 与 `skipped` 语义不同：这里有数据但可能备份不到 → 破坏性操作必须中止。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<String>,
 }
 
 /// 单条跳过（不存在 / 越界 / 保护路径 / 删除失败——收集不中断）。
@@ -146,6 +150,7 @@ pub fn backup_app_in(
     let mut entries: Vec<(String, PathBuf)> = Vec::new();
     let mut used: HashSet<String> = HashSet::new();
     let mut skipped: Vec<String> = Vec::new();
+    let mut refused: Vec<String> = Vec::new();
 
     for raw in data_paths {
         let root = paths::expand(raw);
@@ -155,12 +160,12 @@ pub fn backup_app_in(
         };
         // 声明根本身是链接 → 拒绝（避免被换成任意目标，审计 P1）
         if meta.file_type().is_symlink() {
-            skipped.push(format!("{raw} (symlink refused)"));
+            refused.push(raw.clone());
             continue;
         }
         // 解析真实路径并要求仍在 home 内（祖先链接/越界目标一网打尽）
         let Some(real_root) = resolve_within_home(&root, &home) else {
-            skipped.push(format!("{raw} (outside home after resolving links)"));
+            refused.push(raw.clone());
             continue;
         };
         let mut files = Vec::new();
@@ -188,6 +193,7 @@ pub fn backup_app_in(
             backup_dir: String::new(),
             files: Vec::new(),
             skipped,
+            refused,
         });
     }
     paths::ensure_dir(&dir).map_err(|e| io_err("create backup dir", e))?;
@@ -219,7 +225,7 @@ pub fn backup_app_in(
         .compression_method(zip::CompressionMethod::Deflated);
     let mut files_out = Vec::with_capacity(entries.len());
     for (name, src) in &entries {
-        let bytes = match fs::read(src) {
+        let bytes = match read_entry_pinned(src, &home) {
             Ok(b) => b,
             Err(e) => {
                 // 单文件读失败收集进 skipped，不中断整体备份
@@ -240,6 +246,7 @@ pub fn backup_app_in(
         backup_dir: dir.to_string_lossy().into_owned(),
         files: files_out,
         skipped,
+        refused,
     })
 }
 
@@ -351,6 +358,34 @@ fn fs_delete(p: &Path) -> io::Result<()> {
     }
 }
 
+/// 读取备份条目：**先打开句柄再从该句柄读**，并校验路径未被替换成链接
+/// （检查与使用之间被换成 symlink 也可被 dev/ino 比对发现，审计 P1 TOCTOU）。
+fn read_entry_pinned(path: &Path, home: &Path) -> io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let mut f = fs::File::open(path)?;
+    let h = f.metadata()?;
+    let link_meta = fs::symlink_metadata(path)?;
+    if link_meta.file_type().is_symlink() {
+        return Err(io::Error::new(io::ErrorKind::Other, "path became a symlink"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if h.dev() != link_meta.dev() || h.ino() != link_meta.ino() {
+            return Err(io::Error::new(io::ErrorKind::Other, "path swapped during backup"));
+        }
+    }
+    // 兜底：真实路径必须仍在（canonical）根之内
+    let real = fs::canonicalize(path)?;
+    let home_real = fs::canonicalize(home)?;
+    if real != home_real && !real.starts_with(&home_real) {
+        return Err(io::Error::new(io::ErrorKind::Other, "entry escaped home"));
+    }
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
 /// 按清单卸载：备份（backupFirst）→ 白名单内删除 → 成功后注销 install-manifest。
 ///
 /// - `allow` = `residualPaths` ∪ `dataPaths`（均展开）；目标不在其内 → `MANAGE_OUT_OF_SCOPE` 拒绝；
@@ -423,6 +458,16 @@ pub fn remove_app_in(
                     format!("backup before removal failed: {}", e.human),
                 )
             })?;
+            if !out.refused.is_empty() {
+                // 有声明数据但备份不到 → 不许删（数据保全优先于清理）
+                return Err(CoreError::new(
+                    "MANAGE_BACKUP_INCOMPLETE",
+                    format!(
+                        "refusing to delete: declared data could not be backed up: {}",
+                        out.refused.join(", ")
+                    ),
+                ));
+            }
             if !out.backup_dir.is_empty() {
                 backup_dir = Some(out.backup_dir);
             }
@@ -833,7 +878,7 @@ mod tests {
         )
         .unwrap();
         assert!(out.files.is_empty(), "symlinked root must not be packed");
-        assert!(!out.skipped.is_empty(), "refusal must be reported");
+        assert!(!out.refused.is_empty(), "refusal must be reported as refused");
         assert_eq!(out.backup_dir, "", "no backup dir for refused root");
     }
 
@@ -858,7 +903,37 @@ mod tests {
         )
         .unwrap();
         assert!(out.files.is_empty(), "escaping path must not be packed");
-        assert!(!out.skipped.is_empty());
+        assert!(!out.refused.is_empty(), "escape must be reported as refused");
+    }
+
+
+    /// 审计回归 P1（第三轮）：声明数据符号链接被拒（备份不到）→ 卸载必须中止。
+    #[cfg(unix)]
+    #[test]
+    fn remove_aborts_when_backup_refuses_declared_data() {
+        use std::os::unix::fs::symlink;
+        let root = tmpdir("ab-refused");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let outside = root.join("outside");
+        write(&outside.join("precious.txt"), "KEEP");
+        // 声明数据在 home 内，但本身是链接 → 备份拒绝
+        let declared = home.join("appdata");
+        symlink(&outside, &declared).unwrap();
+
+        let residual = vec![declared.to_string_lossy().into_owned()];
+        let err = remove_app_in(
+            "jan",
+            &residual,
+            &residual,
+            &[],
+            true,
+            &root.join("bk"),
+            &home,
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "MANAGE_BACKUP_INCOMPLETE");
+        assert!(outside.join("precious.txt").exists(), "must not delete without a backup");
     }
 
 }

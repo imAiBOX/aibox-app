@@ -103,14 +103,7 @@ pub fn build_diag_zip(inputs: &DiagInputs) -> CoreResult<DiagOutcome> {
             }));
             continue;
         }
-        if total_logged + meta.len() > MAX_TOTAL_BYTES {
-            skipped.push(json!({
-                "entry": p.display().to_string(),
-                "reason": "log budget exceeded (40MB)",
-            }));
-            continue;
-        }
-        total_logged += meta.len();
+
         let rel = p
             .strip_prefix(&inputs.logs_dir)
             .map(|r| r.to_string_lossy().replace('\\', "/"))
@@ -120,13 +113,21 @@ pub fn build_diag_zip(inputs: &DiagInputs) -> CoreResult<DiagOutcome> {
                     .to_string_lossy()
                     .into_owned()
             });
-        let bytes = match read_bounded(&p, MAX_FILE_BYTES) {
+        let remaining = MAX_TOTAL_BYTES.saturating_sub(total_logged);
+        let bytes = match read_bounded(&p, MAX_FILE_BYTES.min(remaining)) {
             Ok(b) => b,
             Err(e) => {
+                // 读取失败不消耗预算（审计 P2：预算虚耗会误跳过后续条目）
                 skipped.push(json!({"entry": rel, "reason": format!("read error: {e}")}));
                 continue;
             }
         };
+        // 按实际读取字节计费（文件增长也不会突破 40MB 总预算）
+        if total_logged + bytes.len() as u64 > MAX_TOTAL_BYTES {
+            skipped.push(json!({"entry": rel, "reason": "log budget exceeded (40MB)"}));
+            continue;
+        }
+        total_logged += bytes.len() as u64;
         entries.push((format!("logs/{rel}"), bytes, true));
     }
 
@@ -499,4 +500,37 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+
+    /// 审计回归 P2（第三轮）：被跳过的超大日志**不得**消耗总预算，
+    /// 后续正常日志仍必须被打包（预扣长度会导致"跳过一个就饿死后面全部"）。
+    #[test]
+    fn skipped_oversized_log_does_not_consume_budget() {
+        let dir = std::env::temp_dir().join(format!("aibox-diag-budget-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("logs")).unwrap();
+        // 排序靠前的超大文件（稀疏，实际不占盘）：超过单文件上限 → 跳过
+        let big = dir.join("logs/aa-huge.log");
+        let f = fs::File::create(&big).unwrap();
+        f.set_len(MAX_FILE_BYTES + 1).unwrap();
+        drop(f);
+        // 排序靠后的正常文件 → 必须仍然被打包
+        fs::write(dir.join("logs/zz-small.log"), "hello").unwrap();
+
+        let out = dir.join("b.zip");
+        let inputs = DiagInputs {
+            out_path: out.clone(),
+            logs_dir: dir.join("logs"),
+            extra_files: vec![],
+            generated: vec![],
+        };
+        let outcome = build_diag_zip(&inputs).unwrap();
+        let names = zip_entry_names(&out).unwrap();
+        assert!(
+            names.iter().any(|n| n == "logs/zz-small.log"),
+            "later logs must still be included: {names:?}"
+        );
+        assert!(!names.iter().any(|n| n == "logs/aa-huge.log"));
+        assert!(outcome.skipped >= 1, "oversized log reported as skipped");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
