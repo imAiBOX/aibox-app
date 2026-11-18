@@ -23,7 +23,6 @@ const SOURCES = [
   "https://raw.githubusercontent.com/imAiBOX/aibox-registry/main/index.json",
   "https://aibox.im/meta/index.json",
 ];
-
 async function fetchOne(url) {
   const res = await fetch(url, {
     signal: AbortSignal.timeout(4000),
@@ -37,7 +36,22 @@ async function fetchOne(url) {
 
 async function main() {
   try {
-    const doc = await Promise.any(SOURCES.map(fetchOne));
+    // 并发拉取全部源，取应用数最多的那份。
+    // 为什么不能 Promise.any：jsdelivr 会缓存旧 commit（2026-11-19 实测同一
+    // registryVersion 却是 26 apps 的旧内容），Promise.any 抢跑会命中它，
+    // 导致快照写出陈旧目录。取最大集合可自动绕开 CDN 滞后。
+    const results = await Promise.allSettled(SOURCES.map(fetchOne));
+    const docs = results
+      .filter((r) => r.status === "fulfilled")
+      .map((r) => r.value);
+    if (!docs.length) throw new Error("all sources failed");
+    const doc = docs.reduce((a, b) => (b.apps.length > a.apps.length ? b : a));
+    const spread = new Set(docs.map((d) => d.apps.length));
+    if (spread.size > 1) {
+      console.warn(
+        `[snapshot] sources disagree on catalog size (${[...spread].join(" vs ")}) — using the largest (${doc.apps.length})`,
+      );
+    }
     writeFileSync(OUT, `${JSON.stringify(doc, null, 2)}\n`);
     console.log(
       `[snapshot] refreshed: ${doc.apps.length} apps → src/assets/registry-snapshot.json`,

@@ -444,6 +444,40 @@
       "status": "stable"
     },
     {
+      "id": "5ire",
+      "name": "5ire",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "开源桌面 AI 助手兼 MCP 客户端：聊天、知识库、本地嵌入，中英双语",
+        "en": "Open-source desktop AI assistant and MCP client: chat, knowledge base, local embeddings, bilingual UI"
+      },
+      "icon": "icons/5ire.png",
+      "difficulty": 2,
+      "popularity": 3,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "dyad",
+      "name": "Dyad",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "开源本地 AI 应用生成器：说句话就能做出能跑的应用，代码归你",
+        "en": "Open-source local AI app builder: describe it, get a working app, keep the code"
+      },
+      "icon": "icons/dyad.png",
+      "difficulty": 2,
+      "popularity": 4,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
       "id": "pi",
       "name": "Pi",
       "category": "agent",
