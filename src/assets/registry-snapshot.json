@@ -1,6 +1,6 @@
 {
-  "registryVersion": "2026.11.14.1",
-  "generatedAt": "2026-11-14T08:30:00Z",
+  "registryVersion": "2026.11.18.5",
+  "generatedAt": "2026-11-18T01:35:25Z",
   "note": "SSOT for AiBOX.im (aibox-site + AiBOX installer both read this repo). Data baselines were live-verified on 2026-11-09/11/12/14 (see README).",
   "apps": [
     {
@@ -101,14 +101,14 @@
         "en": "Self-hosted personal AI companion — talks to you on Telegram, Feishu and DingTalk, managed from a local web console"
       },
       "icon": "icons/aidog.png",
-      "difficulty": 4,
+      "difficulty": 2,
       "popularity": 1,
       "platforms": [
         "windows",
         "macos"
       ],
-      "status": "experimental",
-      "updatedAt": "2026-11-12T12:30:00Z"
+      "status": "stable",
+      "updatedAt": "2026-11-16T21:29:10Z"
     },
     {
       "id": "hermes-agent",
@@ -307,6 +307,158 @@
       ],
       "status": "stable",
       "updatedAt": "2026-11-14T08:30:00Z"
+    },
+    {
+      "id": "sillytavern",
+      "name": "SillyTavern",
+      "category": "chat",
+      "tagline": {
+        "zh-CN": "角色扮演 AI 聊天前端（本地运行，自带浏览器访问）",
+        "en": "Roleplay AI chat frontend that runs locally in your browser"
+      },
+      "icon": "icons/sillytavern.png",
+      "difficulty": 3,
+      "popularity": 4,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "moneyprinterturbo",
+      "name": "MoneyPrinterTurbo",
+      "category": "media",
+      "tagline": {
+        "zh-CN": "AI 短视频自动生成（中文热榜，输入主题出片）",
+        "en": "AI short-video generator from a topic (trending Chinese tool)"
+      },
+      "icon": "icons/moneyprinterturbo.png",
+      "difficulty": 3,
+      "popularity": 5,
+      "platforms": [
+        "windows"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "stable-diffusion-webui",
+      "name": "Stable Diffusion WebUI",
+      "category": "media",
+      "tagline": {
+        "zh-CN": "经典 AI 绘图网页界面（A1111，生态最厚）",
+        "en": "The classic AI image web UI (A1111, biggest ecosystem)"
+      },
+      "icon": "icons/stable-diffusion-webui.png",
+      "difficulty": 5,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "fooocus",
+      "name": "Fooocus",
+      "category": "media",
+      "tagline": {
+        "zh-CN": "极简 AI 绘图（一键启动，比 A1111 更省心）",
+        "en": "Dead-simple AI image gen (one-click, fewer knobs than A1111)"
+      },
+      "icon": "icons/fooocus.png",
+      "difficulty": 4,
+      "popularity": 4,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "openhands",
+      "name": "OpenHands",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "AI 软件开发智能体：给它任务，它自己写代码跑命令",
+        "en": "AI software developer agent — writes and runs code for you"
+      },
+      "icon": "icons/openhands.png",
+      "difficulty": 2,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "goose",
+      "name": "Goose",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "开源 AI 智能体：装依赖、跑命令、改代码，全交给它",
+        "en": "Open-source AI agent: installs, executes and edits for you"
+      },
+      "icon": "icons/goose.png",
+      "difficulty": 2,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "OpenAI 编程智能体：终端里替你写代码跑命令",
+        "en": "OpenAI coding agent: code and run commands from your terminal"
+      },
+      "icon": "icons/codex.png",
+      "difficulty": 3,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "AI 编程工作台：桌面+终端，接任意模型写代码",
+        "en": "AI coding workbench: desktop + terminal, any model"
+      },
+      "icon": "icons/opencode.png",
+      "difficulty": 2,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "pi",
+      "name": "Pi",
+      "category": "agent",
+      "tagline": {
+        "zh-CN": "AI 编码智能体：终端里读写文件、跑命令、管会话",
+        "en": "AI coding agent: edit files, run commands, manage sessions"
+      },
+      "icon": "icons/pi.png",
+      "difficulty": 3,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
     }
   ]
 }
