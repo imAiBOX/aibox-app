@@ -1,6 +1,6 @@
 {
-  "registryVersion": "2026.11.19.1",
-  "generatedAt": "2026-11-19T03:00:00Z",
+  "registryVersion": "2026.11.19.2",
+  "generatedAt": "2026-11-19T03:15:00Z",
   "note": "SSOT for AiBOX.im (aibox-site + AiBOX installer both read this repo). Data baselines were live-verified on 2026-11-09/11/12/14 (see README).",
   "apps": [
     {

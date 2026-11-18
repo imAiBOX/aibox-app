@@ -36,25 +36,34 @@ async function fetchOne(url) {
 
 async function main() {
   try {
-    // 并发拉取全部源，取应用数最多的那份。
+    // 并发拉取全部源，挑"最新"的那份。
     // 为什么不能 Promise.any：jsdelivr 会缓存旧 commit（2026-11-19 实测同一
     // registryVersion 却是 26 apps 的旧内容），Promise.any 抢跑会命中它，
-    // 导致快照写出陈旧目录。取最大集合可自动绕开 CDN 滞后。
+    // 导致快照写出陈旧目录。
+    // "最新"的判据：registryVersion 为主（日期+序号，逐次递增），
+    // registryVersion 相同或缺失时退回 apps 数量。
     const results = await Promise.allSettled(SOURCES.map(fetchOne));
     const docs = results
       .filter((r) => r.status === "fulfilled")
       .map((r) => r.value);
     if (!docs.length) throw new Error("all sources failed");
-    const doc = docs.reduce((a, b) => (b.apps.length > a.apps.length ? b : a));
-    const spread = new Set(docs.map((d) => d.apps.length));
-    if (spread.size > 1) {
+    const score = (d) => [String(d.registryVersion || ""), String(d.apps?.length ?? 0)];
+    const newer = (a, b) => {
+      const [av, an] = score(a);
+      const [bv, bn] = score(b);
+      if (bv !== av) return bv > av ? b : a; // 版本号字典序（YYYY.MM.DD.N 可比）
+      return bn > an ? b : a;
+    };
+    const doc = docs.reduce(newer);
+    const versions = new Set(docs.map((d) => `${d.registryVersion || "?"}/${d.apps?.length ?? 0}`));
+    if (versions.size > 1) {
       console.warn(
-        `[snapshot] sources disagree on catalog size (${[...spread].join(" vs ")}) — using the largest (${doc.apps.length})`,
+        `[snapshot] sources disagree (${[...versions].join(" vs ")}) — using ${doc.registryVersion}/${doc.apps.length}`,
       );
     }
     writeFileSync(OUT, `${JSON.stringify(doc, null, 2)}\n`);
     console.log(
-      `[snapshot] refreshed: ${doc.apps.length} apps → src/assets/registry-snapshot.json`,
+      `[snapshot] refreshed: ${doc.apps.length} apps (registry ${doc.registryVersion}) → src/assets/registry-snapshot.json`,
     );
   } catch (err) {
     // 写入失败（含目录/权限）也要兜底：既有快照绝不动，没有才落占位
