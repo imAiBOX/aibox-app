@@ -1,6 +1,6 @@
 {
-  "registryVersion": "2026.11.19.2",
-  "generatedAt": "2026-11-19T03:15:00Z",
+  "registryVersion": "2026.11.19.3",
+  "generatedAt": "2026-11-19T03:50:00Z",
   "note": "SSOT for AiBOX.im (aibox-site + AiBOX installer both read this repo). Data baselines were live-verified on 2026-11-09/11/12/14 (see README).",
   "apps": [
     {
@@ -435,6 +435,23 @@
         "en": "AI coding workbench: desktop + terminal, any model"
       },
       "icon": "icons/opencode.png",
+      "difficulty": 2,
+      "popularity": 5,
+      "platforms": [
+        "windows",
+        "macos"
+      ],
+      "status": "stable"
+    },
+    {
+      "id": "zed",
+      "name": "Zed",
+      "category": "coding",
+      "tagline": {
+        "zh-CN": "Rust 原生的高性能编辑器：秒开，内置 AI 智能体面板，能接外部智能体",
+        "en": "A native Rust code editor: instant startup, built-in AI agent panel, connects external agents"
+      },
+      "icon": "icons/zed.png",
       "difficulty": 2,
       "popularity": 5,
       "platforms": [
