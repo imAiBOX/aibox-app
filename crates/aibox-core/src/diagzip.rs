@@ -292,6 +292,22 @@ pub fn default_inputs(date: &str) -> DiagInputs {
         "dataRoot": paths::aibox_root().display().to_string(),
     });
 
+    // 安装历史摘要：诊断包里直接能看出“装过哪些、哪些还在”。
+    // 旧行为：install-manifest.json 不存在就静默跳过 → 客服看不出“从未装成”。
+    let installed = crate::scan::installed_apps();
+    let manifest_present = paths::install_manifest_file().is_file();
+    let logs_present = paths::logs_dir().is_dir();
+    let version = json!({
+        "installer": env!("CARGO_PKG_VERSION"),
+        "dataRoot": paths::aibox_root().display().to_string(),
+        "installManifestPresent": manifest_present,
+        "logsDirPresent": logs_present,
+        "installedApps": installed
+            .iter()
+            .map(|a| json!({ "id": a.id, "version": a.version, "path": a.path }))
+            .collect::<Vec<_>>(),
+    });
+
     let mut generated = vec![
         (
             "scan-report.json".to_string(),

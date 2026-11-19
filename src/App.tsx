@@ -323,6 +323,17 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status]);
 
+  // 诊断包收录最后计划：**执行结束后回写真实任务状态**。
+  // 旧行为：last-plan.json 只在计划生成时写一次（status 永远 "pending"），
+  // 用户导出诊断包时看不到“装到哪一步、哪个任务失败了”。2026-11-19 起回写。
+  useEffect(() => {
+    if (!state.plan) return;
+    if (state.status === "IDLE" || state.status === "SCAN" || state.status === "PLAN" || state.status === "CONFIRM") {
+      return;
+    }
+    void api.savePlan({ ...state.plan, tasks: state.tasks }).catch(() => undefined);
+  }, [state.status]);
+
   const sendVerify = useCallback(() => {
     setVerifyPending(true);
     setVerifyError(null);

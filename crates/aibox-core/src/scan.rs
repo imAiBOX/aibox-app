@@ -210,17 +210,39 @@ pub fn windows_build_ok(ver: &str) -> bool {
 }
 
 /// `wsl -l -q`（UTF-16LE 输出）→ 发行版列表。
+/// 判定字节流是否为 UTF-16LE（无 BOM）。
+///
+/// `wsl -l -q` 的输出编码不固定：有的带 UTF-16LE BOM（FF FE），有的**不带 BOM**。
+/// 不带 BOM 时若直接按 UTF-8 解读，每个 ASCII 字符后面会多出一个 NUL
+/// （"Ubuntu" → "U\0b\0u\0n\0t\0u\0"），发行版名直接变乱码。
+///
+/// 判据：按 2 字节分组，第二个字节为 0 的比例达阈值即认为是 UTF-16LE
+/// （ASCII 文本的 UTF-16LE 表示里，高位字节恒为 0）。
+fn looks_utf16le(bytes: &[u8]) -> bool {
+    let pairs = bytes.len() / 2;
+    if pairs == 0 {
+        return false;
+    }
+    let high_zero = bytes.chunks_exact(2).filter(|c| c[1] == 0).count();
+    high_zero * 100 / pairs >= 30
+}
+
 pub fn parse_wsl_distros(bytes: &[u8]) -> Vec<String> {
-    let text = if bytes.starts_with(&[0xFF, 0xFE]) {
-        String::from_utf16(
-            &bytes[2..]
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                .collect::<Vec<_>>(),
-        )
-        .unwrap_or_default()
+    // BOM 版：FF FE + UTF-16LE
+    let (body, had_bom) = if bytes.starts_with(&[0xFF, 0xFE]) {
+        (&bytes[2..], true)
     } else {
-        String::from_utf8_lossy(bytes).into_owned()
+        (bytes, false)
+    };
+    // 无 BOM 但实为 UTF-16LE：按 16 位小端解码（带 BOM 时也走同一路径，行为一致）
+    let text = if had_bom || looks_utf16le(body) {
+        let units: Vec<u16> = body
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        String::from_utf16(&units).unwrap_or_default()
+    } else {
+        String::from_utf8_lossy(body).into_owned()
     };
     text.lines()
         .map(|l| l.trim().trim_end_matches('\0').to_string())
@@ -862,6 +884,33 @@ mod tests {
         }
         let d = parse_wsl_distros(&bytes);
         assert_eq!(d, vec!["Ubuntu".to_string(), "Debian".to_string()]);
+    }
+
+    /// 回归：用户诊断包（2026-11-19）实测 `wsl -l -q` 输出为 **无 BOM 的 UTF-16LE**，
+    /// 旧实现按 UTF-8 解读 → "Ubuntu" 变成 "U\0b\0u\0n\0t\0u\0"（发行版名乱码）。
+    #[test]
+    fn wsl_utf16le_without_bom_is_not_mojibake() {
+        let text = "Ubuntu\r\ndocker-desktop\r\n";
+        let mut bytes: Vec<u8> = Vec::new(); // 故意不加 BOM
+        for u in text.encode_utf16() {
+            bytes.extend_from_slice(&u.to_le_bytes());
+        }
+        let d = parse_wsl_distros(&bytes);
+        assert_eq!(d, vec!["Ubuntu".to_string(), "docker-desktop".to_string()]);
+    }
+
+    /// 回归：纯 UTF-8（ASCII）输出不能被误判为 UTF-16LE。
+    #[test]
+    fn wsl_plain_utf8_still_parses() {
+        let d = parse_wsl_distros(b"Ubuntu\ndocker-desktop\n");
+        assert_eq!(d, vec!["Ubuntu".to_string(), "docker-desktop".to_string()]);
+    }
+
+    /// 回归：UTF-8 中文输出不能被误判为 UTF-16LE（否则会解成乱码）。
+    #[test]
+    fn wsl_utf8_cjk_is_not_misread_as_utf16() {
+        let d = parse_wsl_distros("发行版\n".as_bytes());
+        assert_eq!(d, vec!["发行版".to_string()]);
     }
 
     #[test]
