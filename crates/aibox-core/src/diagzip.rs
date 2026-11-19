@@ -287,11 +287,6 @@ pub fn default_inputs(date: &str) -> DiagInputs {
             "arch": std::env::consts::ARCH,
         },
     });
-    let version = json!({
-        "installer": env!("CARGO_PKG_VERSION"),
-        "dataRoot": paths::aibox_root().display().to_string(),
-    });
-
     // 安装历史摘要：诊断包里直接能看出“装过哪些、哪些还在”。
     // 旧行为：install-manifest.json 不存在就静默跳过 → 客服看不出“从未装成”。
     let installed = crate::scan::installed_apps();
