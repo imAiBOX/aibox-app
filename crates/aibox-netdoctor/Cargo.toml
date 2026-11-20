@@ -1,6 +1,6 @@
 [package]
 name = "aibox-netdoctor"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2021"
 license = "MIT"
 description = "AiBOX Network Doctor: D0-D6 diagnostics + DiagReport, injectable transports, offline-testable (usable without Tauri)"
