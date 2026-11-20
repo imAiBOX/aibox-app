@@ -1,6 +1,6 @@
 [package]
 name = "aibox-net"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 license = "MIT"
 description = "AiBOX network layer: channels, DoH resolver, head probe (usable without Tauri)"

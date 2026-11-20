@@ -1,6 +1,6 @@
 [package]
 name = "aibox-core"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 license = "MIT"
 description = "AiBOX stable primitives: download/verify/exec/probe/fs/diag-zip/registry/scan — fully testable without Tauri"

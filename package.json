@@ -1,7 +1,7 @@
 {
   "name": "aibox-app",
   "private": true,
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "packageManager": "pnpm@11.20.0",
   "scripts": {
