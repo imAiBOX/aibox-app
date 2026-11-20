@@ -137,6 +137,8 @@ export interface MachineState {
   verifyOk: boolean;
   /** 用户在 C5 点了「跳过配置」→ 模型 key 没配（完成页要如实说明） */
   configSkipped: boolean;
+  /** 升级流程：装完直接结束，不进「配置 key」步骤（升级不重新配 key） */
+  upgradeMode: boolean;
 }
 
 /** 事件契约（签名即文档） */
@@ -148,7 +150,8 @@ export type Event =
   | { type: "BEGIN" } // CONFIRM → EXECUTE
   | { type: "TASK_PHASE"; taskId: string; phase: TaskPhase } // EXECUTE 内推进
   | { type: "TASK_DONE"; taskId: string } // EXECUTE 内任务完成（→持久化快照）
-  | { type: "ALL_DONE" } // EXECUTE → CONFIG
+  | { type: "ALL_DONE" } // EXECUTE → CONFIG（升级模式 → DONE）
+  | { type: "UPGRADE_MODE" } // 标记本次为升级（装完不进配置步骤）
   | { type: "CONFIG_WRITTEN"; pathId: string } // CONFIG → VERIFY（pathId="none" → DONE，跳过模型配置）
   | { type: "VERIFY_OK" } // VERIFY → DONE
   | { type: "ERROR"; code: string; messageKey: string; taskId?: string; human?: string } // 任意态 → ERROR
@@ -177,5 +180,6 @@ export function createInitialState(): MachineState {
     configPathId: null,
     verifyOk: false,
     configSkipped: false,
+    upgradeMode: false,
   };
 }

@@ -27,6 +27,8 @@ interface Props {
   onGotoInstall: (appId: string) => void;
   /** 聚焦模式："upgrades" = 把可升级的排到最前 + 顶部给「升级下一个」（托盘待办点进来时） */
   focus?: "upgrades" | null;
+  /** 批量升级：一次把全部可升级的应用排进队列（逐个自动升） */
+  onUpgradeAll?: (appIds: string[]) => void;
 }
 
 interface Row {
@@ -44,7 +46,7 @@ interface RemoveAttempt {
   backup: boolean;
 }
 
-export default function S8Manage({ onClose, onGotoInstall, focus }: Props) {
+export default function S8Manage({ onClose, onGotoInstall, focus, onUpgradeAll }: Props) {
   const { t } = useTranslation();
   const [m, dispatch] = useReducer(manageReduce, undefined, createInitialManageState);
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -426,13 +428,27 @@ export default function S8Manage({ onClose, onGotoInstall, focus }: Props) {
           <span className="text-sm text-aibox-cream">
             {t("s8.upgradeFocus", { count: updatableRows.length })}
           </span>
-          <button
-            type="button"
-            onClick={() => onGotoInstall(updatableRows[0].entry.appId)}
-            className="rounded-[4px] bg-aibox-green px-4 py-2 font-display text-sm font-semibold text-aibox-bg"
-          >
-            {t("s8.upgradeNext")}
-          </button>
+          <span className="flex gap-2">
+            {updatableRows.length > 1 && onUpgradeAll && (
+              <button
+                type="button"
+                onClick={() =>
+                  onUpgradeAll(updatableRows.map((r) => r.entry.appId))
+                }
+                data-testid="s8-upgrade-all"
+                className="rounded-[4px] border border-aibox-green px-4 py-2 font-mono text-xs text-aibox-green hover:bg-aibox-green/10"
+              >
+                {t("s8.upgradeAll")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onGotoInstall(updatableRows[0].entry.appId)}
+              className="rounded-[4px] bg-aibox-green px-4 py-2 font-display text-sm font-semibold text-aibox-bg"
+            >
+              {t("s8.upgradeNext")}
+            </button>
+          </span>
         </div>
       )}
 

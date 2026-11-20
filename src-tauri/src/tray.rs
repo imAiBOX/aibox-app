@@ -41,6 +41,17 @@ pub struct TrayUi {
     pub pending_core_label: String,
     #[serde(default)]
     pub pending_core_count: u32,
+    /// 最近安装的应用（托盘右键直接装，不用进主界面）
+    #[serde(default)]
+    pub recent: Vec<RecentItem>,
+}
+
+/// 托盘「最近使用」项（id 用于点击回传；label 已是最终文案）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentItem {
+    pub id: String,
+    pub label: String,
 }
 
 impl Default for TrayUi {
@@ -59,6 +70,7 @@ impl Default for TrayUi {
             pending_new_count: 0,
             pending_core_label: String::new(),
             pending_core_count: 0,
+            recent: Vec::new(),
         }
     }
 }
@@ -130,6 +142,15 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "first" => on_first(app),
             // 待办项 → 打开窗口并告诉前端跳到哪（前端负责聚焦对应界面）
+            // 「最近使用」→ 直接开始装那个应用（不进主界面）
+            id if id.starts_with("recent:") => {
+                show_main(app);
+                let app_id = id.trim_start_matches("recent:").to_string();
+                let _ = app.emit(
+                    "tray_action",
+                    serde_json::json!({ "action": format!("install:{app_id}") }),
+                );
+            }
             "pending_updates" | "pending_new" | "pending_core" => {
                 show_main(app);
                 let action = match event.id().as_ref() {
@@ -223,9 +244,27 @@ fn rebuild_menu(ui: &TrayUi) {
     if ui.pending_core_count > 0 {
         items.push(core);
     }
+    // 最近使用（最多 3 个）：菜单项要先存住再取引用（否则借用 outlive 报错）
+    let mut stored: Vec<MenuItem<Wry>> = Vec::new();
+    for r in ui.recent.iter().take(3) {
+        if let Ok(item) = MenuItem::with_id(
+            app,
+            format!("recent:{}", r.id),
+            r.label.clone(),
+            true,
+            None::<&str>,
+        ) {
+            stored.push(item);
+        }
+    }
+    for item in &stored {
+        let it: &dyn IsMenuItem<Wry> = item;
+        items.push(it);
+    }
     items.push(check);
     items.push(quit);
     if let Ok(menu) = Menu::with_items(app, &items) {
         let _ = h.tray.set_menu(Some(menu));
     }
 }
+

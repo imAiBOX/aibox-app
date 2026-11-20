@@ -47,6 +47,7 @@ import { usePrefetch } from "./hooks/usePrefetch";
 import { buildTrayLabels } from "./state/tray";
 import { logDrawer } from "./state/logDrawer";
 import { siteUrl } from "./lib/links";
+import { hasSeenFirstRun, markFirstRunSeen } from "./state/firstRun";
 import { notifyDesktop, trayLocationHint } from "./lib/notify";
 import {
   DEFAULT_NOTIFY_PREFS,
@@ -71,6 +72,10 @@ export default function App() {
   const [doctorAutoRun, setDoctorAutoRun] = useState(false);
   /** 管理页聚焦模式（托盘待办「N 个应用可升级」点进来 → 把可升级的排到最前） */
   const [manageFocus, setManageFocus] = useState<"upgrades" | null>(null);
+  /** 首启引导是否显示（只显示一次；用户主动关闭后不再打扰） */
+  const [showFirstRun, setShowFirstRun] = useState(() => !hasSeenFirstRun());
+  /** startInstall 的最新引用（托盘动作在声明之前 → 用 ref 避免 TDZ） */
+  const startInstallRef = useRef<((appId?: string) => void) | null>(null);
   /** 通知偏好（用户说了算；持久化） */
   const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>(DEFAULT_NOTIFY_PREFS);
   /** 偏好是否已从存储读出（未读出前不按偏好做「启动即收进托盘」等动作） */
@@ -377,6 +382,41 @@ export default function App() {
     };
   }, [state.status, notifyPrefs.minimizeAfterInstall, notifyPrefsLoaded]);
 
+  /**
+   * 最近安装的应用（托盘右键直接装，不用进主界面）。
+   *
+   * 数据源 = install-manifest（AiBOX 自己装的那些，按安装顺序）；
+   * **诚实命名**：这里只知道「安装先后」，不知道「使用频次」→ 文案写「最近安装的」。
+   */
+  const [recentApps, setRecentApps] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const list = await api.manageManifestList();
+        if (!alive) return;
+        const ids = list.map((e) => e.appId).slice(-3).reverse();
+        if (ids.length === 0) return;
+        const names = await Promise.all(
+          ids.map(async (id) => {
+            try {
+              const m = await api.registryApp(id);
+              return { id, name: m.name ?? id };
+            } catch {
+              return { id, name: id };
+            }
+          }),
+        );
+        if (alive) setRecentApps(names);
+      } catch {
+        /* 拿不到就不显示（不硬凑） */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // 托盘状态同步（i18n 后下发 tooltip/菜单；本体新版/可升级数量联动）
   const appUpdateCount = checks.appUpdates.filter((r) => r.hasUpdate).length;
   useEffect(() => {
@@ -385,9 +425,17 @@ export default function App() {
       coreVersion: banner.info?.version,
       appUpdateCount,
       newAppCount: checks.newApps.length,
+      recent: recentApps,
     });
     void api.traySync(labels).catch(() => undefined);
-  }, [t, i18next.resolvedLanguage, banner.info, appUpdateCount, checks.newApps.length]);
+  }, [
+    t,
+    i18next.resolvedLanguage,
+    banner.info,
+    appUpdateCount,
+    checks.newApps.length,
+    recentApps,
+  ]);
 
   /**
    * 系统通知：**窗口关着时唯一能让用户感知的通道**（AiBOX 常驻托盘 → 界面黄条用户看不到）。
@@ -475,6 +523,10 @@ export default function App() {
           setOverlay("none");
           if (state.status === "DONE") dispatch({ type: "RESTART" });
           else if (state.status === "IDLE") setAppIndex((idx) => idx);
+        } else if (e.payload.action.startsWith("install:")) {
+          // 托盘「最近安装的 → 安装 X」→ 直接开始装那个应用（不进主界面）
+          const appId = e.payload.action.slice("install:".length);
+          if (appId) void startInstallRef.current?.(appId);
         } else if (e.payload.action === "core") {
           // 托盘待办「AiBOX 有新版」→ 打开窗口 + 跳更新条
           void openExternal(siteUrl("/download/", i18next.resolvedLanguage));
@@ -521,6 +573,31 @@ export default function App() {
   }, [state.status, persistence]);
 
   // ── 主流程编排（mock 数据驱动状态机；换真 invoke；真四阶段接线）──
+  /**
+   * 升级链路的**前置动作**：备份该应用的数据目录（safety net）。
+   *
+   * 为什么：升级会重跑安装程序，可能覆盖/重置应用配置（key、账号、偏好）。
+   * 卸载路径本来就有备份（`manage_backup`），**升级路径却一直没有** ——
+   * 升级前先备份一份，坏了还能回去。备份失败**不阻断升级**（只提示）。
+   */
+  const backupBeforeUpgrade = useCallback(
+    async (appId: string): Promise<string | null> => {
+      try {
+        const manifest = await api.registryApp(appId);
+        const dataPaths = manifest.maintenance?.dataPaths ?? [];
+        if (dataPaths.length === 0) return null;
+        const out = await api.manageBackup(appId, dataPaths);
+        return out.backupDir || null;
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
+  /** 升级队列（批量升级：一次排队多个，装完一个自动接下一个） */
+  const upgradeQueueRef = useRef<string[]>([]);
+
   const startInstall = useCallback((appIdOverride?: string) => {
     const appId = appIdOverride ?? selectedId;
     if (!appId) return;
@@ -576,7 +653,39 @@ export default function App() {
       });
   }, [selectedId]);
 
+  /**
+   * 跑一次升级（含前置备份 + 升级模式标记）。
+   *
+   * 批量升级：`queue` 是后面还要升的应用 id；当前这个装完后自动接力下一个
+   * （见下面的 effect）。中途「取消」会清空队列（不再继续升）。
+   */
+  const runUpgrade = useCallback(
+    async (appId: string, queue: string[] = []) => {
+      upgradeQueueRef.current = queue;
+      // 升级前先备份数据目录（safety net；失败不阻断升级）
+      const backupDir = await backupBeforeUpgrade(appId);
+      if (backupDir) channelToast.show(t("s8.backupDone", { path: backupDir }));
+      setSelectedId(appId);
+      dispatch({ type: "RESTART" });
+      dispatch({ type: "UPGRADE_MODE" });
+      startInstall(appId);
+    },
+    [backupBeforeUpgrade, startInstall, t],
+  );
+
+
   // EXECUTE：真四阶段编排（mock 回落 = 阶段定时器+场景注入，行为不变）
+  // 把最新的 startInstall 放进 ref（托盘动作需要在声明之前也能调到）
+  startInstallRef.current = startInstall;
+
+  // 批量升级接力：本次升级完成（DONE）→ 自动开始队列里的下一个
+  useEffect(() => {
+    if (state.status !== "DONE") return;
+    const next = upgradeQueueRef.current.shift();
+    if (!next) return;
+    void runUpgrade(next);
+  }, [state.status, runUpgrade]);
+
   const execHandle = useRef<ExecuteHandle | null>(null);
   useEffect(() => {
     if (state.status !== "EXECUTE") return;
@@ -698,6 +807,7 @@ export default function App() {
               // 主动取消 = 放弃这次安装 → **清掉会话快照**，
               // 否则下次启动还会问「继续上次安装？」（用户上次明明主动取消了）
               void persistence.clearSession();
+              upgradeQueueRef.current = [];
               channelToast.show(t("btn.cancelDone"));
               dispatch({ type: "DISMISS" });
             },
@@ -815,7 +925,11 @@ export default function App() {
                 dispatch({ type: "RESTART" });
                 // **一路到底**：不再把用户丢回应用列表让他自己找、自己再点一次「开始安装」，
                 // 直接进入该应用的安装计划确认页（确认后即装）。
-                startInstall(id);
+                void runUpgrade(id);
+              }}
+              onUpgradeAll={(ids) => {
+                setOverlay("none");
+                void runUpgrade(ids[0], ids.slice(1));
               }}
             />
           ) : (
@@ -873,6 +987,48 @@ export default function App() {
             dataPaths={manifest?.maintenance?.dataPaths ?? []}
             onRestart={() => dispatch({ type: "RESTART" })}
           />
+        )}
+
+        {/* 首启引导：一句话 + 三条要点 + 一个按钮（不是长教程） */}
+        {showFirstRun && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
+            <div className="w-full max-w-sm rounded-[6px] border border-aibox-green bg-aibox-raised p-5">
+              <h2 className="mb-2 font-display text-lg font-semibold text-aibox-cream">
+                {t("first.title")}
+              </h2>
+              <p className="mb-4 text-sm leading-relaxed text-aibox-text2">{t("first.lede")}</p>
+              <ul className="mb-5 flex flex-col gap-2">
+                {[0, 1, 2].map((i) => (
+                  <li key={i} className="flex gap-2 text-xs leading-relaxed text-aibox-text2">
+                    <span className="text-aibox-green">√</span>
+                    <span>{t(`first.point${i + 1}`)}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    markFirstRunSeen();
+                    setShowFirstRun(false);
+                  }}
+                  className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-xs text-aibox-text2 hover:border-aibox-green"
+                >
+                  {t("first.skip")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    markFirstRunSeen();
+                    setShowFirstRun(false);
+                  }}
+                  className="rounded-[4px] bg-aibox-green px-4 py-2 font-display text-sm font-semibold text-aibox-bg"
+                >
+                  {t("first.start")}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* 断点续装询问弹层 */}
@@ -969,8 +1125,9 @@ export default function App() {
               // 旧版这里 dispatch RETRY/EXPORT_DIAG → recover() → 回到 EXECUTE →
               // useEffect 重新 startExecute() → 用户点「关闭」反而把安装又跑起来了。
               logDrawer.close();
-              // 「不重试，返回」= 放弃 → 同样清掉会话快照
+              // 「不重试，返回」= 放弃 → 同样清掉会话快照与升级队列
               void persistence.clearSession();
+              upgradeQueueRef.current = [];
               dispatch({ type: "DISMISS" });
             }}
           />

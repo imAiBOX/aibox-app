@@ -425,7 +425,8 @@
     "pendingUpdates": "{{count}} apps can be updated",
     "pendingNew": "{{count}} new apps",
     "pendingCore": "AiBOX {{version}} is available",
-    "pendingCoreNoVersion": "A new AiBOX version is available"
+    "pendingCoreNoVersion": "A new AiBOX version is available",
+    "recentInstall": "Install {{name}}"
   },
   "quit": {
     "title": "Quit AiBOX?",
@@ -480,7 +481,9 @@
     "errDeleteFailed": "Deleting hit a system problem (no permission, or a file is in use). Nothing was removed.",
     "errIo": "A local file operation failed (no permission, or the path isn't writable).",
     "upgradeFocus": "{{count}} app can be updated",
-    "upgradeNext": "Upgrade the first one"
+    "upgradeNext": "Upgrade the first one",
+    "upgradeAll": "Upgrade all",
+    "backupDone": "Before upgrading, your data was backed up to {{path}}"
   },
   "notify": {
     "tab": "Notifications",
@@ -509,5 +512,14 @@
     "quietDesc": "No notifications during these hours. Anything you missed is sent when the quiet period ends — nothing is lost.",
     "quietFrom": "From",
     "quietTo": "Until"
+  },
+  "first": {
+    "title": "Pick an app, the rest is on me.",
+    "lede": "AiBOX installs the AI apps you choose onto this computer.",
+    "point1": "No administrator rights needed — nothing is installed system-wide.",
+    "point2": "Every download is verified before it runs, so you never run a tampered file.",
+    "point3": "You can update, reinstall or remove what you install, from one place.",
+    "skip": "Skip",
+    "start": "Pick an app"
   }
 }

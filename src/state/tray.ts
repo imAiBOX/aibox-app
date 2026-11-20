@@ -15,6 +15,8 @@ export interface TrayState {
   appUpdateCount: number;
   /** 目录新上的应用数（待办项之一；缺省 0） */
   newAppCount?: number;
+  /** 最近安装的应用（托盘右键直接装） */
+  recent?: { id: string; name: string }[];
 }
 
 export function buildTrayLabels(t: TFn, s: TrayState): TraySync {
@@ -47,6 +49,10 @@ export function buildTrayLabels(t: TFn, s: TrayState): TraySync {
     pendingUpdatesCount: s.appUpdateCount,
     pendingNewLabel: t("tray.pendingNew", { count: newCount }),
     pendingNewCount: newCount,
+    recent: (s.recent ?? []).slice(0, 3).map((r) => ({
+      id: r.id,
+      label: t("tray.recentInstall", { name: r.name }),
+    })),
     pendingCoreLabel: s.coreVersion
       ? t("tray.pendingCore", { version: s.coreVersion })
       : t("tray.pendingCoreNoVersion"),

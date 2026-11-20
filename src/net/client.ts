@@ -307,6 +307,8 @@ export interface TraySync {
   /** 待办项：本体有新版 */
   pendingCoreLabel?: string;
   pendingCoreCount?: number;
+  /** 最近安装的应用（托盘右键直接装，不用进主界面） */
+  recent?: { id: string; label: string }[];
 }
 
 /** 单应用计数（`GET /api/stats` 条目） */

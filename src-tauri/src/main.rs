@@ -102,6 +102,20 @@ fn main() {
             autostart::ensure_default(app.handle());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running AiBOX");
+        .build(tauri::generate_context!())
+        .expect("error while building AiBOX")
+        .run(|app, event| match event {
+            // **应用被系统重新唤起**（macOS dock 点击 / 再次双击 exe）→ 把主窗口叫出来。
+            // 常驻托盘的应用窗口是藏着的：用户点了却什么都没看到 = 白点了一次。
+            // Reopen 只在 macOS 存在（dock 点击）→ 用 cfg 隔离，其他平台编译不受影响
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => tray::show_main(app),
+            // 窗口拿到焦点（任务栏点图标等）→ 确保它是可见的
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Focused(true),
+                ..
+            } if label == "main" => tray::show_main(app),
+            _ => {}
+        });
 }

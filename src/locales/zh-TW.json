@@ -425,7 +425,8 @@
     "pendingUpdates": "{{count}} 個應用可以升級",
     "pendingNew": "{{count}} 個新應用",
     "pendingCore": "AiBOX {{version}} 可下載",
-    "pendingCoreNoVersion": "AiBOX 有新版本可下載"
+    "pendingCoreNoVersion": "AiBOX 有新版本可下載",
+    "recentInstall": "安裝 {{name}}"
   },
   "quit": {
     "title": "退出 AiBOX？",
@@ -480,7 +481,9 @@
     "errDeleteFailed": "刪除時遇到系統問題（權限不足 / 檔案正被占用），沒有刪掉任何東西。",
     "errIo": "本地檔案操作失敗（權限不足 / 路徑不可寫）。",
     "upgradeFocus": "有 {{count}} 個應用可以升級",
-    "upgradeNext": "升級第一個"
+    "upgradeNext": "升級第一個",
+    "upgradeAll": "全部升級",
+    "backupDone": "升級前已把你的資料備份到 {{path}}"
   },
   "notify": {
     "tab": "通知",
@@ -509,5 +512,14 @@
     "quietDesc": "這段時間裡不彈通知。錯過的事會在免打擾結束後補發 —— 不會丟。",
     "quietFrom": "從",
     "quietTo": "到"
+  },
+  "first": {
+    "title": "挑一個應用，剩下的交給我。",
+    "lede": "AiBOX 負責把 AI 應用裝到你这台電腦上。",
+    "point1": "不需要管理員權限，不會往系統裡亂裝東西。",
+    "point2": "每個安裝包執行前都會先校驗，你不會跑到被改過的檔案。",
+    "point3": "裝好的應用可以隨時升級、重裝、解除安裝，都在一個地方。",
+    "skip": "跳過",
+    "start": "開始挑應用"
   }
 }

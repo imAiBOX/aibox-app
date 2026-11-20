@@ -145,6 +145,10 @@ export function reduce(state: MachineState, event: Event): MachineState {
       };
     }
 
+    case "UPGRADE_MODE":
+      // 升级流程：装完直接结束（不进「配置 key」——升级不该要求重新配 key）
+      return { ...state, upgradeMode: true };
+
     case "ALL_DONE":
       // skipped 也算已处置（SKIP 后不能死锁在 EXECUTE）
       if (state.status !== "EXECUTE") return state;
@@ -153,9 +157,14 @@ export function reduce(state: MachineState, event: Event): MachineState {
         // 真实触发路径：断点续装时 plan 还没重建好就进了 EXECUTE（冷启动 state.plan=null）。
         return { ...state, status: "IDLE", error: null };
       }
-      return state.tasks.every((t) => t.status === "done" || t.status === "skipped")
-        ? { ...state, status: "CONFIG", error: null }
-        : state;
+      if (!state.tasks.every((t) => t.status === "done" || t.status === "skipped")) {
+        return state;
+      }
+      // 升级模式 → 装完直接 DONE（不要求重新配 key）
+      if (state.upgradeMode) {
+        return { ...state, status: "DONE", error: null };
+      }
+      return { ...state, status: "CONFIG", error: null };
 
     case "CONFIG_WRITTEN":
       // 「跳过配置」（pathId = "none"）→ **不进 VERIFY**：
