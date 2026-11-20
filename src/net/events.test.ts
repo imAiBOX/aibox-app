@@ -7,11 +7,13 @@ import {
   createToastController,
   feedLogFromEvents,
   feedToastFromEvents,
+  formatChannelSwitched,
   LOG_CAP_BYTES,
   startTauriEvents,
   TOAST_MS,
 } from "./events";
 import { emitEvent } from "./client";
+import i18n from "../i18n";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -72,6 +74,38 @@ describe("通道 toast（3s 自动消失）", () => {
     let latest: string | null = null;
     toast.subscribe((t) => (latest = t));
     expect(latest).toBe("github.com→npmmirror");
+    off();
+  });
+
+  it("默认文案按换源原因区分（线路慢 / 线路不可用）", () => {
+    const toast = createToastController();
+    const off = feedToastFromEvents(toast);
+    let latest: string | null = null;
+    toast.subscribe((t) => (latest = t));
+
+    // 过慢换源：告诉用户「线路慢，已自动换到加速线路」
+    emitEvent({
+      event: "channel_switched",
+      payload: { from: "DIRECT", to: "MIRROR", reason: "slow-channel" },
+    });
+    const slowText = latest ?? "";
+    expect(slowText).toBe(i18n.t("s4.switchedSlow", { from: "DIRECT", to: "MIRROR" }));
+    expect(slowText).toContain("DIRECT");
+    expect(slowText).toContain("MIRROR");
+
+    // 真故障换源：告诉用户「线路不可用，已自动换到备用线路」
+    emitEvent({
+      event: "channel_switched",
+      payload: { from: "DIRECT", to: "MIRROR", reason: "download-fallback" },
+    });
+    const faultText = latest ?? "";
+    expect(faultText).toBe(i18n.t("s4.switchedFallback", { from: "DIRECT", to: "MIRROR" }));
+    expect(faultText).not.toBe(slowText);
+
+    // 未知原因 → 回落「线路不可用」文案（不白屏、不漏文案）
+    expect(formatChannelSwitched({ from: "A", to: "B", reason: "who-knows" })).toBe(
+      i18n.t("s4.switchedFallback", { from: "A", to: "B" }),
+    );
     off();
   });
 });

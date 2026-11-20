@@ -109,16 +109,15 @@ export default function App() {
   // 真事件桥（download_progress/task_phase/channel_switched/log_line → 统一事件总线；mock 已内建推送）
   useEffect(() => {
     const stopBridge = startTauriEvents();
-    const offToast = feedToastFromEvents(channelToast, (p) =>
-      t("s4.switched", { from: p.from, to: p.to }),
-    );
+    // 换源 toast 文案：按 Rust 带上的原因选人话（线路慢 / 线路不可用），文案在 i18n 字典里
+    const offToast = feedToastFromEvents(channelToast);
     const offLog = feedLogFromEvents();
     return () => {
       offToast();
       offLog();
       stopBridge();
     };
-  }, [t]);
+  }, []);
 
   // 通道切换 toast：3s 自动消失（不打断流程）
   useEffect(() => channelToast.subscribe(setToast), []);

@@ -319,14 +319,23 @@ pub async fn download_start(
             let channel_changed = last_channel.as_deref() != Some(channel.as_str());
             if channel_changed {
                 if let Some(prev) = last_channel.replace(channel.clone()) {
+                    // 换源原因：**不再写死**「download-fallback」——
+                    // 网络层会把「本次是因为线路太慢被放弃」还是「线路真坏了」带上来，
+                    // UI 据此给用户不同的人话提示（慢 → 继续等；坏 → 换网络/代理）。
+                    // 原因缺失时回落旧值，保持向后兼容。
+                    let reason = p
+                        .switch_reason
+                        .as_ref()
+                        .map(|k| k.reason_code())
+                        .unwrap_or("download-fallback");
                     let _ = app_progress.emit(
                         "channel_switched",
-                        json!({"from": prev, "to": channel, "reason": "download-fallback"}),
+                        json!({"from": prev, "to": channel, "reason": reason}),
                     );
                     let _ = aibox_core::tasklog::append(
                         &log_app_progress,
                         &job_for_log,
-                        &format!("channel switch: {prev} → {channel}"),
+                        &format!("channel switch: {prev} → {channel} (reason: {reason})"),
                     );
                 }
             }

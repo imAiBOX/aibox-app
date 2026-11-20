@@ -367,6 +367,13 @@ export function mockDownloadStart(task: DownloadTask): string {
     }
     step += 1;
     const channel = scenario === "net_dead" ? "github.com" : "ghfast.top";
+    // 模拟一次「换源」：直连太慢 → 自动改用加速线路（让 mock 模式也能看到人话 toast）
+    if (step === 5 && scenario !== "net_dead") {
+      globalThis.__aiboxEmit?.({
+        event: "channel_switched",
+        payload: { from: "github.com", to: "ghfast.top", reason: "slow-channel" },
+      });
+    }
     globalThis.__aiboxEmit?.({
       event: "download_progress",
       payload: { jobId, done: Math.min(step * 640_000, total), total, channel },

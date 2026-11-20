@@ -98,7 +98,8 @@
     "viewLog": "View log",
     "logEmpty": "No log output yet.",
     "logNote": "Log is read-only. Keys are masked.",
-    "switched": "{{from}} timed out, switched to {{to}}"
+    "switchedSlow": "This download source is slow, so we switched to a faster one automatically ({{from}} → {{to}}).",
+    "switchedFallback": "This download source is unavailable, so we switched to a backup one automatically ({{from}} → {{to}})."
   },
   "s5": {
     "title": "Connect your model",

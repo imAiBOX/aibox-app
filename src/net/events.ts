@@ -6,6 +6,7 @@
  * - 日志抽屉：log_line 环形缓冲，4KB 截断语义（截断 4KB/任务）。
  */
 import { emitEvent, isMock, onEvent, type AiboxEvent } from "./client";
+import i18n from "../i18n";
 
 export { onEvent, emitEvent };
 
@@ -114,11 +115,31 @@ export function createToastController(
 /** 全局单例（App 订阅渲染；channel_switched 事件自动喂入） */
 export const channelToast = createToastController();
 
+/** 换源事件载荷（Rust 侧 `channel_switched`） */
+export interface ChannelSwitchedPayload {
+  from: string;
+  to: string;
+  /** 换源原因码：`slow-channel`（线路太慢）/ `download-fallback`（线路不可用） */
+  reason: string;
+}
+
+/**
+ * 换源提示文案（**走 i18n 字典**，不硬编码中英文）。
+ *
+ * **为什么按原因分文案**：小白看到 `direct → proxy` 完全不知道发生了什么；
+ * 而「线路慢」与「线路坏了」需要用户做的事完全不同（前者继续等，后者换网络/代理）。
+ * Rust 侧把真实原因带上来，这里只负责选对应的人话。
+ */
+export function formatChannelSwitched(p: ChannelSwitchedPayload): string {
+  const key: "s4.switchedSlow" | "s4.switchedFallback" =
+    p.reason === "slow-channel" ? "s4.switchedSlow" : "s4.switchedFallback";
+  return i18n.t(key, { from: p.from, to: p.to });
+}
+
 /** 把 channel_switched 事件接入 toast（返回退订）；由 App 调用一次 */
 export function feedToastFromEvents(
   toast: ToastController = channelToast,
-  format: (p: { from: string; to: string; reason: string }) => string = (p) =>
-    `${p.from} → ${p.to}`,
+  format: (p: ChannelSwitchedPayload) => string = formatChannelSwitched,
 ): () => void {
   return onEvent((e) => {
     if (e.event !== "channel_switched") return;

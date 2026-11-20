@@ -16,6 +16,7 @@
 //!
 //! 网络 IO 全部走 `ureq`（rustls，无系统 C 库）；单测用手写本地 HTTP 服务器离线覆盖。
 
+use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -86,6 +87,13 @@ pub struct DownloadProgress {
     pub segments: usize,
     /// 本次是否从断点续传
     pub resumed: bool,
+    /// 「本次进度所属通道是换源换来的」时的换源原因（`None` = 不是换源，或原因未知）。
+    ///
+    /// **为什么带这个字段**：用户看到「下载中途换了源」时需要知道是
+    /// 「这条线路太慢（换个更快的）」还是「这条线路坏了（要换网络/代理）」——
+    /// 两者的下一步动作完全不同。`download_fallback` 只在**换源后新通道的首个**
+    /// 进度事件里带上原因（只带一次），上层据此给不同的人话提示。
+    pub switch_reason: Option<ChannelFailureKind>,
 }
 
 /// 单通道失败原因（全通道失败时逐条汇总给人话报错）。
@@ -115,6 +123,18 @@ impl ChannelFailureKind {
     /// 是否为「过慢失败」。
     pub fn is_too_slow(&self) -> bool {
         matches!(self, ChannelFailureKind::TooSlow { .. })
+    }
+
+    /// 换源原因码（事件 `channel_switched.reason` 的取值）。
+    ///
+    /// **为什么要有稳定的原因码**：上层（UI）要按原因给用户不同的白话提示，
+    /// 又不能去匹配人话字符串（会随文案改动而失效）——所以这里给出机器可读的码，
+    /// 文案本身放在前端 i18n 字典里。
+    pub fn reason_code(&self) -> &'static str {
+        match self {
+            ChannelFailureKind::TooSlow { .. } => "slow-channel",
+            ChannelFailureKind::Fault => "download-fallback",
+        }
     }
 }
 
@@ -524,6 +544,11 @@ pub fn download_fallback(
     let mut failures: Vec<ChannelFailure> = Vec::new();
     // 安全阀：至多触发一次（内部状态保证）
     let mut valve = SlowValve::new();
+    // 「待发的换源原因」：某通道被放弃后暂存，等下一个通道的**首个**进度事件带出去。
+    //
+    // **为什么这样传**：进度回调是上层唯一的进度入口，UI 只有在这里才知道
+    // 「刚换了源，而且是因为慢/坏」——用 Cell 存一次、取出即清空，保证只发一次。
+    let pending_switch: Cell<Option<ChannelFailureKind>> = Cell::new(None);
 
     for (idx, ch) in channels.iter().enumerate() {
         if idx > 0 {
@@ -531,7 +556,15 @@ pub fn download_fallback(
             // （否则会把两个源的字节拼在一起 → 哈希必然不符 → 误判篡改）
             let _ = fs::remove_file(&part);
         }
-        match attempt_channel(&agent, ch, &part, dest, opts, expected_sha256, progress) {
+        // 包一层进度闭包：新通道的首个进度事件带上「待发换源原因」（带过即清空）
+        let inner = &mut *progress;
+        let mut wrapped = |mut p: DownloadProgress| {
+            if let Some(reason) = pending_switch.take() {
+                p.switch_reason = Some(reason);
+            }
+            inner(p);
+        };
+        match attempt_channel(&agent, ch, &part, dest, opts, expected_sha256, &mut wrapped) {
             Ok(receipt) => return Ok(receipt),
             Err(ChannelError::Fatal(e)) => return Err(e),
             Err(ChannelError::TooSlow {
@@ -546,6 +579,10 @@ pub fn download_fallback(
                     reason: detail,
                     kind: ChannelFailureKind::TooSlow { bps, threshold },
                 });
+                // 还有下一个通道 → 记下「因过慢换源」，让 UI 告诉用户「线路慢」而非「线路坏」
+                if idx + 1 < channels.len() {
+                    pending_switch.set(Some(ChannelFailureKind::TooSlow { bps, threshold }));
+                }
             }
             Err(ChannelError::Channel(reason)) => {
                 // 真实故障（HTTP/传输/故障页/截断）：丢掉半截产物，降级下一通道
@@ -556,6 +593,10 @@ pub fn download_fallback(
                     reason,
                     kind: ChannelFailureKind::Fault,
                 });
+                // 还有下一个通道 → 记下「因故障换源」
+                if idx + 1 < channels.len() {
+                    pending_switch.set(Some(ChannelFailureKind::Fault));
+                }
             }
         }
     }
@@ -570,6 +611,22 @@ pub fn download_fallback(
         let mut valve_opts = opts.clone();
         valve_opts.min_segment_bps = None; // 关闭熔断 → 旧路径：慢也慢慢下完
         let ch = &channels[idx];
+        // 安全阀重试 = 换回第一个通道：原因沿用「本轮全部过慢」
+        // （否则 UI 会把「重试慢通道」说成「线路不可用」，误导用户）
+        let last_ch = channels.last().map(|c| c.channel);
+        if Some(ch.channel) != last_ch {
+            if let Some(kind) = failures.last().map(|f| f.kind.clone()) {
+                pending_switch.set(Some(kind));
+            }
+        }
+        // 包一层进度闭包：让安全阀重试的首个进度事件也带上换源原因（同上：只带一次）
+        let inner = &mut *progress;
+        let mut wrapped = |mut p: DownloadProgress| {
+            if let Some(reason) = pending_switch.take() {
+                p.switch_reason = Some(reason);
+            }
+            inner(p);
+        };
         match attempt_channel(
             &agent,
             ch,
@@ -577,7 +634,7 @@ pub fn download_fallback(
             dest,
             &valve_opts,
             expected_sha256,
-            progress,
+            &mut wrapped,
         ) {
             Ok(receipt) => return Ok(receipt),
             Err(ChannelError::Fatal(e)) => return Err(e),
@@ -878,6 +935,8 @@ impl DownState<'_> {
                     self.total_segments
                 },
                 resumed: self.resumed_from > 0,
+                // 换源原因由 `download_fallback` 的外层闭包注入（这里不感知）
+                switch_reason: None,
             });
             // 慢速熔断（流中窗口）：实测速率低于阈值 → 立即放弃该通道
             if let Some(guard) = self.speed_guard {
@@ -1911,6 +1970,125 @@ mod tests {
         );
         assert_eq!(fs::read(&dest).unwrap().len(), good_body.len());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 换源原因透传（慢）：慢通道被放弃 → **下一个通道的首个**进度事件带「过慢」原因（只带一次）。
+    ///
+    /// **为什么测这个**：UI 要靠它区分「线路慢」与「线路坏」——
+    /// 若原因丢失/重复，用户看到的提示就会说错。
+    #[test]
+    fn switch_reason_reports_slow_channel_fallback() {
+        let dir = tmp_dir("switchslow");
+        let (slow_url, _slow_gets) = slow_server(9 * 1024 * 1024, 8 * 1024, Duration::from_secs(1));
+        let good_body = deterministic_body(9 * 1024 * 1024, 47);
+        let good = TestHttpServer::serve(good_body.clone());
+        let dest = dir.join("big.bin");
+        let expected = sha256_hex(&good_body);
+
+        let mut events: Vec<DownloadProgress> = Vec::new();
+        let receipt = download_fallback(
+            &[
+                ChannelUrl::new(ChannelType::Direct, format!("{slow_url}/big.bin")),
+                ChannelUrl::new(ChannelType::Mirror, good.url("/big.bin")),
+            ],
+            &dest,
+            &expected,
+            &opts(2 * 1024 * 1024),
+            &mut |p| events.push(p),
+        )
+        .expect("must fall back to the fast channel");
+        assert_eq!(receipt.channel, ChannelType::Mirror);
+
+        // 首个（慢）通道自己的进度事件不带换源原因（它不是换源换来的）
+        for e in events.iter().filter(|e| e.channel == ChannelType::Direct) {
+            assert!(e.switch_reason.is_none(), "首个通道不应带换源原因: {e:?}");
+        }
+        // 换源后的通道：首个进度事件带「过慢」原因，之后不再重复带
+        let mirror: Vec<&DownloadProgress> =
+            events.iter().filter(|e| e.channel == ChannelType::Mirror).collect();
+        assert!(!mirror.is_empty(), "换源后的通道应有进度事件");
+        match &mirror[0].switch_reason {
+            Some(ChannelFailureKind::TooSlow { .. }) => {}
+            other => panic!("换源后首个进度事件应带 TooSlow 原因，实际 {other:?}"),
+        }
+        for e in &mirror[1..] {
+            assert!(e.switch_reason.is_none(), "换源原因只发一次: {e:?}");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 换源原因透传（真故障）：通道连不上 → 下一个通道首个进度事件带「故障」原因。
+    #[test]
+    fn switch_reason_reports_fault_fallback() {
+        let dir = tmp_dir("switchfault");
+        let (dead, _dead2) = refused_pair();
+        let body = deterministic_body(5000, 51);
+        let good = TestHttpServer::serve(body.clone());
+        let dest = dir.join("f.bin");
+        let expected = sha256_hex(&body);
+
+        let mut events: Vec<DownloadProgress> = Vec::new();
+        let receipt = download_fallback(
+            &[
+                ChannelUrl::new(ChannelType::Direct, format!("http://{dead}/a.bin")),
+                ChannelUrl::new(ChannelType::Mirror, good.url("/f.bin")),
+            ],
+            &dest,
+            &expected,
+            &opts(1024),
+            &mut |p| events.push(p),
+        )
+        .expect("must fall back after a dead channel");
+        assert_eq!(receipt.channel, ChannelType::Mirror);
+        assert!(!events.is_empty(), "应有进度事件");
+        assert_eq!(
+            events[0].switch_reason,
+            Some(ChannelFailureKind::Fault),
+            "换源后首个进度事件应带 Fault 原因"
+        );
+        for e in &events[1..] {
+            assert!(e.switch_reason.is_none(), "换源原因只发一次: {e:?}");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 不换源：全程不带换源原因（UI 不会误报「已换源」）。
+    #[test]
+    fn no_switch_reason_without_fallback() {
+        let dir = tmp_dir("noswitch");
+        let body = deterministic_body(5000, 53);
+        let server = TestHttpServer::serve(body.clone());
+        let dest = dir.join("f.bin");
+        let expected = sha256_hex(&body);
+
+        let mut events: Vec<DownloadProgress> = Vec::new();
+        download_fallback(
+            &[ChannelUrl::new(ChannelType::Direct, server.url("/f.bin"))],
+            &dest,
+            &expected,
+            &opts(1024),
+            &mut |p| events.push(p),
+        )
+        .expect("download must succeed");
+        assert!(!events.is_empty());
+        for e in &events {
+            assert!(e.switch_reason.is_none(), "未换源不应带原因: {e:?}");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 换源原因码（UI 按它选文案；不能靠匹配人话字符串）。
+    #[test]
+    fn channel_failure_reason_codes() {
+        assert_eq!(
+            ChannelFailureKind::TooSlow {
+                bps: 1024,
+                threshold: 32 * 1024
+            }
+            .reason_code(),
+            "slow-channel"
+        );
+        assert_eq!(ChannelFailureKind::Fault.reason_code(), "download-fallback");
     }
 
     /// 全部通道都慢 → 触发安全阀（不限速重试）；重试仍失败 → NET_ALL_CHANNELS_DEAD，

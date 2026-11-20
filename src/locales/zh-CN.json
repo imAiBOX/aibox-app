@@ -98,7 +98,8 @@
     "viewLog": "查看日志",
     "logEmpty": "还没有日志。",
     "logNote": "日志只读，key 已脱敏。",
-    "switched": "{{from}} 超时，已切换 {{to}}"
+    "switchedSlow": "当前下载线路较慢，已自动切换到加速线路（{{from}} → {{to}}）",
+    "switchedFallback": "当前下载线路不可用，已自动切换到备用线路（{{from}} → {{to}}）"
   },
   "s5": {
     "title": "连接模型",

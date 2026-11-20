@@ -98,7 +98,8 @@
     "viewLog": "檢視日誌",
     "logEmpty": "還沒有日誌。",
     "logNote": "日誌只讀，key 已脫敏。",
-    "switched": "{{from}} 超時，已切換 {{to}}"
+    "switchedSlow": "目前下載線路較慢，已自動切換到加速線路（{{from}} → {{to}}）",
+    "switchedFallback": "目前下載線路無法使用，已自動切換到備用線路（{{from}} → {{to}}）"
   },
   "s5": {
     "title": "連線模型",
