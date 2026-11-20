@@ -340,9 +340,21 @@ describe("ERROR → 重新确认风险卡 → REMOVE（第三轮审计 REJECT �
 
 describe("sameManifest（破坏性清单比较，三项全比）", () => {
   const base = { dataPaths: ["/d1"], residualPaths: ["/r1"], steps: ["s1"] };
-  it("完全相同 → true（与顺序无关）", () => {
+  it("完全相同 → true（**与顺序无关**：调换顺序仍应判相同）", () => {
     expect(sameManifest(base, { dataPaths: ["/d1"], residualPaths: ["/r1"], steps: ["s1"] })).toBe(true);
-    expect(sameManifest(base, { dataPaths: ["/d1"], residualPaths: ["/r1"], steps: ["s1"] })).toBe(true);
+    // 顺序调换 → 仍相同
+    expect(
+      sameManifest(
+        { dataPaths: ["/d1", "/d2"], residualPaths: ["/r1", "/r2"], steps: ["s1", "s2"] },
+        { dataPaths: ["/d2", "/d1"], residualPaths: ["/r2", "/r1"], steps: ["s2", "s1"] },
+      ),
+    ).toBe(true);
+  });
+  it("空数组边界：两边都空 → true；一边空一边有 → false", () => {
+    const empty = { dataPaths: [], residualPaths: [], steps: [] };
+    expect(sameManifest(empty, { dataPaths: [], residualPaths: [], steps: [] })).toBe(true);
+    expect(sameManifest(empty, { dataPaths: ["/d"], residualPaths: [], steps: [] })).toBe(false);
+    expect(sameManifest(base, empty)).toBe(false);
   });
   it("仅 residualPaths 变 → false（第四轮审计 REJECT-A：不能只比 dataPaths）", () => {
     expect(sameManifest(base, { dataPaths: ["/d1"], residualPaths: ["/r2"], steps: ["s1"] })).toBe(false);

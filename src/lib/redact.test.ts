@@ -33,7 +33,7 @@ describe("maskSecrets", () => {
   it("漏网形态：base64 字符集 / Bearer / URL 凭据 / 多种 key 字段名（**完整输出断言**）", () => {
     expect(maskSecrets("token sk-abc+/=defgh1234")).toBe("token sk-****1234");
     // 完整断言：不能只断言 contains（后面残留也可能通过）
-    expect(maskSecrets("Authorization: Bearer abcdef123456")).toBe("Authorization: Bearer ****");
+    expect(maskSecrets("Authorization: Bearer abcdef123456")).toBe("Authorization: ****");
     expect(maskSecrets("https://user:pass@example.com/x")).toBe("https://****:****@example.com/x");
     expect(maskSecrets("api_key=abcdef123456")).toBe("api_key=****");
     expect(maskSecrets('"apiKey":"abcdef123456"')).toBe('"apiKey":"****"');
@@ -45,14 +45,32 @@ describe("maskSecrets", () => {
 
   it("认证方案凭据整段掩掉（Basic / Digest / 含 ~ : 的 token）", () => {
     // Basic 的 base64 凭据也必须掩掉（不能只掩方案词）
-    expect(maskSecrets("authorization=Basic dXNlcjpwYXNz")).toBe("authorization=Basic ****");
-    expect(maskSecrets("Authorization: Basic dXNlcjpwYXNz")).toBe("Authorization: Basic ****");
+    // Authorization 头整段掩（scheme + 凭据一起）
+    expect(maskSecrets("authorization=Basic dXNlcjpwYXNz")).toBe("authorization=****");
+    expect(maskSecrets("Authorization: Basic dXNlcjpwYXNz")).toBe("Authorization: ****");
     // Bearer 后面带 ~ : 等字符 → 整段掩掉，不能残留半截
-    expect(maskSecrets("Authorization: Bearer abcdef~PRIVATE")).toBe("Authorization: Bearer ****");
-    expect(maskSecrets("Authorization: Bearer abc:def~ghi")).toBe("Authorization: Bearer ****");
+    expect(maskSecrets("Authorization: Bearer abcdef~PRIVATE")).toBe("Authorization: ****");
+    expect(maskSecrets("Authorization: Bearer abc:def~ghi")).toBe("Authorization: ****");
     // Digest 的挑战参数
     expect(maskSecrets('digest response="deadbeef", nonce="xyz"')).toBe(
-      'digest response="****", nonce="****"',
+      "digest response=****, nonce=****",
+    );
+  });
+
+  it("凭据里带分隔符时也整段掩（第五轮审计 REJECT-1）", () => {
+    // `Bearer abcdef,PRIVATE` → 逗号后的凭据也必须掩掉
+    expect(maskSecrets("Authorization: Bearer abcdef,PRIVATE")).toBe("Authorization: ****");
+    expect(maskSecrets("Authorization: Basic dXNlcjpwYXNz")).toBe("Authorization: ****");
+    // 非头部上下文的 bearer 凭据
+    expect(maskSecrets("failed with bearer abcdef,PRIVATE")).toBe("failed with bearer ****");
+  });
+
+  it("Digest 参数：带引号与不带引号都掩", () => {
+    expect(maskSecrets('digest response="deadbeef", nonce="xyz"')).toBe(
+      "digest response=****, nonce=****",
+    );
+    expect(maskSecrets("digest response=deadbeef, nonce=xyz")).toBe(
+      "digest response=****, nonce=****",
     );
   });
 

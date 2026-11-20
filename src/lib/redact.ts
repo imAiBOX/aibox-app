@@ -21,17 +21,26 @@
  */
 const SK = /(?<![A-Za-z0-9_.-])sk-[A-Za-z0-9][A-Za-z0-9._+/=~:-]{7,}/g;
 /**
- * 认证方案 + 凭据（bearer / basic / digest）：
- * **整段凭据一起掩**，不能只掩方案词（否则 `Authorization: Basic <b64>` 的
- * base64 凭据会原样留在错误详情里 —— 第四轮审计 REJECT-1）。
+ * Authorization 头：**整段掩掉**（含 scheme 与凭据）。
+ *
+ * 为什么整段：HTTP 认证值里可以有逗号/分号（`Bearer abcdef,PRIVATE`），
+ * 只按「scheme + 连续 token」匹配会只掩掉前半截、后半截原样漏出
+ * （第五轮审计 REJECT-1）。
  */
-const AUTH = /\b(bearer|basic)\s+[A-Za-z0-9._+/=~:-]{4,}/gi;
+const AUTH_HEADER = /(\b(?:proxy-)?authorization\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\r\n]+)/gi;
+/**
+ * 出现在非 Authorization 上下文里的认证凭据（bearer / basic）——整段掩。
+ * 字符集含 `,` `;`（凭据可能带分隔符）。
+ */
+const AUTH = /\b(bearer|basic)\s+[A-Za-z0-9._+/=~:;,]{4,}/gi;
 /**
  * Digest 认证的挑战参数（response/nonce/…）—— 同样算凭据材料。
  * Digest 的凭据不是「方案名 + 一段 token」，而是参数列表 → 单独处理，
  * 不能套用上面的 AUTH 规则（否则会把参数名当 token 掩掉、真值反而留着）。
+ * 带引号与不带引号两种合法形式都要覆盖。
  */
-const DIGEST_PARAM = /\b(response|nonce|cnonce|opaque)\s*=\s*"[^"]*"/gi;
+const DIGEST_PARAM = /\b(response|nonce|cnonce|opaque)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi;
+
 /** URL 内联凭据 scheme://user:pass@host */
 const URL_CRED = /:\/\/[^\s/@]+:[^\s/@]+@/g;
 /** api_key = "xxxx" / "apiKey":"xxxx" / secret_key / access_token … */
@@ -49,8 +58,9 @@ export function maskSecrets(text: string): string {
   if (!text) return text;
   let out = text;
   out = out.replace(SK, (m) => `sk-****${m.slice(-4)}`);
+  out = out.replace(AUTH_HEADER, (_m, head: string) => `${head}****`);
   out = out.replace(AUTH, (_m, scheme: string) => `${scheme} ****`);
-  out = out.replace(DIGEST_PARAM, (_m, name: string) => `${name}="****"`);
+  out = out.replace(DIGEST_PARAM, (_m, name: string) => `${name}=****`);
   out = out.replace(URL_CRED, "://****:****@");
   out = out.replace(KV, (_m, pre: string, _val: string, post: string) => `${pre}****${post}`);
   return out;

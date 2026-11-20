@@ -20,7 +20,14 @@ pub fn patterns() -> &'static [Regex] {
             Regex::new(r"(?i)openai").unwrap(),
             Regex::new(r"(?i)sk-[A-Za-z0-9][A-Za-z0-9._-]*").unwrap(),
             Regex::new(r"(?i)api[_-]?key").unwrap(),
-            Regex::new(r"(?i)bearer\s+[A-Za-z0-9._\-]+").unwrap(),
+            // 认证方案与凭据（与前端 src/lib/redact.ts 同口径 —— 两侧规则必须一致，
+            // 否则同一段文本在服务端与界面显示不同）：
+            // - Authorization 头整段（含 scheme 与凭据；凭据里可能有 , ; 分隔符）
+            // - 非头部的 bearer/basic 凭据
+            // - Digest 挑战参数（带引号与不带引号两种形式）
+            Regex::new(r"(?i)\b(?:proxy-)?authorization\s*[:=]\s*[^\r\n]+").unwrap(),
+            Regex::new(r"(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._+/=~:;,]{4,}").unwrap(),
+            Regex::new(r#"(?i)\b(?:response|nonce|cnonce|opaque)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)"#).unwrap(),
             Regex::new(r"://[^\s/@]+:[^\s/@]+@").unwrap(),
         ]
     })
@@ -109,5 +116,30 @@ mod tests {
     fn count_hits_works() {
         assert_eq!(count_hits("nothing here"), 0);
         assert!(count_hits("sk-1 and API-KEY") >= 2);
+    }
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+
+    /// 认证凭据的脱敏口径（与前端 src/lib/redact.ts 一致 —— 两侧必须同口径）。
+    #[test]
+    fn auth_credentials_are_masked() {
+        let cases = [
+            ("Authorization: Bearer abcdef123456", "abcdef123456"),
+            ("Authorization: Basic dXNlcjpwYXNz", "dXNlcjpwYXNz"),
+            // 凭据里带分隔符 → 必须整段掩掉，不能只掩前半截
+            ("Authorization: Bearer abcdef,PRIVATE", "PRIVATE"),
+            ("proxy-authorization: bearer abcdef123456", "abcdef123456"),
+            // Digest 参数（带引号与不带引号）
+            ("digest response=\"deadbeef\", nonce=\"xyz\"", "deadbeef"),
+            ("digest response=deadbeef, nonce=xyz", "deadbeef"),
+        ];
+        for (input, secret) in cases {
+            let (out, hits) = scan_and_mask(input);
+            assert!(hits > 0, "未命中脱敏: {input}");
+            assert!(!out.contains(secret), "凭据残留: {input} -> {out}");
+        }
     }
 }
