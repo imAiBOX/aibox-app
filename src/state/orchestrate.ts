@@ -19,7 +19,16 @@ const CODE_KEYS: Array<[prefix: string, key: string]> = [
   ["HASH_MISMATCH", "err.hashMismatch"],
   ["USER_CANCELLED", "err.cancelled"],
   ["SCAN_FAILED", "err.scanFailed"],
-  ["REGISTRY_FETCH", "err.registry"],
+  // registry 拉取：拒绝类错误与「网络不通」必须分开说。
+  // REGISTRY_MISMATCH = ≥2 源可达但内容互不一致（防篡改，拒绝一切降级）；
+  // REGISTRY_INTEGRITY = GitHub API blob sha1 校验失败（同样拒绝降级）。
+  // 这两个都不是「网络问题」，让用户去检查网络是误导（且重试不会变好）。
+  ["REGISTRY_MISMATCH", "err.registryMismatch"],
+  ["REGISTRY_INTEGRITY", "err.registryIntegrity"],
+  // 单源可达 → 无法交叉核对（S2 严格性），也算「不是纯网络问题」。
+  ["REGISTRY_SINGLE_SOURCE", "err.registrySingleSource"],
+  // 其余 REGISTRY_*（UNAVAILABLE / NO_CACHE / FETCH）→ 网络向。
+  ["REGISTRY_", "err.registry"],
   ["EXEC_", "err.execFailed"],
   ["PROBE_", "err.probeFailed"],
   ["DOWNLOAD_", "err.downloadFailed"],
@@ -37,8 +46,12 @@ export function messageKeyForCode(code: string): string {
 /**
  * 下载类错误（有「另一个源」可换 → 展示「换个下载源」按钮）：
  * `NET_*` / `DOWNLOAD_*` / 哈希不符。扫描、配置、执行类错误不适用。
+ *
+ * 例外：`NET_ALL_CHANNELS_DEAD`（**所有**源都超时）——此时「换个源」已经无源可换，
+ * 人话提示也已写明「检查网络后重试」；再摆一个「换个下载源」按钮只会让用户白等一轮超时。
  */
 export function canSwitchSource(code: string): boolean {
+  if (code === "NET_ALL_CHANNELS_DEAD") return false;
   return (
     code.startsWith("NET_") ||
     code.startsWith("DOWNLOAD_") ||
@@ -303,6 +316,14 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
 
 /** Tauri invoke reject / Error → 机器可读 code */
 function errCode(e: unknown, fallback: string): string {
+  return errorCodeOf(e, fallback);
+}
+
+/**
+ * Tauri invoke reject 对象（Rust 侧 `CommandError {code, human}`）→ 机器可读 code。
+ * 非 Tauri / 非结构化错误 → fallback（前端自行拍一个默认值）。
+ */
+export function errorCodeOf(e: unknown, fallback: string): string {
   if (e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string") {
     return (e as { code: string }).code;
   }

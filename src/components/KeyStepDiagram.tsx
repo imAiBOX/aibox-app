@@ -3,6 +3,8 @@
  * 风格遵循 VI：黑底 #0A0A0A、主绿 #B6FB50 高亮、米白文字、像素方块母题、无渐变。
  * step 1 = 打开官网注册 · step 2 = 创建并复制 key · step 3 = 粘贴进 AiBOX
  */
+import { useTranslation } from "react-i18next";
+
 interface Props {
   step: 1 | 2 | 3;
   domain?: string;
@@ -31,11 +33,12 @@ function BrowserFrame({ domain, children }: { domain: string; children: React.Re
 }
 
 export default function KeyStepDiagram({ step, domain = "provider.example", title }: Props) {
+  const { t } = useTranslation();
   return (
     <svg
       viewBox="0 0 480 160"
       role="img"
-      aria-label={title ?? `step ${step}`}
+      aria-label={title ?? t("s5.diagramStep", { n: step })}
       className="w-full max-w-[420px] rounded-[4px] border border-aibox-line"
       style={{ background: BG }}
     >
@@ -44,10 +47,10 @@ export default function KeyStepDiagram({ step, domain = "provider.example", titl
           <rect x="28" y="44" width="140" height="14" rx="3" fill="#14161A" stroke={LINE} />
           <rect x="28" y="66" width="140" height="14" rx="3" fill="#14161A" stroke={LINE} />
           <rect x="28" y="92" width="72" height="18" rx="3" fill={GREEN} />
-          <text x="40" y="105" fontSize="9" fill={BG} fontWeight="700">Sign up</text>
+          <text x="40" y="105" fontSize="9" fill={BG} fontWeight="700">{t("s5.diagramSignUp")}</text>
           <rect x="22" y="38" width="156" height="78" rx="4" fill="none" stroke={GREEN} strokeWidth="2" strokeDasharray="6 4" />
           <text x="192" y="80" fontSize="11" fill={CREAM}>1</text>
-          <text x="192" y="96" fontSize="9" fill={TEXT2}>register</text>
+          <text x="192" y="96" fontSize="9" fill={TEXT2}>{t("s5.diagramRegister")}</text>
         </BrowserFrame>
       )}
       {step === 2 && (
@@ -55,9 +58,9 @@ export default function KeyStepDiagram({ step, domain = "provider.example", titl
           <rect x="28" y="48" width="200" height="16" rx="3" fill="#14161A" stroke={LINE} />
           <text x="36" y="60" fontSize="10" fill={GREEN} fontFamily="monospace">sk-••••••••••••••••</text>
           <rect x="236" y="48" width="56" height="16" rx="3" fill={GREEN} />
-          <text x="248" y="60" fontSize="9" fill={BG} fontWeight="700">Copy</text>
+          <text x="248" y="60" fontSize="9" fill={BG} fontWeight="700">{t("s5.diagramCopy")}</text>
           <rect x="22" y="42" width="276" height="28" rx="4" fill="none" stroke={GREEN} strokeWidth="2" strokeDasharray="6 4" />
-          <text x="28" y="92" fontSize="9" fill={TEXT2}>create key → copy</text>
+          <text x="28" y="92" fontSize="9" fill={TEXT2}>{t("s5.diagramCreateKey")}</text>
         </BrowserFrame>
       )}
       {step === 3 && (
@@ -70,7 +73,7 @@ export default function KeyStepDiagram({ step, domain = "provider.example", titl
           <rect x="52" y="44" width="200" height="36" rx="4" fill="#14161A" stroke={GREEN} strokeWidth="2" />
           <text x="62" y="66" fontSize="10" fill={CREAM} fontFamily="monospace">sk-••••••••••••</text>
           <text x="266" y="66" fontSize="16" fill={GREEN} fontWeight="700">✓</text>
-          <text x="52" y="104" fontSize="9" fill={TEXT2}>paste into AiBOX → verify</text>
+          <text x="52" y="104" fontSize="9" fill={TEXT2}>{t("s5.diagramPaste")}</text>
         </g>
       )}
     </svg>

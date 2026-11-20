@@ -13,6 +13,7 @@ import {
   deriveCategories,
   filterApps,
   formatCount,
+  messageKeyForCode,
   sidebarScanRows,
   type ScanReport,
 } from "../state";
@@ -92,6 +93,8 @@ export default function S1Idle({
   index,
   scan,
   loading,
+  indexError,
+  onRetryIndex,
   selectedId,
   onSelect,
   onOpenDoctor,
@@ -102,6 +105,10 @@ export default function S1Idle({
   index: AppIndex | null;
   scan: ScanReport | null;
   loading: boolean;
+  /** registry 目录加载失败码（非空 → 显示人话原因 + 重试按钮） */
+  indexError: string | null;
+  /** 重试拉目录（S1 空态里的「重试」） */
+  onRetryIndex: () => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onOpenDoctor: () => void;
@@ -240,7 +247,25 @@ export default function S1Idle({
         )}
 
         {loading && <p className="font-mono text-xs text-aibox-text2">{t("s1.loading")}</p>}
-        {!loading && (!index || index.apps.length === 0) && (
+        {/* 目录拉不到：说人话 + 给一条出路（重试）。旧版只有一句「检查下网络」，
+            而目录源互不一致（防篡改拒绝）时这句话是误导，且用户无处可试。 */}
+        {!loading && indexError && (
+          <div className="rounded-[6px] border border-aibox-danger bg-aibox-danger/10 px-4 py-3">
+            <p className="text-sm font-semibold text-aibox-text1">{t("s1.loadFail")}</p>
+            <p className="mt-1 text-xs leading-relaxed text-aibox-text2">
+              {t(messageKeyForCode(indexError))}
+            </p>
+            <p className="mt-1 font-mono text-[10px] text-aibox-text2">{indexError}</p>
+            <button
+              type="button"
+              onClick={onRetryIndex}
+              className="mt-2 rounded-[4px] border border-aibox-green px-3 py-1.5 font-mono text-xs text-aibox-green hover:bg-aibox-green/10"
+            >
+              {t("err.retry")}
+            </button>
+          </div>
+        )}
+        {!loading && !indexError && (!index || index.apps.length === 0) && (
           <p className="font-mono text-xs text-aibox-text2">{t("s1.empty")}</p>
         )}
 

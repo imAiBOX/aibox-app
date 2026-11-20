@@ -7,6 +7,7 @@ import {
   startExecute,
   messageKeyForCode,
   canSwitchSource,
+  errorCodeOf,
   type ExecuteApi,
   type ExecuteDeps,
 } from "./orchestrate";
@@ -314,6 +315,27 @@ describe("messageKeyForCode", () => {
     expect(messageKeyForCode("USER_CANCELLED")).toBe("err.cancelled");
     expect(messageKeyForCode("WEIRD_CODE")).toBe("err.generic");
   });
+
+  it("registry 拒绝类错误与「网络不通」分开说（防篡改类不该让用户查网络）", () => {
+    expect(messageKeyForCode("REGISTRY_MISMATCH")).toBe("err.registryMismatch");
+    expect(messageKeyForCode("REGISTRY_INTEGRITY")).toBe("err.registryIntegrity");
+    expect(messageKeyForCode("REGISTRY_SINGLE_SOURCE")).toBe("err.registrySingleSource");
+    // 可用性类 → 仍是「检查网络」
+    expect(messageKeyForCode("REGISTRY_UNAVAILABLE")).toBe("err.registry");
+    expect(messageKeyForCode("REGISTRY_NO_CACHE")).toBe("err.registry");
+    expect(messageKeyForCode("REGISTRY_FETCH")).toBe("err.registry");
+  });
+});
+
+describe("errorCodeOf", () => {
+  it("取 Rust CommandError 的 code；非结构化错误 → fallback", () => {
+    expect(errorCodeOf({ code: "REGISTRY_MISMATCH", human: "x" }, "REGISTRY_FETCH")).toBe(
+      "REGISTRY_MISMATCH",
+    );
+    expect(errorCodeOf(new Error("boom"), "REGISTRY_FETCH")).toBe("REGISTRY_FETCH");
+    expect(errorCodeOf(undefined, "REGISTRY_FETCH")).toBe("REGISTRY_FETCH");
+    expect(errorCodeOf({ code: 42 }, "REGISTRY_FETCH")).toBe("REGISTRY_FETCH");
+  });
 });
 
 describe("换源重发（skipChannels）", () => {
@@ -374,12 +396,15 @@ describe("换源重发（skipChannels）", () => {
 describe("canSwitchSource（换源按钮展示条件）", () => {
   it("下载类错误可换源；其他不可", () => {
     expect(canSwitchSource("NET_HASH_MISMATCH")).toBe(true);
-    expect(canSwitchSource("NET_ALL_CHANNELS_DEAD")).toBe(true);
     expect(canSwitchSource("HASH_MISMATCH")).toBe(true);
     expect(canSwitchSource("DOWNLOAD_STALLED")).toBe(true);
     expect(canSwitchSource("EXEC_EXIT_1")).toBe(false);
     expect(canSwitchSource("SCAN_FAILED")).toBe(false);
     expect(canSwitchSource("REGISTRY_FETCH")).toBe(false);
+  });
+
+  it("所有源都超时 → 不给「换个下载源」（已无源可换，只会白等一轮）", () => {
+    expect(canSwitchSource("NET_ALL_CHANNELS_DEAD")).toBe(false);
   });
 });
 

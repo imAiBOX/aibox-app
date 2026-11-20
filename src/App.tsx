@@ -15,6 +15,8 @@ import {
   screenFor,
   buildPlan,
   startExecute,
+  errorCodeOf,
+  messageKeyForCode,
   type ExecuteHandle,
 } from "./state";
 import { api, getMockScenario, isMock, type AppIndex, type NetRegionResult } from "./net/client";
@@ -52,6 +54,10 @@ export default function App() {
   const [version, setVersion] = useState(__APP_VERSION__);
   const [appIndex, setAppIndex] = useState<AppIndex | null>(null);
   const [indexLoading, setIndexLoading] = useState(true);
+  /** registry 目录加载失败码（非空 → S1 显示人话原因 + 重试按钮；不吞错） */
+  const [indexError, setIndexError] = useState<string | null>(null);
+  /** 目录重载计数（S1「重试」自增 → 重新拉 registry_index） */
+  const [indexRetry, setIndexRetry] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** C5 写入成功后的凭据（内存态，仅供 VERIFY；不进持久化） */
   const [creds, setCreds] = useState<ConfigCreds | null>(null);
@@ -94,17 +100,29 @@ export default function App() {
   }, [i18next.resolvedLanguage]);
 
   // 应用目录（IDLE 拉 registry_index；mock 模式即内存数据）
+  // 失败不吞错：记下错误码 → S1 说人话 + 给「重试」按钮（旧版只留一句「检查网络」）
   useEffect(() => {
     let alive = true;
+    setIndexLoading(true);
     api
       .registryIndex()
-      .then((idx) => alive && setAppIndex(idx))
-      .catch(() => alive && setAppIndex({ apps: [] }))
-      .finally(() => alive && setIndexLoading(false));
+      .then((idx) => {
+        if (!alive) return;
+        setAppIndex(idx);
+        setIndexError(null);
+      })
+      .catch((e: unknown) => {
+        if (!alive) return;
+        setAppIndex({ apps: [] });
+        setIndexError(errorCodeOf(e, "REGISTRY_UNAVAILABLE"));
+      })
+      .finally(() => {
+        if (alive) setIndexLoading(false);
+      });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [indexRetry]);
 
   // 真事件桥（download_progress/task_phase/channel_switched/log_line → 统一事件总线；mock 已内建推送）
   useEffect(() => {
@@ -286,7 +304,11 @@ export default function App() {
         // 诊断包收录最后计划：写 ~/.aibox/cache/last-plan.json，失败不阻塞
         void api.savePlan(plan).catch(() => undefined);
       })
-      .catch(() => dispatch({ type: "ERROR", code: "REGISTRY_FETCH", messageKey: "err.registry" }));
+      .catch((e: unknown) => {
+        // 错误码区分「网络不通」与「目录源对不上/校验失败」（后者让用户查网络是误导）
+        const code = errorCodeOf(e, "REGISTRY_FETCH");
+        dispatch({ type: "ERROR", code, messageKey: messageKeyForCode(code) });
+      });
   }, [selectedId]);
 
   // EXECUTE：真四阶段编排（mock 回落 = 阶段定时器+场景注入，行为不变）
@@ -483,6 +505,8 @@ export default function App() {
             index={appIndex}
             scan={state.scan}
             loading={indexLoading}
+            indexError={indexError}
+            onRetryIndex={() => setIndexRetry((n) => n + 1)}
             selectedId={selectedId}
             onSelect={setSelectedId}
             onOpenDoctor={() => setOverlay("settings")}
