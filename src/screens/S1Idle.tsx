@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import type { AppIndex, AppIndexEntry, AppUpdateRow, StatsPayload } from "../net/client";
 import { api } from "../net/client";
 import { recommendApps } from "../state/recommend";
+import { KEY_HUB_MIN_COVERAGE, keyProviderCoverage, sharedKeyProvider } from "../state/keyHub";
 import { isMacPlatform } from "../platform";
 import {
   ALL_CATEGORIES,
@@ -130,6 +131,8 @@ export default function S1Idle({
   const [updatesOpen, setUpdatesOpen] = useState(false);
   /** 分类 chips（默认 All）+ 搜索框；过滤经 175ms 防抖后与分类组合生效 */
   const [category, setCategory] = useState(ALL_CATEGORIES);
+  /** 展开的「一个 key 通吃」服务商 */
+  const [hubOpen, setHubOpen] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
 
@@ -174,11 +177,30 @@ export default function S1Idle({
       .map((a) => a.category)
       .filter((x): x is string => !!x),
   );
+  /** 「一个 key 通吃」的聚合（纯函数见 state/keyHub.ts） */
+  const keyHubs = keyProviderCoverage(index?.apps ?? [])
+    .filter((h) => h.count >= KEY_HUB_MIN_COVERAGE)
+    .slice(0, 4);
+  /** 展开的 key 通吃服务商 → 该 key 能用的应用 */
+  const hubApps = hubOpen
+    ? (index?.apps ?? []).filter((a) => (a.keyProviders ?? []).includes(hubOpen))
+    : [];
+  /** 候选应用与已装应用共用的 key（推荐理由用） */
+  const sharedKey = (a: AppIndexEntry): string | null =>
+    sharedKeyProvider(a, (index?.apps ?? []).filter((x) => (installedIds ?? []).includes(x.id)));
   /** 为你推荐（纯函数见 state/recommend.ts） */
   const recommended = recommendApps(index?.apps ?? [], {
     installedIds: installedIds ?? [],
     limit: 4,
     platform: isMacPlatform() ? "macos" : "windows",
+    // 已装应用用到的 key 服务商 → 候选共用同一 key 时排更前（配一次就够）
+    installedKeyProviders: [
+      ...new Set(
+        (index?.apps ?? [])
+          .filter((a) => (installedIds ?? []).includes(a.id))
+          .flatMap((a) => a.keyProviders ?? []),
+      ),
+    ],
   });
   const updatable = appUpdates.filter((r) => r.hasUpdate);
 
@@ -358,6 +380,50 @@ export default function S1Idle({
           </div>
         )}
 
+        {/* 一个 key 通吃：这是本产品与「一堆应用各自要 key」的根本差异 ——
+            配一次 key，就能装好一大批应用。放在推荐之上（价值主张先于清单）。 */}
+        {keyHubs.length > 0 && (
+          <section className="mb-5 rounded-[6px] border border-aibox-green/50 bg-aibox-green/5 p-4">
+            <h2 className="mb-1 font-display text-sm font-semibold text-aibox-green">
+              {t("s1.keyHubTitle")}
+            </h2>
+            <p className="mb-3 text-xs leading-relaxed text-aibox-text2">{t("s1.keyHubHint")}</p>
+            <div className="flex flex-wrap gap-2">
+              {keyHubs.map((h) => (
+                <button
+                  key={h.provider}
+                  type="button"
+                  onClick={() => setHubOpen(h.provider)}
+                  className="rounded-[4px] border border-aibox-line bg-aibox-bg px-3 py-2 text-left hover:border-aibox-green"
+                >
+                  <span className="block font-mono text-xs text-aibox-text1">{h.provider}</span>
+                  <span className="block text-[10px] text-aibox-text2">
+                    {t("s1.keyHubCount", { count: h.count })}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {hubOpen && (
+              <ul className="mt-3 flex flex-wrap gap-2 border-t border-aibox-line pt-3">
+                {(hubApps ?? []).map((a) => (
+                  <li key={a.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHubOpen(null);
+                        onSelect(a.id);
+                      }}
+                      className="rounded-[4px] border border-aibox-line px-2 py-1 font-mono text-[11px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
+                    >
+                      {a.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
         {/* 为你推荐：目录变大后新手会迷路 → 把「你可能正好需要的」放最前面。
             带一句理由（同分类），才不像随机推荐。 */}
         {recommended.length > 0 && (
@@ -380,10 +446,17 @@ export default function S1Idle({
                   <span className="text-[11px] leading-relaxed text-aibox-text2">
                     {taglineOf(a, lang) ?? ""}
                   </span>
-                  {a.category && installedCategories.has(a.category) && (
+                  {sharedKey(a) ? (
                     <span className="mt-1 font-mono text-[10px] text-aibox-green">
-                      {t("s1.recommendSameCategory")}
+                      {t("s1.recommendSharedKey", { provider: sharedKey(a) ?? "" })}
                     </span>
+                  ) : (
+                    a.category &&
+                    installedCategories.has(a.category) && (
+                      <span className="mt-1 font-mono text-[10px] text-aibox-green">
+                        {t("s1.recommendSameCategory")}
+                      </span>
+                    )
                   )}
                 </button>
               ))}

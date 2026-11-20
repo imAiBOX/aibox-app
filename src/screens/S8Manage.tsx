@@ -29,6 +29,8 @@ interface Props {
   focus?: "upgrades" | null;
   /** 批量升级：一次把全部可升级的应用排进队列（逐个自动升） */
   onUpgradeAll?: (appIds: string[]) => void;
+  /** 最近一次「升级前备份」记录（展示位置 + 可打开；用户可自行恢复） */
+  upgradeBackup?: { appId: string; path: string; at: number } | null;
 }
 
 interface Row {
@@ -46,7 +48,13 @@ interface RemoveAttempt {
   backup: boolean;
 }
 
-export default function S8Manage({ onClose, onGotoInstall, focus, onUpgradeAll }: Props) {
+export default function S8Manage({
+  onClose,
+  onGotoInstall,
+  focus,
+  onUpgradeAll,
+  upgradeBackup,
+}: Props) {
   const { t } = useTranslation();
   const [m, dispatch] = useReducer(manageReduce, undefined, createInitialManageState);
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -420,6 +428,22 @@ export default function S8Manage({ onClose, onGotoInstall, focus, onUpgradeAll }
         </button>
       </header>
       <p className="text-sm text-aibox-text2">{t("s8.lede")}</p>
+
+      {/* 最近一次升级前的备份在哪（用户要回滚时能找到） */}
+      {upgradeBackup && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-aibox-line bg-aibox-raised px-4 py-3">
+          <span className="min-w-0 flex-1 text-xs leading-relaxed text-aibox-text2">
+            {t("s8.backupLast", { appId: upgradeBackup.appId, path: upgradeBackup.path })}
+          </span>
+          <button
+            type="button"
+            onClick={() => void api.revealDir(upgradeBackup.path).catch(() => undefined)}
+            className="shrink-0 rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-[10px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
+          >
+            {t("s7.openFolder")}
+          </button>
+        </div>
+      )}
 
       {/* 聚焦模式（托盘待办点进来）：可升级的排到最前 + 一键「升级下一个」——
           托盘说「3 个应用可升级」，用户进来却要自己在列表里找 → 差评 */}

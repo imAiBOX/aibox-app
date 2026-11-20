@@ -23,6 +23,8 @@ export interface CatalogApp {
   status?: string;
   /** 平台列表（如 ["windows","macos"]）；空/缺省 = 不限平台 */
   platforms?: string[];
+  /** 该应用支持且需要 API key 的服务商 id（共用 key → 更强推荐信号） */
+  keyProviders?: string[];
 }
 
 export interface RecommendOptions {
@@ -32,6 +34,8 @@ export interface RecommendOptions {
   limit?: number;
   /** 平台过滤（只推当前平台能装的） */
   platform?: "windows" | "macos";
+  /** 已装应用的 key 服务商集合（候选共用其中之一 → 更强的推荐信号） */
+  installedKeyProviders?: string[];
 }
 
 export function recommendApps<T extends CatalogApp>(
@@ -55,12 +59,15 @@ export function recommendApps<T extends CatalogApp>(
   });
   if (candidates.length === 0) return [];
 
+  const sharedKeys = new Set(opts.installedKeyProviders ?? []);
   const score = (a: CatalogApp): number => {
+    // 共用同一个 key（配一次就够）> 同分类 > 热度 → 难度惩罚
+    const sharesKey =
+      sharedKeys.size > 0 && (a.keyProviders ?? []).some((p) => sharedKeys.has(p)) ? 20 : 0;
     const sameCategory = a.category && installedCategories.has(a.category) ? 10 : 0;
     const popularity = a.popularity ?? 0;
     const difficulty = a.difficulty ?? 3;
-    // 同分类 + 热度 - 难度惩罚（新手优先）
-    return sameCategory + popularity - difficulty * 0.5;
+    return sharesKey + sameCategory + popularity - difficulty * 0.5;
   };
 
   return [...candidates]

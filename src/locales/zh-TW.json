@@ -70,7 +70,11 @@
     "selected": "已選擇",
     "recommendTitle": "為你推薦",
     "recommendHint": "按你已裝的挑的",
-    "recommendSameCategory": "和你已裝的同類"
+    "recommendSameCategory": "和你已裝的同類",
+    "keyHubTitle": "一個 key，通吃一批應用",
+    "keyHubHint": "同一個 API key 能用在下面很多應用上 —— 配一次，到處能用。",
+    "keyHubCount": "可用於 {{count}} 個應用",
+    "recommendSharedKey": "和你已裝的應用共用 {{provider}} 的 key"
   },
   "s2": {
     "title": "體檢報告",
@@ -483,7 +487,8 @@
     "upgradeFocus": "有 {{count}} 個應用可以升級",
     "upgradeNext": "升級第一個",
     "upgradeAll": "全部升級",
-    "backupDone": "升級前已把你的資料備份到 {{path}}"
+    "backupDone": "升級前已把你的資料備份到 {{path}}",
+    "backupLast": "上次升級 {{appId}} 前，已把你的資料備份到 {{path}} —— 需要還原時去那裡找。"
   },
   "notify": {
     "tab": "通知",

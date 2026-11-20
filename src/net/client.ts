@@ -93,6 +93,10 @@ export interface ScanReport {
 
 /** registry index.json 单个应用（+ Rust enrich 的 installedVersion） */
 export interface AppIndexEntry {
+  /** 该应用支持的模型服务商 id（registry index 提供） */
+  providers?: string[];
+  /** 该应用支持且需要 API key 的服务商 id（→ 「一个 key 通吃」） */
+  keyProviders?: string[];
   id: string;
   name: string;
   category?: string;

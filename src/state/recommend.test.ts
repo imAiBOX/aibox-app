@@ -48,3 +48,19 @@ describe("recommendApps", () => {
     expect(recommendApps(CATALOG, { installedIds: [], limit: 2 })).toHaveLength(2);
   });
 });
+
+describe("共用 key 的推荐权重更高", () => {
+  const apps: CatalogApp[] = [
+    { id: "inst", name: "Inst", category: "chat", difficulty: 1, popularity: 5, status: "stable" },
+    { id: "sameKey", name: "SameKey", category: "coding", difficulty: 3, popularity: 1, status: "stable", keyProviders: ["openrouter"] },
+    { id: "sameCat", name: "SameCat", category: "chat", difficulty: 2, popularity: 2, status: "stable" },
+  ];
+  it("共用 key 的排到同分类之前", () => {
+    const r = recommendApps(apps, {
+      installedIds: ["inst"],
+      limit: 2,
+      installedKeyProviders: ["openrouter"],
+    });
+    expect(r[0].id).toBe("sameKey");
+  });
+});

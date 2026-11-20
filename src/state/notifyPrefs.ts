@@ -66,6 +66,13 @@ const LS_KEY = "aibox.notify.prefs";
 const KV_SEEN = "notify.seen";
 const LS_SEEN = "aibox.notify.seen";
 
+/** 最近一次「升级前备份」的记录（用户可自行恢复） */
+export interface UpgradeBackupRecord {
+  appId: string;
+  path: string;
+  at: number;
+}
+
 export interface NotifyStore {
   loadPrefs(): Promise<NotifyPrefs>;
   savePrefs(p: NotifyPrefs): Promise<void>;
@@ -73,6 +80,10 @@ export interface NotifyStore {
   loadSeen(): Promise<string[]>;
   /** 记入已通知（返回是否首次） */
   markSeen(key: string): Promise<boolean>;
+  /** 记下最近一次升级前备份 */
+  saveUpgradeBackup(r: UpgradeBackupRecord): Promise<void>;
+  /** 读最近一次升级前备份（无 → null） */
+  loadUpgradeBackup(): Promise<UpgradeBackupRecord | null>;
 }
 
 export function createNotifyStore(kv?: Kv | null): NotifyStore {
@@ -156,6 +167,33 @@ export function createNotifyStore(kv?: Kv | null): NotifyStore {
         return Array.isArray(raw) ? raw : [];
       } catch {
         return [];
+      }
+    },
+    async saveUpgradeBackup(r) {
+      try {
+        if (backend === "kv") {
+          const k = resolveKv();
+          if (k) {
+            await k.set("notify.upgradeBackup", r);
+            return;
+          }
+        }
+        lsSet("aibox.upgradeBackup", JSON.stringify(r));
+      } catch {
+        /* 尽力而为 */
+      }
+    },
+    async loadUpgradeBackup() {
+      try {
+        const raw =
+          backend === "kv"
+            ? await resolveKv()?.get<UpgradeBackupRecord>("notify.upgradeBackup")
+            : lsGet("aibox.upgradeBackup")
+              ? (JSON.parse(lsGet("aibox.upgradeBackup") as string) as UpgradeBackupRecord)
+              : null;
+        return raw && typeof raw.path === "string" ? raw : null;
+      } catch {
+        return null;
       }
     },
     async markSeen(key) {

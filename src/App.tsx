@@ -54,6 +54,7 @@ import {
   createNotifyStore,
   isQuietNow,
   type NotifyPrefs,
+  type UpgradeBackupRecord,
 } from "./state/notifyPrefs";
 import { APP_UPDATE_TTL_MS } from "./state/appUpdates";
 import { useSessionResume } from "./hooks/useSessionResume";
@@ -72,6 +73,8 @@ export default function App() {
   const [doctorAutoRun, setDoctorAutoRun] = useState(false);
   /** 管理页聚焦模式（托盘待办「N 个应用可升级」点进来 → 把可升级的排到最前） */
   const [manageFocus, setManageFocus] = useState<"upgrades" | null>(null);
+  /** 最近一次「升级前备份」记录（管理页展示，用户可自行恢复） */
+  const [upgradeBackup, setUpgradeBackup] = useState<UpgradeBackupRecord | null>(null);
   /** 首启引导是否显示（只显示一次；用户主动关闭后不再打扰） */
   const [showFirstRun, setShowFirstRun] = useState(() => !hasSeenFirstRun());
   /** startInstall 的最新引用（托盘动作在声明之前 → 用 ref 避免 TDZ） */
@@ -299,6 +302,11 @@ export default function App() {
     }, APP_UPDATE_TTL_MS);
     return () => clearInterval(id);
   }, [recheckAppUpdates, banner.recheck]);
+
+  // 载入「最近一次升级前备份」记录（管理页展示）
+  useEffect(() => {
+    void notifyStoreRef.current.loadUpgradeBackup().then(setUpgradeBackup);
+  }, []);
 
   // 载入通知偏好（一次性）
   useEffect(() => {
@@ -664,7 +672,15 @@ export default function App() {
       upgradeQueueRef.current = queue;
       // 升级前先备份数据目录（safety net；失败不阻断升级）
       const backupDir = await backupBeforeUpgrade(appId);
-      if (backupDir) channelToast.show(t("s8.backupDone", { path: backupDir }));
+      if (backupDir) {
+        // 记档 → 管理页能查到「上次升级前的备份在哪」（用户可自行恢复）
+        await notifyStoreRef.current.saveUpgradeBackup({
+          appId,
+          path: backupDir,
+          at: Date.now(),
+        });
+        channelToast.show(t("s8.backupDone", { path: backupDir }));
+      }
       setSelectedId(appId);
       dispatch({ type: "RESTART" });
       dispatch({ type: "UPGRADE_MODE" });
@@ -914,6 +930,7 @@ export default function App() {
           ) : overlay === "manage" ? (
             <S8Manage
               focus={manageFocus}
+              upgradeBackup={upgradeBackup}
               onClose={() => {
                 setOverlay("none");
                 setManageFocus(null);

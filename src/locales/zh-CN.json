@@ -70,7 +70,11 @@
     "selected": "已选择",
     "recommendTitle": "为你推荐",
     "recommendHint": "按你已装的挑的",
-    "recommendSameCategory": "和你已装的同类"
+    "recommendSameCategory": "和你已装的同类",
+    "keyHubTitle": "一个 key，通吃一批应用",
+    "keyHubHint": "同一个 API key 能用在下面很多应用上 —— 配一次，处处能用。",
+    "keyHubCount": "可用于 {{count}} 个应用",
+    "recommendSharedKey": "和你已装的应用共用 {{provider}} 的 key"
   },
   "s2": {
     "title": "体检报告",
@@ -483,7 +487,8 @@
     "upgradeFocus": "有 {{count}} 个应用可以升级",
     "upgradeNext": "升级第一个",
     "upgradeAll": "全部升级",
-    "backupDone": "升级前已把你的数据备份到 {{path}}"
+    "backupDone": "升级前已把你的数据备份到 {{path}}",
+    "backupLast": "上次升级 {{appId}} 前，已把你的数据备份到 {{path}} —— 需要恢复时去那里找。"
   },
   "notify": {
     "tab": "通知",
