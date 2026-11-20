@@ -16,6 +16,9 @@ interface Props {
   trayHint: string;
 }
 
+/** 小时下拉（0-23） */
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+
 function Row({
   title,
   desc,
@@ -61,11 +64,13 @@ export default function SettingsNotify({ prefs, onChange, trayHint }: Props) {
   const { t } = useTranslation();
   const [p, setP] = useState<NotifyPrefs>(prefs);
   useEffect(() => setP(prefs), [prefs]);
-  const set = (k: keyof NotifyPrefs) => (v: boolean) => {
-    const next = { ...p, [k]: v };
-    setP(next);
-    onChange(next);
-  };
+  const set =
+    <K extends keyof NotifyPrefs>(k: K) =>
+    (v: NotifyPrefs[K]) => {
+      const next = { ...p, [k]: v };
+      setP(next);
+      onChange(next);
+    };
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
       <p className="text-xs leading-relaxed text-aibox-text2">{t("notify.intro", { where: trayHint })}</p>
@@ -87,6 +92,68 @@ export default function SettingsNotify({ prefs, onChange, trayHint }: Props) {
         checked={p.newApps}
         onToggle={set("newApps")}
       />
+      {/* 免打扰时段：夜里不弹，醒来再提醒（不标记已通知 → 补发） */}
+      <section className="rounded-[6px] border border-aibox-line bg-aibox-raised p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-display text-sm font-semibold text-aibox-cream">
+            {t("notify.quiet")}
+          </h3>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={p.quietEnabled}
+            aria-label={t("notify.quiet")}
+            onClick={() => set("quietEnabled")(!p.quietEnabled)}
+            className={[
+              "h-6 w-11 shrink-0 rounded-full border transition-colors",
+              p.quietEnabled
+                ? "border-aibox-green bg-aibox-green/30"
+                : "border-aibox-line bg-aibox-bg",
+            ].join(" ")}
+          >
+            <span
+              className={[
+                "block h-4 w-4 rounded-full transition-transform",
+                p.quietEnabled ? "translate-x-6 bg-aibox-green" : "translate-x-1 bg-aibox-text2",
+              ].join(" ")}
+            />
+          </button>
+        </div>
+        <p className="mt-2 text-xs leading-relaxed text-aibox-text2">{t("notify.quietDesc")}</p>
+        {p.quietEnabled && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-aibox-text2">
+              {t("notify.quietFrom")}
+              <select
+                value={p.quietStart}
+                onChange={(e) => set("quietStart")(Number(e.target.value))}
+                className="rounded-[4px] border border-aibox-line bg-aibox-bg px-2 py-1 font-mono text-xs text-aibox-text1"
+              >
+                {HOURS.map((h) => (
+                  <option key={h} value={h}>
+                    {String(h).padStart(2, "0")}:00
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-aibox-text2">
+              {t("notify.quietTo")}
+              <select
+                value={p.quietEnd}
+                onChange={(e) => set("quietEnd")(Number(e.target.value))}
+                className="rounded-[4px] border border-aibox-line bg-aibox-bg px-2 py-1 font-mono text-xs text-aibox-text1"
+              >
+                {HOURS.map((h) => (
+                  <option key={h} value={h}>
+                    {String(h).padStart(2, "0")}:00
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+      </section>
+
       <Row
         title={t("notify.startMinimized")}
         desc={t("notify.startMinimizedDesc")}

@@ -51,6 +51,7 @@ import { notifyDesktop, trayLocationHint } from "./lib/notify";
 import {
   DEFAULT_NOTIFY_PREFS,
   createNotifyStore,
+  isQuietNow,
   type NotifyPrefs,
 } from "./state/notifyPrefs";
 import { APP_UPDATE_TTL_MS } from "./state/appUpdates";
@@ -68,6 +69,8 @@ export default function App() {
   const [overlay, setOverlay] = useState<Overlay>("none");
   /** 打开设置时是否自动跑一次体检（首屏侧栏「打开体检」触发） */
   const [doctorAutoRun, setDoctorAutoRun] = useState(false);
+  /** 管理页聚焦模式（托盘待办「N 个应用可升级」点进来 → 把可升级的排到最前） */
+  const [manageFocus, setManageFocus] = useState<"upgrades" | null>(null);
   /** 通知偏好（用户说了算；持久化） */
   const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>(DEFAULT_NOTIFY_PREFS);
   /** 偏好是否已从存储读出（未读出前不按偏好做「启动即收进托盘」等动作） */
@@ -398,6 +401,8 @@ export default function App() {
     const pending = checks.appUpdates.filter((r) => r.hasUpdate && r.latest);
     if (pending.length === 0) return;
     if (!notifyPrefs.appUpdate) return;
+    // 免打扰时段 → 不发、也**不标记**（标记了就永远补不上了）
+    if (isQuietNow(notifyPrefs)) return;
     void (async () => {
       const fresh = [];
       for (const r of pending) {
@@ -416,6 +421,7 @@ export default function App() {
   // 本体有新版 → 通知（每版只发一次）
   useEffect(() => {
     if (!notifyPrefsLoaded || !notifyPrefs.coreUpdate) return;
+    if (isQuietNow(notifyPrefs)) return;
     const info = banner.info;
     if (!info?.hasUpdate || !info.version) return;
     void (async () => {
@@ -431,6 +437,7 @@ export default function App() {
   // 目录上新 → 通知（每个新应用只提醒一次）
   useEffect(() => {
     if (!notifyPrefsLoaded || !notifyPrefs.newApps) return;
+    if (isQuietNow(notifyPrefs)) return;
     if (checks.newApps.length === 0) return;
     void (async () => {
       const fresh: string[] = [];
@@ -459,7 +466,8 @@ export default function App() {
             .then((idx) => setAppIndex(idx))
             .catch(() => undefined);
         } else if (e.payload.action === "updates") {
-          // 托盘待办「N 个应用可升级」→ 打开窗口并直接进「管理已装」
+          // 托盘待办「N 个应用可升级」→ 打开窗口并直接进「管理已装」（且聚焦到可升级项）
+          setManageFocus("upgrades");
           setOverlay("manage");
         } else if (e.payload.action === "newapps") {
           // 托盘待办「N 个新应用」→ 打开窗口并回到应用列表（S1）
@@ -513,8 +521,9 @@ export default function App() {
   }, [state.status, persistence]);
 
   // ── 主流程编排（mock 数据驱动状态机；换真 invoke；真四阶段接线）──
-  const startInstall = useCallback(() => {
-    if (!selectedId) return;
+  const startInstall = useCallback((appIdOverride?: string) => {
+    const appId = appIdOverride ?? selectedId;
+    if (!appId) return;
     dispatch({ type: "START_INSTALL" });
     // scan 与 manifest 并行拉取；PLAN 构建需两者（platform/arch 差集 + 路线），Promise.all 保证新鲜
     const scanP = api.scanSystem().then((report) => {
@@ -524,7 +533,7 @@ export default function App() {
     scanP.catch((_e: unknown) =>
       dispatch({ type: "ERROR", code: "SCAN_FAILED", messageKey: "err.scanFailed" }),
     );
-    void Promise.all([scanP, api.registryApp(selectedId)])
+    void Promise.all([scanP, api.registryApp(appId)])
       .then(async ([report, manifest]) => {
         installVersionRef.current = manifest.version;
         setManifest(manifest);
@@ -794,11 +803,19 @@ export default function App() {
           />
           ) : overlay === "manage" ? (
             <S8Manage
-              onClose={() => setOverlay("none")}
+              focus={manageFocus}
+              onClose={() => {
+                setOverlay("none");
+                setManageFocus(null);
+              }}
               onGotoInstall={(id) => {
                 setOverlay("none");
                 setSelectedId(id);
+                // 回到 IDLE 再进安装流程（RESTART 只在 DONE 态生效；其他态本来就是 IDLE）
                 dispatch({ type: "RESTART" });
+                // **一路到底**：不再把用户丢回应用列表让他自己找、自己再点一次「开始安装」，
+                // 直接进入该应用的安装计划确认页（确认后即装）。
+                startInstall(id);
               }}
             />
           ) : (
@@ -811,6 +828,7 @@ export default function App() {
             loading={indexLoading}
             indexError={indexError}
             onRetryIndex={() => setIndexRetry((n) => n + 1)}
+            installedIds={checks.appUpdates.map((r) => r.appId)}
             selectedId={selectedId}
             onSelect={setSelectedId}
             // 「打开体检」= 打开设置的网络页**并自动跑一次体检**

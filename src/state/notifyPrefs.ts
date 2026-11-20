@@ -24,6 +24,28 @@ export interface NotifyPrefs {
   startMinimized: boolean;
   /** 装完一个应用后自动收进托盘 */
   minimizeAfterInstall: boolean;
+  /** 免打扰时段开启（夜里不弹通知，醒来再提醒） */
+  quietEnabled: boolean;
+  /** 免打扰开始（0-23 小时） */
+  quietStart: number;
+  /** 免打扰结束（0-23 小时） */
+  quietEnd: number;
+}
+
+/**
+ * 当前是否处于免打扰时段（纯函数）。
+ *
+ * 支持跨零点（22:00 → 08:00）：start > end 时视为「跨天」。
+ */
+export function isQuietNow(
+  prefs: Pick<NotifyPrefs, "quietEnabled" | "quietStart" | "quietEnd">,
+  now: Date = new Date(),
+): boolean {
+  if (!prefs.quietEnabled) return false;
+  const h = now.getHours();
+  const { quietStart: s, quietEnd: e } = prefs;
+  if (s === e) return false;
+  return s < e ? h >= s && h < e : h >= s || h < e;
 }
 
 export const DEFAULT_NOTIFY_PREFS: NotifyPrefs = {
@@ -32,6 +54,9 @@ export const DEFAULT_NOTIFY_PREFS: NotifyPrefs = {
   newApps: true,
   startMinimized: false,
   minimizeAfterInstall: true,
+  quietEnabled: false,
+  quietStart: 22,
+  quietEnd: 8,
 };
 
 const KV_KEY = "notify.prefs";

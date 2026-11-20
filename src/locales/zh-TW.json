@@ -67,7 +67,10 @@
     "all": "全部",
     "offlineSnapshot": "離線目錄（快照）",
     "intro": "AiBOX 會把你選的應用裝到這台電腦上。它不會改動你的系統設定，每個安裝包在執行前都會先校驗完整性。",
-    "selected": "已選擇"
+    "selected": "已選擇",
+    "recommendTitle": "為你推薦",
+    "recommendHint": "按你已裝的挑的",
+    "recommendSameCategory": "和你已裝的同類"
   },
   "s2": {
     "title": "體檢報告",
@@ -475,7 +478,9 @@
     "errSymlinkEscape": "那個路徑指向了別處，為安全起見已停止。",
     "errBackupFailed": "備份沒做完，所以什麼都沒刪。清理磁碟空間或檢查權限後再試。",
     "errDeleteFailed": "刪除時遇到系統問題（權限不足 / 檔案正被占用），沒有刪掉任何東西。",
-    "errIo": "本地檔案操作失敗（權限不足 / 路徑不可寫）。"
+    "errIo": "本地檔案操作失敗（權限不足 / 路徑不可寫）。",
+    "upgradeFocus": "有 {{count}} 個應用可以升級",
+    "upgradeNext": "升級第一個"
   },
   "notify": {
     "tab": "通知",
@@ -499,6 +504,10 @@
     "newAppsTitle": "目錄裡有新應用",
     "newAppsBody": "有 {{count}} 個新上架的應用可以裝了。",
     "startedHiddenTitle": "AiBOX 在背景執行",
-    "startedHiddenBody": "沒有彈出視窗，因為它直接去了{{where}}。點那裡的圖示就能把它叫回來。"
+    "startedHiddenBody": "沒有彈出視窗，因為它直接去了{{where}}。點那裡的圖示就能把它叫回來。",
+    "quiet": "夜裡別打擾我",
+    "quietDesc": "這段時間裡不彈通知。錯過的事會在免打擾結束後補發 —— 不會丟。",
+    "quietFrom": "從",
+    "quietTo": "到"
   }
 }

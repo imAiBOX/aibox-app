@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppIndex, AppIndexEntry, AppUpdateRow, StatsPayload } from "../net/client";
 import { api } from "../net/client";
+import { recommendApps } from "../state/recommend";
+import { isMacPlatform } from "../platform";
 import {
   ALL_CATEGORIES,
   appCounts,
@@ -95,6 +97,7 @@ export default function S1Idle({
   loading,
   indexError,
   onRetryIndex,
+  installedIds,
   selectedId,
   onSelect,
   onOpenDoctor,
@@ -107,6 +110,8 @@ export default function S1Idle({
   loading: boolean;
   /** registry 目录加载失败码（非空 → 显示人话原因 + 重试按钮） */
   indexError: string | null;
+  /** 已装应用 id（用于「为你推荐」：同分类优先） */
+  installedIds?: string[];
   /** 重试拉目录（S1 空态里的「重试」） */
   onRetryIndex: () => void;
   selectedId: string | null;
@@ -162,6 +167,19 @@ export default function S1Idle({
   };
 
   const nameOf = (id: string): string => index?.apps.find((a) => a.id === id)?.name ?? id;
+  /** 已装应用的分类（推荐理由：同分类） */
+  const installedCategories = new Set(
+    (index?.apps ?? [])
+      .filter((a) => (installedIds ?? []).includes(a.id))
+      .map((a) => a.category)
+      .filter((x): x is string => !!x),
+  );
+  /** 为你推荐（纯函数见 state/recommend.ts） */
+  const recommended = recommendApps(index?.apps ?? [], {
+    installedIds: installedIds ?? [],
+    limit: 4,
+    platform: isMacPlatform() ? "macos" : "windows",
+  });
   const updatable = appUpdates.filter((r) => r.hasUpdate);
 
   /** 展开列表点项 → 跳到对应卡片（选中 + 滚动居中） */
@@ -338,6 +356,39 @@ export default function S1Idle({
               {t("s1.searchClear")}
             </button>
           </div>
+        )}
+
+        {/* 为你推荐：目录变大后新手会迷路 → 把「你可能正好需要的」放最前面。
+            带一句理由（同分类），才不像随机推荐。 */}
+        {recommended.length > 0 && (
+          <section className="mb-5">
+            <div className="mb-2 flex items-baseline gap-2">
+              <h2 className="font-display text-sm font-semibold text-aibox-green">
+                {t("s1.recommendTitle")}
+              </h2>
+              <span className="text-[11px] text-aibox-text2">{t("s1.recommendHint")}</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {recommended.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => onSelect(a.id)}
+                  className="flex flex-col gap-1 rounded-[6px] border border-aibox-line bg-aibox-raised p-3 text-left hover:border-aibox-green"
+                >
+                  <span className="text-sm font-semibold text-aibox-text1">{a.name}</span>
+                  <span className="text-[11px] leading-relaxed text-aibox-text2">
+                    {taglineOf(a, lang) ?? ""}
+                  </span>
+                  {a.category && installedCategories.has(a.category) && (
+                    <span className="mt-1 font-mono text-[10px] text-aibox-green">
+                      {t("s1.recommendSameCategory")}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </section>
         )}
 
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">

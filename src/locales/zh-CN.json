@@ -67,7 +67,10 @@
     "all": "全部",
     "offlineSnapshot": "离线目录（快照）",
     "intro": "AiBOX 会把你选的应用装到这台电脑上。它不会改动你的系统设置，每个安装包在运行前都会先校验完整性。",
-    "selected": "已选择"
+    "selected": "已选择",
+    "recommendTitle": "为你推荐",
+    "recommendHint": "按你已装的挑的",
+    "recommendSameCategory": "和你已装的同类"
   },
   "s2": {
     "title": "体检报告",
@@ -475,7 +478,9 @@
     "errSymlinkEscape": "那个路径指向了别处，为安全起见已停止。",
     "errBackupFailed": "备份没做完，所以什么都没删。清理磁盘空间或检查权限后再试。",
     "errDeleteFailed": "删除时遇到系统问题（权限不足 / 文件正被占用），没有删掉任何东西。",
-    "errIo": "本地文件操作失败（权限不足 / 路径不可写）。"
+    "errIo": "本地文件操作失败（权限不足 / 路径不可写）。",
+    "upgradeFocus": "有 {{count}} 个应用可以升级",
+    "upgradeNext": "升级第一个"
   },
   "notify": {
     "tab": "通知",
@@ -499,6 +504,10 @@
     "newAppsTitle": "目录里有新应用",
     "newAppsBody": "有 {{count}} 个新上架的应用可以装了。",
     "startedHiddenTitle": "AiBOX 在后台运行",
-    "startedHiddenBody": "没有弹出窗口，因为它直接去了{{where}}。点那里的图标就能把它叫回来。"
+    "startedHiddenBody": "没有弹出窗口，因为它直接去了{{where}}。点那里的图标就能把它叫回来。",
+    "quiet": "夜里别打扰我",
+    "quietDesc": "这段时间里不弹通知。错过的事会在免打扰结束后补发 —— 不会丢。",
+    "quietFrom": "从",
+    "quietTo": "到"
   }
 }

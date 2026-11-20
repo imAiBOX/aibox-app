@@ -25,6 +25,8 @@ interface Props {
   onClose: () => void;
   /** 升级/重装后的「去安装」：跳标准安装流程（rerun） */
   onGotoInstall: (appId: string) => void;
+  /** 聚焦模式："upgrades" = 把可升级的排到最前 + 顶部给「升级下一个」（托盘待办点进来时） */
+  focus?: "upgrades" | null;
 }
 
 interface Row {
@@ -42,7 +44,7 @@ interface RemoveAttempt {
   backup: boolean;
 }
 
-export default function S8Manage({ onClose, onGotoInstall }: Props) {
+export default function S8Manage({ onClose, onGotoInstall, focus }: Props) {
   const { t } = useTranslation();
   const [m, dispatch] = useReducer(manageReduce, undefined, createInitialManageState);
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -309,6 +311,19 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
     );
   }
 
+  /** 可升级的行（聚焦模式：排到最前 + 一键升级下一个） */
+  const updatableRows = (rows ?? [])
+    .filter((r) => r.update?.hasUpdate)
+    .sort((a, b) => (a.update?.latest ?? "").localeCompare(b.update?.latest ?? ""));
+  /** 列表顺序：聚焦模式下可升级的排前面 */
+  const orderedRows =
+    focus === "upgrades"
+      ? [
+          ...updatableRows,
+          ...(rows ?? []).filter((r) => !r.update?.hasUpdate),
+        ]
+      : (rows ?? []);
+
   const risk = m.risk;
 
   // ---------- 风险卡（破坏性操作确认） ----------
@@ -404,6 +419,23 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
       </header>
       <p className="text-sm text-aibox-text2">{t("s8.lede")}</p>
 
+      {/* 聚焦模式（托盘待办点进来）：可升级的排到最前 + 一键「升级下一个」——
+          托盘说「3 个应用可升级」，用户进来却要自己在列表里找 → 差评 */}
+      {focus === "upgrades" && updatableRows.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-aibox-green/60 bg-aibox-green/10 px-4 py-3">
+          <span className="text-sm text-aibox-cream">
+            {t("s8.upgradeFocus", { count: updatableRows.length })}
+          </span>
+          <button
+            type="button"
+            onClick={() => onGotoInstall(updatableRows[0].entry.appId)}
+            className="rounded-[4px] bg-aibox-green px-4 py-2 font-display text-sm font-semibold text-aibox-bg"
+          >
+            {t("s8.upgradeNext")}
+          </button>
+        </div>
+      )}
+
       {loadErr && (
         <div className="panel flex items-center justify-between gap-3 text-sm text-aibox-danger">
           <span>{t("s8.loadErr")}</span>
@@ -423,7 +455,7 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
       )}
 
       <ul className="space-y-3">
-        {(rows ?? []).map(({ entry, maintenance, update }) => {
+        {orderedRows.map(({ entry, maintenance, update }) => {
           const hasMaint = !!maintenance;
           return (
             <li key={entry.appId} className="panel flex flex-wrap items-center justify-between gap-3">

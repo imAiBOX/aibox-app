@@ -67,7 +67,10 @@
     "all": "All",
     "offlineSnapshot": "Offline catalog (snapshot)",
     "intro": "AiBOX installs the app you pick onto this computer. It never changes your system settings, and every download is checked before it runs.",
-    "selected": "Selected"
+    "selected": "Selected",
+    "recommendTitle": "Recommended for you",
+    "recommendHint": "picked from what you already use",
+    "recommendSameCategory": "same kind as an app you installed"
   },
   "s2": {
     "title": "Checkup report",
@@ -475,7 +478,9 @@
     "errSymlinkEscape": "That path points somewhere else, so AiBOX stopped for safety.",
     "errBackupFailed": "The backup didn't finish, so nothing was deleted. Free up disk space or check permissions and retry.",
     "errDeleteFailed": "Deleting hit a system problem (no permission, or a file is in use). Nothing was removed.",
-    "errIo": "A local file operation failed (no permission, or the path isn't writable)."
+    "errIo": "A local file operation failed (no permission, or the path isn't writable).",
+    "upgradeFocus": "{{count}} app can be updated",
+    "upgradeNext": "Upgrade the first one"
   },
   "notify": {
     "tab": "Notifications",
@@ -499,6 +504,10 @@
     "newAppsTitle": "New apps in the catalog",
     "newAppsBody": "{{count}} new apps are available to install.",
     "startedHiddenTitle": "AiBOX is running in the background",
-    "startedHiddenBody": "Nothing opened because it goes straight to the {{where}}. Click the icon there to bring it back."
+    "startedHiddenBody": "Nothing opened because it goes straight to the {{where}}. Click the icon there to bring it back.",
+    "quiet": "Do not disturb at night",
+    "quietDesc": "No notifications during these hours. Anything you missed is sent when the quiet period ends — nothing is lost.",
+    "quietFrom": "From",
+    "quietTo": "Until"
   }
 }
