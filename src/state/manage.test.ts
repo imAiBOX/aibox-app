@@ -292,11 +292,14 @@ describe("manage 错误码 → 人话（不给用户看英文原文）", () => {
     expect(manageErrorKey("WHAT_IS_THIS", "something else entirely")).toBe("s8.errRemove");
   });
 
-  it("重试无意义的错误 → 不可重试", () => {
+  it("重试无意义的错误 → 不可重试（白名单 fail-closed）", () => {
     expect(isRetryableManageError("MANAGE_NO_MANIFEST")).toBe(false);
     expect(isRetryableManageError("MANAGE_OUT_OF_SCOPE")).toBe(false);
     expect(isRetryableManageError("MANAGE_SYMLINK_ESCAPE")).toBe(false);
     expect(isRetryableManageError("MANAGE_DELETE_FAILED")).toBe(true);
     expect(isRetryableManageError("IO_ERROR")).toBe(true);
+    // 未知码 → 保守：不给重试（后端新增安全码而前端未同步时不能默认可重试）
+    expect(isRetryableManageError("MANAGE_SOME_FUTURE_CODE")).toBe(false);
+    expect(isRetryableManageError("")).toBe(false);
   });
 });

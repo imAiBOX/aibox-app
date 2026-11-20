@@ -338,6 +338,14 @@ describe("messageKeyForCode", () => {
     expect(messageKeyForCode("VERIFY_FILE_MISSING")).toBe("err.downloadFailed");
   });
 
+  it("精确码不做前缀匹配：VERIFY_HTTP_4010 不能被当成 401（REJECT-2 回归）", () => {
+    expect(messageKeyForCode("VERIFY_HTTP_401")).toBe("err.verifyKey");
+    // 更长的码不是 401 → 不得说成「key 无效」
+    expect(messageKeyForCode("VERIFY_HTTP_4010")).not.toBe("err.verifyKey");
+    expect(messageKeyForCode("VERIFY_HTTP_4010")).toBe("err.verifyFailed");
+    expect(messageKeyForCode("VERIFY_HTTP_429")).toBe("err.verifyFailed");
+  });
+
   it("registry 拒绝类错误与「网络不通」分开说（防篡改类不该让用户查网络）", () => {
     expect(messageKeyForCode("REGISTRY_MISMATCH")).toBe("err.registryMismatch");
     expect(messageKeyForCode("REGISTRY_INTEGRITY")).toBe("err.registryIntegrity");

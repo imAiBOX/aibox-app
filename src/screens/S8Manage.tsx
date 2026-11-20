@@ -18,6 +18,7 @@ import {
   type MaintenanceInfo,
 } from "../state/manage";
 import { errorCodeOf } from "../state/orchestrate";
+import { maskSecrets } from "../lib/redact";
 
 interface Props {
   onClose: () => void;
@@ -135,12 +136,49 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
     await runRemove(attempt);
   };
 
-  /** 「重试」：真正重发一次删除（旧版只回列表，没重做） */
+  /**
+   * 「重试」：真正重发一次删除（旧版只回列表，没重做）。
+   *
+   * **重试前重新核对 registry 声明的路径**（独立审计 2026-11-20 ACCEPT-5）：
+   * 缓存里的路径是上一次加载时的快照；registry 更新后路径声明可能变化，
+   * 拿旧清单去删可能越过「当前允许删的集合」。
+   * → 路径有变化 → **不自动重试**，重新弹风险卡让用户按新清单再确认一次。
+   */
   const retryRemove = async () => {
     const a = attemptRef.current;
     if (!a || busy) return;
-    dispatch({ type: "M_RETRY" });
-    await runRemove(a);
+    setBusy(true);
+    try {
+      let fresh;
+      try {
+        const app: AppManifest = await api.registryApp(a.appId);
+        fresh = buildRemovePaths(app.maintenance);
+      } catch {
+        // registry 不可达 → 不拿旧清单盲删（fail-closed）
+        dispatch({ type: "M_ERROR", code: "MANAGE_NO_MANIFEST", messageKey: "s8.errRegistryChanged" });
+        return;
+      }
+      const same =
+        JSON.stringify([...fresh.dataPaths].sort()) === JSON.stringify([...a.dataPaths].sort()) &&
+        JSON.stringify([...fresh.residualPaths].sort()) === JSON.stringify([...a.residualPaths].sort()) &&
+        JSON.stringify([...fresh.steps].sort()) === JSON.stringify([...a.steps].sort());
+      if (!same) {
+        // 清单变了 → 回到风险卡，用户按新清单重新确认
+        dispatch({
+          type: "M_RISK_OPEN",
+          op: "REMOVE",
+          appId: a.appId,
+          backupFirst: fresh.backupFirst,
+          riskText: fresh.riskText,
+          dataPaths: fresh.dataPaths,
+        });
+        return;
+      }
+      dispatch({ type: "M_RETRY" });
+      await runRemove(a);
+    } finally {
+      setBusy(false);
+    }
   };
 
   // ---------- DONE / ERROR 全屏态 ----------
@@ -208,7 +246,7 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
           {m.error?.code && (
             <details className="mt-2 font-mono text-[11px] text-aibox-text2">
               <summary className="cursor-pointer">{t("s8.techDetail")}</summary>
-              <p className="mt-1 break-all">{m.error.code}</p>
+              <p className="mt-1 break-all">{maskSecrets(m.error.code)}</p>
             </details>
           )}
         </div>

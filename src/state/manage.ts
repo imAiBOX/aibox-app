@@ -306,11 +306,16 @@ export function manageErrorKey(code: string, human: string): string {
   return "s8.errRemove";
 }
 
-/** 这些错误重试也没用（按定义不可能成功）→ 不给「重试」按钮 */
+/**
+ * 可重试的错误码**白名单**（fail-closed）。
+ *
+ * **为什么用白名单而不是黑名单**（独立审计 2026-11-20 NOTE-4）：
+ * 后端将来新增安全类错误码而前端未同步时，黑名单会让未知码「看起来可重试」→
+ * 用户反复重试一个可能破坏数据的操作。白名单下未知码一律保守处理（不给重试）。
+ */
+const RETRYABLE_MANAGE_ERRORS = new Set(["MANAGE_DELETE_FAILED", "IO_ERROR"]);
+
+/** 只有白名单里的错误才给「重试」按钮（其余按定义或按保守原则不可重试） */
 export function isRetryableManageError(code: string): boolean {
-  return (
-    code !== "MANAGE_NO_MANIFEST" &&
-    code !== "MANAGE_OUT_OF_SCOPE" &&
-    code !== "MANAGE_SYMLINK_ESCAPE"
-  );
+  return RETRYABLE_MANAGE_ERRORS.has(code);
 }

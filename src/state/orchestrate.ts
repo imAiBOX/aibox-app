@@ -13,39 +13,54 @@ import { cacheFileName } from "./plan";
 import type { Event, SessionSnapshot, Task } from "./types";
 
 /* ── 错误码 → 人话 i18n key（ErrorOverlay t(messageKey)） ── */
-const CODE_KEYS: Array<[prefix: string, key: string]> = [
-  ["NET_ALL_CHANNELS_DEAD", "err.netDead"],
-  ["NET_HASH_MISMATCH", "err.hashMismatch"],
-  ["HASH_MISMATCH", "err.hashMismatch"],
-  ["USER_CANCELLED", "err.cancelled"],
-  ["SCAN_FAILED", "err.scanFailed"],
+/**
+ * **精确码**（必须整串相等才匹配）。
+ *
+ * 为什么单独一档：前缀匹配会把 `VERIFY_HTTP_4010` 认成 `VERIFY_HTTP_401`
+ * （HTTP 状态码目前只有 3 位，但这是「靠运气」而不是「靠规则」）。
+ * 独立审计 2026-11-20 REJECT-2 即此条。
+ */
+const EXACT_CODES: Record<string, string> = {
+  NET_ALL_CHANNELS_DEAD: "err.netDead",
+  NET_HASH_MISMATCH: "err.hashMismatch",
+  HASH_MISMATCH: "err.hashMismatch",
+  USER_CANCELLED: "err.cancelled",
+  SCAN_FAILED: "err.scanFailed",
   // registry 拉取：拒绝类错误与「网络不通」必须分开说。
   // REGISTRY_MISMATCH = ≥2 源可达但内容互不一致（防篡改，拒绝一切降级）；
   // REGISTRY_INTEGRITY = GitHub API blob sha1 校验失败（同样拒绝降级）。
   // 这两个都不是「网络问题」，让用户去检查网络是误导（且重试不会变好）。
-  ["REGISTRY_MISMATCH", "err.registryMismatch"],
-  ["REGISTRY_INTEGRITY", "err.registryIntegrity"],
+  REGISTRY_MISMATCH: "err.registryMismatch",
+  REGISTRY_INTEGRITY: "err.registryIntegrity",
   // 单源可达 → 无法交叉核对（S2 严格性），也算「不是纯网络问题」。
-  ["REGISTRY_SINGLE_SOURCE", "err.registrySingleSource"],
-  // 其余 REGISTRY_*（UNAVAILABLE / NO_CACHE / FETCH）→ 网络向。
-  ["REGISTRY_", "err.registry"],
+  REGISTRY_SINGLE_SOURCE: "err.registrySingleSource",
   // 配置写入（C5）：「原文件读不懂」与「系统写不进去」要分开说，
   // 前者必须告诉用户「原文件没被动过」，后者要指向权限/磁盘。
-  ["CONFIG_PARSE", "err.configParse"],
-  ["CONFIG_NO_VALUES", "err.configNoValues"],
+  CONFIG_PARSE: "err.configParse",
+  CONFIG_NO_VALUES: "err.configNoValues",
+  // VERIFY_ 精确码（模型测试）；下载期的 SHA 校验码也在此档，
+  // 因为 VERIFY_ 前缀被两个流程共用（见 PREFIX_CODES 说明）。
+  VERIFY_FILE_MISSING: "err.downloadFailed",
+  VERIFY_HTTP_401: "err.verifyKey",
+  VERIFY_HTTP_403: "err.verifyKey",
+  VERIFY_NET_FAIL: "err.verifyNet",
+  VERIFY_EMPTY_TEXT: "err.verifyWeak",
+  VERIFY_NO_KEY: "err.verifyNoKey",
+  VERIFY_UNSUPPORTED_PROVIDER: "err.verifyUnsupported",
+  VERIFY_BAD_RESPONSE: "err.verifyBadResponse",
+};
+
+/**
+ * **前缀码**（`code === prefix` 或 `code.startsWith(prefix)`）。
+ *
+ * VERIFY_ 前缀被两个流程共用：下载期的 SHA 校验（VERIFY_FILE_MISSING）与
+ * 模型测试（VERIFY_HTTP_ 前缀、VERIFY_NET_FAIL 等）。精确码已在上档先行处理，
+ * 这里的 `VERIFY_` 兜底只会命中「下载期」的未知码。
+ */
+const PREFIX_CODES: Array<[prefix: string, key: string]> = [
+  ["REGISTRY_", "err.registry"],
   ["CONFIG_", "err.configFailed"],
   ["IO_ERROR", "err.configIo"],
-  // VERIFY_ 前缀被两个流程共用：下载期的 SHA 校验（VERIFY_FILE_MISSING）
-  // 与模型测试（VERIFY_HTTP_*/VERIFY_NET_FAIL/...）。**精确码必须排在前缀之前**，
-  // 否则模型测试的码会被下载期的兜底键吃掉。
-  ["VERIFY_FILE_MISSING", "err.downloadFailed"],
-  ["VERIFY_HTTP_401", "err.verifyKey"],
-  ["VERIFY_HTTP_403", "err.verifyKey"],
-  ["VERIFY_NET_FAIL", "err.verifyNet"],
-  ["VERIFY_EMPTY_TEXT", "err.verifyWeak"],
-  ["VERIFY_NO_KEY", "err.verifyNoKey"],
-  ["VERIFY_UNSUPPORTED_PROVIDER", "err.verifyUnsupported"],
-  ["VERIFY_BAD_RESPONSE", "err.verifyBadResponse"],
   ["VERIFY_HTTP_", "err.verifyFailed"],
   ["VERIFY_", "err.downloadFailed"],
   ["EXEC_", "err.execFailed"],
@@ -55,7 +70,9 @@ const CODE_KEYS: Array<[prefix: string, key: string]> = [
 ];
 
 export function messageKeyForCode(code: string): string {
-  for (const [prefix, key] of CODE_KEYS) {
+  const exact = EXACT_CODES[code];
+  if (exact) return exact;
+  for (const [prefix, key] of PREFIX_CODES) {
     if (code === prefix || code.startsWith(prefix)) return key;
   }
   return "err.generic";

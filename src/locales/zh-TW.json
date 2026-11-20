@@ -426,6 +426,7 @@
     "close": "關閉",
     "errTitle": "出了點問題",
     "errRemove": "操作失敗。你的資料可能有部分變動——看下面的說明後重試。",
+    "errRegistryChanged": "這個應用的解除安裝清單和上次不一樣了。請重新確認一遍再刪。",
     "errNoManifest": "該應用在 registry 裡沒有維護資料，AiBOX 不會刪除任何東西。",
     "retry": "重試",
     "doneFailed": "有 {{count}} 項沒能刪除——請檢查權限後重試",

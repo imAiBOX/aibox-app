@@ -35,33 +35,99 @@ function injectJson(rel) {
   const path = join(root, rel);
   if (!existsSync(path)) return false;
   const text = readFileSync(path, "utf8");
-  const re = /("version"\s*:\s*)"[^"]*"/;
-  if (!re.test(text)) {
-    console.error(`[set-version] version field not found in ${rel}`);
+
+  // 定位**顶层**的 "version" 键（深度感知扫描，不能只看第一个 "version" 字符串；
+  // 否则嵌套字段排在前面时会改错地方 —— 独立审计 2026-11-20 ACCEPT-7）。
+  const idx = topLevelVersionOffset(text);
+  if (idx < 0) {
+    console.error(`[set-version] top-level version field not found in ${rel}`);
     process.exit(1);
   }
-  const next = text.replace(re, `$1"${version}"`);
+  const re = /"version"\s*:\s*"[^"]*"/;
+  const tail = text.slice(idx);
+  if (!re.test(tail)) {
+    console.error(`[set-version] top-level version field malformed in ${rel}`);
+    process.exit(1);
+  }
+  const next = text.slice(0, idx) + tail.replace(re, `"version": "${version}"`);
+  // **fail-closed 复核**：改完再解析一次，顶层 version 必须是目标值，否则 exit 1
+  try {
+    const doc = JSON.parse(next);
+    if (doc.version !== version) {
+      console.error(`[set-version] version injection failed in ${rel} (got ${doc.version})`);
+      process.exit(1);
+    }
+  } catch (e) {
+    console.error(`[set-version] ${rel} became invalid JSON: ${e.message}`);
+    process.exit(1);
+  }
   if (next !== text) writeFileSync(path, next);
   return true;
 }
 
+/** 找到顶层对象里 "version" 键的起始引号位置；找不到返回 -1。 */
+function topLevelVersionOffset(text) {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) { esc = false; continue; }
+      if (ch === "\\") { esc = true; continue; }
+      if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') {
+      if (depth === 1 && /^"version"\s*:/.test(text.slice(i))) return i;
+      inStr = true;
+      continue;
+    }
+    if (ch === "{" || ch === "[") depth++;
+    else if (ch === "}" || ch === "]") depth--;
+  }
+  return -1;
+}
+
 for (const rel of ["src-tauri/tauri.conf.json", "package.json"]) injectJson(rel);
 
-/** Cargo.toml 里把首个 `version = "..."` 替换为目标版本。 */
+/**
+ * Cargo.toml：只改 **[package] / [workspace.package] 段内**的 `version = "..."`。
+ *
+ * 不能用「首个匹配」：依赖段里也可能有独立成行的 `version = "..."`
+ * （`[dependencies.foo]` 下）—— 改错就是改依赖版本（独立审计 2026-11-20 ACCEPT-7）。
+ */
 function injectCargo(rel) {
   const path = join(root, rel);
   if (!existsSync(path)) return false;
   const cargo = readFileSync(path, "utf8");
-  const re = /^version = "[^"]*"$/m;
-  // 文件里压根没有 version 行 → 真出错
-  if (!re.test(cargo)) {
-    console.error(`[set-version] version line not found in ${rel}`);
+
+  // 按 section 切分；只在 [package] / [workspace.package] 段里找 version 行
+  const lines = cargo.split("\n");
+  let section = "";
+  let hit = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const head = lines[i].match(/^\s*\[([^\]]+)\]/);
+    if (head) {
+      section = head[1].trim();
+      continue;
+    }
+    if (
+      (section === "package" || section === "workspace.package") &&
+      /^version\s*=\s*"[^"]*"\s*$/.test(lines[i])
+    ) {
+      hit = i;
+      break;
+    }
+  }
+  if (hit < 0) {
+    console.error(`[set-version] [package] version line not found in ${rel}`);
     process.exit(1);
   }
-  // **幂等**：已是目标版本就不改、也不报错。
-  // （旧实现用「替换后内容是否变化」判断版本行是否存在 → 预置过版本号再打 tag 时
-  //   会误判成「找不到版本行」→ exit 1 → release job 全挂。2026-11-20 v0.1.6 实测踩坑。）
-  const next = cargo.replace(re, `version = "${version}"`);
+  // 就在定位到的那一行上替换（不用全局正则：首个匹配未必是包版本）
+  lines[hit] = lines[hit].replace(/"[^"]*"/, `"${version}"`);
+  const next = lines.join("\n");
+  // 幂等：内容没变就不写（版本已是目标值时也必须 exit 0）
   if (next !== cargo) writeFileSync(path, next);
   return true;
 }

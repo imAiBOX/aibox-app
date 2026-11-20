@@ -245,8 +245,15 @@ describe("任意态 → ERROR → 恢复", () => {
     }
   });
 
-  it("DISMISS 在非 ERROR 态非法（幂等）", () => {
-    expect(reducer(at("EXECUTE"), { type: "DISMISS" }).status).toBe("EXECUTE");
+  it("DISMISS 从**任意**态都回 IDLE（取消路径的回归防护）", () => {
+    // 底栏「取消」在 EXECUTE 态发 DISMISS；若这里只认 ERROR，
+    // 状态机会停在 EXECUTE → 界面永远显示「安装中」（下载已停但界面没退）。
+    for (const st of ALL) {
+      const s = reducer(at(st), { type: "DISMISS" });
+      expect(s.status).toBe("IDLE");
+      expect(s.error).toBeNull();
+      expect(s.tasks).toEqual([]);
+    }
   });
 });
 

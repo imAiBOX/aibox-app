@@ -426,6 +426,7 @@
     "close": "关闭",
     "errTitle": "出了点问题",
     "errRemove": "操作失败。你的数据可能有部分变动——看下面的说明后重试。",
+    "errRegistryChanged": "这个应用的卸载清单和上次不一样了。请重新确认一遍再删。",
     "errNoManifest": "该应用在 registry 里没有维护数据，AiBOX 不会删除任何东西。",
     "retry": "重试",
     "doneFailed": "有 {{count}} 项没能删除——请检查权限后重试",

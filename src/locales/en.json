@@ -426,6 +426,7 @@
     "close": "Close",
     "errTitle": "Something went wrong",
     "errRemove": "The operation failed. Your data may be partially changed — check the details below, then retry.",
+    "errRegistryChanged": "The app's uninstall list changed since the last try. Review it again before deleting.",
     "errNoManifest": "This app has no maintenance data in the registry, so AiBOX will not delete anything.",
     "retry": "Retry",
     "doneFailed": "{{count}} item(s) could NOT be removed — check permissions and retry",

@@ -202,9 +202,11 @@ export function reduce(state: MachineState, event: Event): MachineState {
       // 放弃并返回：回 IDLE，**不重跑任何东西**。
       // 旧版「关闭」走 RETRY/EXPORT_DIAG → recover() → 回到出错原态（EXECUTE）→
       // useEffect 重新 startExecute() → 用户点「关闭」反而把安装又跑起来了。
-      return state.status === "ERROR"
-        ? { ...createInitialState(), scan: state.scan }
-        : state;
+      //
+      // **必须从任意态都转移**（独立审计 2026-11-20 REJECT-3）：
+      // 底栏「取消」是在 EXECUTE 态直接发 DISMISS 的；若这里只认 ERROR，
+      // 状态机会停在 EXECUTE → 界面永远显示「安装中」（下载已停但界面没退）。
+      return { ...createInitialState(), scan: state.scan };
 
     case "CONFIG_SELECT":
       // CONFIG 态内选 provider 路径（自转移，不写入）

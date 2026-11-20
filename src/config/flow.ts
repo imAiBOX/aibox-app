@@ -8,6 +8,7 @@
 import { api, type ConfigWriteInput, type VerifyInput } from "../net/client";
 import { fallbackModels, providerById, validateKey, type KeyCheck, type ProviderPath } from "./providers";
 import { errorCodeOf, errorCodeOrNull, messageKeyForCode } from "../state/orchestrate";
+import { maskSecrets } from "../lib/redact";
 import type { ModelOption, ProviderMeta } from "./types";
 
 /** 向导步骤（S5 屏内子状态；与八态状态机正交） */
@@ -260,7 +261,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyOutcome> {
     return {
       ok: false,
       errorKey: humanVerifyError(r.error, r.errorCode),
-      detail: r.error,
+      // 原始报文进界面前**强制脱敏**：服务商可能回显 key（Rust 侧已脱敏，这里再兜一层）
+      detail: r.error ? maskSecrets(r.error) : undefined,
       errorCode: r.errorCode ?? extractErrorCode(r.error),
       latencyMs,
     };
@@ -270,7 +272,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyOutcome> {
     return {
       ok: false,
       errorKey: humanVerifyError(code ? `${code}: ${msg}` : msg, code ?? undefined),
-      detail: msg,
+      detail: maskSecrets(msg),
       errorCode: code ?? undefined,
       latencyMs: Date.now() - started,
     };

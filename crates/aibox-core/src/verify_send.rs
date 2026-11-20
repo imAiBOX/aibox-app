@@ -189,10 +189,19 @@ pub fn parse_response(provider: &str, body: &str) -> CoreResult<String> {
             "VERIFY_BAD_RESPONSE",
             format!(
                 "Provider response missing model text: {}",
-                crate::exec::truncate_utf8(body, 300).replace('\n', " ")
+                // 响应体**必须脱敏**：部分服务商会在错误响应里回显请求内容（含 key）。
+                // 这段文本会一路走到界面上的「技术细节」→ 截图/分享即泄露。
+                redact_body(body)
             ),
         )),
     }
+}
+
+/// 响应体截断 + 脱敏（给错误串用；不进 key）。
+fn redact_body(body: &str) -> String {
+    let cut = crate::exec::truncate_utf8(body, 300).replace('\n', " ");
+    let (masked, _) = crate::redact::scan_and_mask(&cut);
+    masked
 }
 
 /// 非 2xx → 结构化错误（保留 provider 错误摘要，key 已不在 URL 之外出现）。
@@ -295,6 +304,16 @@ mod tests {
             model: None,
             base_url: None,
         }
+    }
+
+    #[test]
+    fn response_body_in_error_is_redacted() {
+        // 服务商在错误响应里回显 key → 该文本会走到界面「技术细节」→ 必须脱敏
+        let body = r#"{"error":{"message":"bad key sk-ant-SECRET1234"}}"#;
+        let e = parse_response("openai", body).unwrap_err();
+        assert_eq!(e.code, "VERIFY_BAD_RESPONSE");
+        assert!(!e.human.contains("sk-ant-SECRET1234"), "响应体未脱敏: {}", e.human);
+        assert!(e.human.contains("sk-****1234"), "应保留脱敏标记: {}", e.human);
     }
 
     #[test]
