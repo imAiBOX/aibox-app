@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "aibox-app"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "aibox-core",
  "aibox-net",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "aibox-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "aibox-net",
  "json5",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "aibox-net"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "aibox-netdoctor"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "aibox-net",
  "rustls",
