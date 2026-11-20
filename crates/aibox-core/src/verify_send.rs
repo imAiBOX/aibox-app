@@ -228,7 +228,7 @@ pub fn verify_send(input: &VerifyInput) -> VerifyResult {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(30))
         .timeout_connect(std::time::Duration::from_secs(10))
-        .user_agent("aibox-app/0.0.1")
+        .user_agent(concat!("aibox-app/", env!("CARGO_PKG_VERSION")))
         .build();
 
     let mut call = agent.post(&req.url);

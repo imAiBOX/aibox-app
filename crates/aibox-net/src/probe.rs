@@ -33,7 +33,7 @@ pub fn probe_head_with(
         .timeout(timeout)
         .timeout_connect(timeout)
         .max_idle_connections(0)
-        .user_agent("aibox-net/0.0.1");
+        .user_agent(concat!("aibox-net/", env!("CARGO_PKG_VERSION")));
     if let Some(p) = proxy {
         if let Ok(ureq_proxy) = p.to_ureq() {
             builder = builder.proxy(ureq_proxy);
@@ -44,7 +44,7 @@ pub fn probe_head_with(
     let result = agent
         .head(url)
         .set("Range", "bytes=0-0")
-        .set("User-Agent", "aibox-net/0.0.1")
+        .set("User-Agent", concat!("aibox-net/", env!("CARGO_PKG_VERSION")))
         .set("Connection", "close")
         .call();
     let ttfb_ms = start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;

@@ -87,8 +87,17 @@ impl TcpProbe for StdTcpProbe {
             .map_err(|e| e.to_string())?;
 
         use std::io::{Read, Write};
+        // UA 版本号随发布 tag 注入（scripts/set-version.mjs），不要再写死。
         let req = format!(
-            "CONNECT {target_host}:{target_port} HTTP/1.1\r\nHost: {target_host}:{target_port}\r\nUser-Agent: aibox-netdoctor/0.0.1\r\n\r\n"
+            concat!(
+                "CONNECT {target_host}:{target_port} HTTP/1.1\r\n",
+                "Host: {target_host}:{target_port}\r\n",
+                "User-Agent: aibox-netdoctor/",
+                env!("CARGO_PKG_VERSION"),
+                "\r\n\r\n"
+            ),
+            target_host = target_host,
+            target_port = target_port,
         );
         stream
             .write_all(req.as_bytes())

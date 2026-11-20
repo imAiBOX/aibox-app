@@ -1005,7 +1005,7 @@ fn build_agent(opts: &DownloadOptions) -> Result<ureq::Agent, DownloadError> {
         .timeout_write(opts.timeout)
         // 关闭连接池：失败语义可预测（不依赖 ureq 的连接复用自动重试）
         .max_idle_connections(0)
-        .user_agent("aibox-net/0.0.1");
+        .user_agent(concat!("aibox-net/", env!("CARGO_PKG_VERSION")));
     if let Some(proxy) = &opts.proxy {
         let ureq_proxy = proxy.to_ureq().map_err(DownloadError::BadProxy)?;
         builder = builder.proxy(ureq_proxy);

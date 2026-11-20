@@ -22,7 +22,8 @@ pub const BRANCH: &str = "main";
 pub const CACHE_TTL: Duration = Duration::from_secs(12 * 3600);
 /// 单源超时。
 const SOURCE_TIMEOUT: Duration = Duration::from_secs(8);
-const USER_AGENT: &str = "aibox-app/0.0.1";
+/// UA 版本号随发布 tag 注入（scripts/set-version.mjs），不要再写死。
+const USER_AGENT: &str = concat!("aibox-app/", env!("CARGO_PKG_VERSION"));
 
 /// 四源 URL（顺序：jsdelivr → raw → GitHub API → aibox.im /meta 镜像）。
 ///

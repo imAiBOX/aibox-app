@@ -103,7 +103,7 @@ fn default_fetcher() -> DohFetcher {
             .timeout(Duration::from_secs(5))
             .timeout_connect(Duration::from_secs(5))
             .max_idle_connections(0)
-            .user_agent("aibox-net/0.0.1")
+            .user_agent(concat!("aibox-net/", env!("CARGO_PKG_VERSION")))
             .build();
         let result = agent
             .get(url)

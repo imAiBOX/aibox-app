@@ -105,7 +105,7 @@ fn http_text(url: &str) -> CoreResult<String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(10))
         .timeout_connect(std::time::Duration::from_secs(5))
-        .user_agent("aibox-app/0.0.1")
+        .user_agent(concat!("aibox-app/", env!("CARGO_PKG_VERSION")))
         .build();
     match agent
         .get(url)

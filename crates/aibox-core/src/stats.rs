@@ -12,7 +12,8 @@ use serde_json::Value;
 use crate::err::{CoreError, CoreResult};
 
 const STATS_URL: &str = "https://aibox.im/api/stats";
-const UA: &str = "aibox-app/0.0.1";
+/// UA 版本号随发布 tag 注入（scripts/set-version.mjs），不要再写死。
+const UA: &str = concat!("aibox-app/", env!("CARGO_PKG_VERSION"));
 /// 上报/拉取统一 5s 超时（慢网络宁可放弃，不拖流程）。
 const TIMEOUT: Duration = Duration::from_secs(5);
 

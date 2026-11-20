@@ -133,10 +133,15 @@ impl TlsProbe for RustlsHeadProbe {
         };
         let mut stream = StreamOwned::new(conn, tcp);
 
+        // UA 版本号随发布 tag 注入（scripts/set-version.mjs），不要再写死。
         let req = format!(
-            "HEAD / HTTP/1.1\r\nHost: {host}\r\n\
-             User-Agent: aibox-netdoctor/0.0.1\r\n\
-             Range: bytes=0-0\r\nConnection: close\r\n\r\n"
+            concat!(
+                "HEAD / HTTP/1.1\r\nHost: {host}\r\n",
+                "User-Agent: aibox-netdoctor/",
+                env!("CARGO_PKG_VERSION"),
+                "\r\nRange: bytes=0-0\r\nConnection: close\r\n\r\n"
+            ),
+            host = host,
         );
         // 握手（含证书校验）会随读写驱动；证书类错误在这里浮出为 io::Error，
         // 其 Display 即 rustls 错误原文（如 `invalid peer certificate: Expired`）。
