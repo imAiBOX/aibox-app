@@ -92,6 +92,24 @@ export function buildRemovePaths(m: MaintenanceInfo | null | undefined): {
   return { dataPaths, residualPaths, steps, backupFirst, ...(riskText ? { riskText } : {}) };
 }
 
+/**
+ * 两份破坏性清单是否相同（纯函数，单测）。
+ *
+ * **三项都要比**（数据路径 / 应用残留路径 / 人工步骤）：
+ * 只比 dataPaths 会让「只有残留路径变了」被当成没变 → 用户看到的清单与实际执行的不一致。
+ */
+export function sameManifest(
+  a: { dataPaths: string[]; residualPaths: string[]; steps: string[] },
+  b: { dataPaths: string[]; residualPaths: string[]; steps: string[] },
+): boolean {
+  const norm = (xs: string[]) => JSON.stringify([...xs].sort());
+  return (
+    norm(a.dataPaths) === norm(b.dataPaths) &&
+    norm(a.residualPaths) === norm(b.residualPaths) &&
+    norm(a.steps) === norm(b.steps)
+  );
+}
+
 /** 风险卡能否执行（纯守卫，单测）：不勾备份 → 必须二次确认。 */
 export function canConfirmRisk(risk: RiskState): boolean {
   return risk.backup || risk.noBackupAck;
@@ -145,7 +163,9 @@ export function manageReduce(state: ManageState, event: ManageEvent): ManageStat
       // 界面在 ERROR 分支就提前 return（风险卡看不见），
       // 且 M_RISK_CONFIRM 只接受 MANAGE → 确认事件也被忽略 → 用户彻底卡死
       // （独立审计 2026-11-20 第三轮 REJECT）。
-      // 错误上下文由组件侧的 attemptRef 保留，不丢。
+      // 注意：这里**会清掉当前错误**（error → null）。错误上下文不保留，
+      // 组件侧只保留操作参数（attemptRef）；用户是主动点「重试」才走到这里的，
+      // 语义上等于「重新走一遍确认流程」。
       // backupFirst 缺省 → 默认勾选备份（硬规则①）
       if (state.status !== "MANAGE" && state.status !== "ERROR") return state;
       return {

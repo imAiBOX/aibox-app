@@ -333,6 +333,8 @@ mod tests {
 
         // 2) 2xx 但响应体不是 JSON（响应体里含 key）
         let e = parse_response("openai", &format!("not json {key}")).unwrap_err();
+        assert_eq!(e.code, "VERIFY_BAD_RESPONSE");
+        assert!(e.human.contains("not JSON"), "应有可读说明: {}", e.human);
         assert!(!e.human.contains(key), "parse_response 非 JSON 泄露 key: {}", e.human);
 
         // 3) 2xx 但没有模型文本（响应体里含 key）

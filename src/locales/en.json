@@ -414,7 +414,7 @@
     "riskDefault": "Uninstalling removes this app's files. Your data will be deleted.",
     "riskPaths": "These folders contain your data and settings:",
     "riskResidual": "App files that will also be removed:",
-    "riskSteps": "Also these steps will run:",
+    "riskSteps": "To finish uninstalling, do these yourself (AiBOX will not run them):",
     "backupLabel": "Back up my data first (recommended)",
     "noBackupAck": "I understand my data will be deleted without a backup",
     "confirmUninstall": "Uninstall",

@@ -14,6 +14,7 @@ import {
   createInitialManageState,
   isRetryableManageError,
   manageErrorKey,
+  sameManifest,
   manageReduce,
   type MaintenanceInfo,
 } from "../state/manage";
@@ -132,13 +133,11 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
       dispatch({ type: "M_ERROR", code: "MANAGE_NO_MANIFEST", messageKey: "s8.errRegistryChanged" });
       return;
     }
-    const shown = m.risk.dataPaths ?? [];
-    const shownResidual = m.risk.residualPaths ?? [];
-    const shownSteps = m.risk.steps ?? [];
-    const changed =
-      JSON.stringify([...paths.dataPaths].sort()) !== JSON.stringify([...shown].sort()) ||
-      JSON.stringify([...paths.residualPaths].sort()) !== JSON.stringify([...shownResidual].sort()) ||
-      JSON.stringify([...paths.steps].sort()) !== JSON.stringify([...shownSteps].sort());
+    const changed = !sameManifest(paths, {
+      dataPaths: m.risk.dataPaths ?? [],
+      residualPaths: m.risk.residualPaths ?? [],
+      steps: m.risk.steps ?? [],
+    });
     if (changed) {
       // 清单又变了 → 刷新风险卡让用户按**新清单**再确认一次（三项全比）
       dispatch({
@@ -192,10 +191,11 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
         dispatch({ type: "M_ERROR", code: "MANAGE_NO_MANIFEST", messageKey: "s8.errRegistryChanged" });
         return;
       }
-      const same =
-        JSON.stringify([...fresh.dataPaths].sort()) === JSON.stringify([...a.dataPaths].sort()) &&
-        JSON.stringify([...fresh.residualPaths].sort()) === JSON.stringify([...a.residualPaths].sort()) &&
-        JSON.stringify([...fresh.steps].sort()) === JSON.stringify([...a.steps].sort());
+      const same = sameManifest(fresh, {
+        dataPaths: a.dataPaths,
+        residualPaths: a.residualPaths,
+        steps: a.steps,
+      });
       if (!same) {
         // 清单变了 → 回到风险卡，用户按**新清单**重新确认
         // （attemptRef 同步更新为新清单，确认时按新清单执行）

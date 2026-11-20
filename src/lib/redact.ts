@@ -20,8 +20,18 @@
  * （第三轮审计 NOTE）。右侧字符集放宽到 `~ :` 等常见 token 字符，避免漏掩。
  */
 const SK = /(?<![A-Za-z0-9_.-])sk-[A-Za-z0-9][A-Za-z0-9._+/=~:-]{7,}/g;
-/** Authorization: Bearer <token> */
-const BEARER = /bearer\s+[A-Za-z0-9._+/=-]{6,}/gi;
+/**
+ * 认证方案 + 凭据（bearer / basic / digest）：
+ * **整段凭据一起掩**，不能只掩方案词（否则 `Authorization: Basic <b64>` 的
+ * base64 凭据会原样留在错误详情里 —— 第四轮审计 REJECT-1）。
+ */
+const AUTH = /\b(bearer|basic)\s+[A-Za-z0-9._+/=~:-]{4,}/gi;
+/**
+ * Digest 认证的挑战参数（response/nonce/…）—— 同样算凭据材料。
+ * Digest 的凭据不是「方案名 + 一段 token」，而是参数列表 → 单独处理，
+ * 不能套用上面的 AUTH 规则（否则会把参数名当 token 掩掉、真值反而留着）。
+ */
+const DIGEST_PARAM = /\b(response|nonce|cnonce|opaque)\s*=\s*"[^"]*"/gi;
 /** URL 内联凭据 scheme://user:pass@host */
 const URL_CRED = /:\/\/[^\s/@]+:[^\s/@]+@/g;
 /** api_key = "xxxx" / "apiKey":"xxxx" / secret_key / access_token … */
@@ -39,7 +49,8 @@ export function maskSecrets(text: string): string {
   if (!text) return text;
   let out = text;
   out = out.replace(SK, (m) => `sk-****${m.slice(-4)}`);
-  out = out.replace(BEARER, "Bearer ****");
+  out = out.replace(AUTH, (_m, scheme: string) => `${scheme} ****`);
+  out = out.replace(DIGEST_PARAM, (_m, name: string) => `${name}="****"`);
   out = out.replace(URL_CRED, "://****:****@");
   out = out.replace(KV, (_m, pre: string, _val: string, post: string) => `${pre}****${post}`);
   return out;

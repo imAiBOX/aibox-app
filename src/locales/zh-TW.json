@@ -414,7 +414,7 @@
     "riskDefault": "解除安裝會刪除該應用的檔案，你的資料也會被刪除。",
     "riskPaths": "這些資料夾裝著你的資料和設定：",
     "riskResidual": "這些應用殘留檔案也會被刪：",
-    "riskSteps": "還會執行這些步驟：",
+    "riskSteps": "要徹底解除安裝完，還需要你自己做這些（AiBOX 不會替你執行）：",
     "backupLabel": "先備份我的資料（推薦）",
     "noBackupAck": "我已明白：不備份就直接刪除資料",
     "confirmUninstall": "解除安裝",

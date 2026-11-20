@@ -30,9 +30,10 @@ describe("maskSecrets", () => {
     expect(maskSecrets("(sk-ant-SECRET1234)")).toBe("(sk-****1234)");
   });
 
-  it("漏网形态：base64 字符集 / Bearer / URL 凭据 / 多种 key 字段名", () => {
+  it("漏网形态：base64 字符集 / Bearer / URL 凭据 / 多种 key 字段名（**完整输出断言**）", () => {
     expect(maskSecrets("token sk-abc+/=defgh1234")).toBe("token sk-****1234");
-    expect(maskSecrets("Authorization: Bearer abcdef123456")).toContain("Bearer ****");
+    // 完整断言：不能只断言 contains（后面残留也可能通过）
+    expect(maskSecrets("Authorization: Bearer abcdef123456")).toBe("Authorization: Bearer ****");
     expect(maskSecrets("https://user:pass@example.com/x")).toBe("https://****:****@example.com/x");
     expect(maskSecrets("api_key=abcdef123456")).toBe("api_key=****");
     expect(maskSecrets('"apiKey":"abcdef123456"')).toBe('"apiKey":"****"');
@@ -40,6 +41,19 @@ describe("maskSecrets", () => {
     expect(maskSecrets("access_token=abcdef123456")).toBe("access_token=****");
     expect(maskSecrets("auth_token=abcdef123456")).toBe("auth_token=****");
     expect(maskSecrets("authorization=abcdef123456")).toBe("authorization=****");
+  });
+
+  it("认证方案凭据整段掩掉（Basic / Digest / 含 ~ : 的 token）", () => {
+    // Basic 的 base64 凭据也必须掩掉（不能只掩方案词）
+    expect(maskSecrets("authorization=Basic dXNlcjpwYXNz")).toBe("authorization=Basic ****");
+    expect(maskSecrets("Authorization: Basic dXNlcjpwYXNz")).toBe("Authorization: Basic ****");
+    // Bearer 后面带 ~ : 等字符 → 整段掩掉，不能残留半截
+    expect(maskSecrets("Authorization: Bearer abcdef~PRIVATE")).toBe("Authorization: Bearer ****");
+    expect(maskSecrets("Authorization: Bearer abc:def~ghi")).toBe("Authorization: Bearer ****");
+    // Digest 的挑战参数
+    expect(maskSecrets('digest response="deadbeef", nonce="xyz"')).toBe(
+      'digest response="****", nonce="****"',
+    );
   });
 
   it("不含敏感串的文本原样返回", () => {

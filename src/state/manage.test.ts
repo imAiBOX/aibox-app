@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildRemovePaths,
+  sameManifest,
   canConfirmRisk,
   createInitialManageState,
   isRetryableManageError,
@@ -334,5 +335,22 @@ describe("ERROR → 重新确认风险卡 → REMOVE（第三轮审计 REJECT �
     // 确认（备份默认勾选）→ 回到 REMOVE，可执行
     s = manageReduce(s, { type: "M_RISK_CONFIRM" });
     expect(s.status).toBe("REMOVE");
+  });
+});
+
+describe("sameManifest（破坏性清单比较，三项全比）", () => {
+  const base = { dataPaths: ["/d1"], residualPaths: ["/r1"], steps: ["s1"] };
+  it("完全相同 → true（与顺序无关）", () => {
+    expect(sameManifest(base, { dataPaths: ["/d1"], residualPaths: ["/r1"], steps: ["s1"] })).toBe(true);
+    expect(sameManifest(base, { dataPaths: ["/d1"], residualPaths: ["/r1"], steps: ["s1"] })).toBe(true);
+  });
+  it("仅 residualPaths 变 → false（第四轮审计 REJECT-A：不能只比 dataPaths）", () => {
+    expect(sameManifest(base, { dataPaths: ["/d1"], residualPaths: ["/r2"], steps: ["s1"] })).toBe(false);
+  });
+  it("仅 steps 变 → false", () => {
+    expect(sameManifest(base, { dataPaths: ["/d1"], residualPaths: ["/r1"], steps: ["s2"] })).toBe(false);
+  });
+  it("仅 dataPaths 变 → false", () => {
+    expect(sameManifest(base, { dataPaths: ["/d2"], residualPaths: ["/r1"], steps: ["s1"] })).toBe(false);
   });
 });
