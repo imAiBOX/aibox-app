@@ -13,6 +13,7 @@
 import KeyStepDiagram from "../components/KeyStepDiagram";
 import { useCallback, useEffect, useReducer } from "react";
 import { openExternal } from "../lib/openExternal";
+import { appGuideUrl } from "../lib/links";
 import { useTranslation } from "react-i18next";
 import { PROVIDERS, maskKey, priceHintKey, providerById } from "../config/providers";
 import {
@@ -83,7 +84,7 @@ export default function S5Config({
   onSelectPath: (id: string) => void;
   onWritten: (id: string, creds: ConfigCreds) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [w, dispatch] = useReducer(reduceWizard, undefined, createWizard);
   const provider = providerById(w.providerId ?? selectedPathId);
 
@@ -395,6 +396,20 @@ export default function S5Config({
               {w.errorKey && (
                 <div className="rounded-[6px] border border-aibox-danger px-3 py-2 text-sm text-aibox-danger">
                   <p>{t(w.errorKey)}</p>
+                  {/* 不会自动配的应用 → 给「照教程手动配」的出口（别让用户卡在这） */}
+                  {w.errorCode === "CONFIG_FORMAT_UNSUPPORTED" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void openExternal(
+                          appGuideUrl(appId ?? "openclaw", i18n.resolvedLanguage),
+                        )
+                      }
+                      className="mt-2 rounded-[4px] border border-aibox-danger px-3 py-1.5 font-mono text-xs hover:bg-aibox-danger/10"
+                    >
+                      {t("s5.manualGuide")}
+                    </button>
+                  )}
                   {w.errorCode && (
                     <p className="mt-1 font-mono text-[11px] opacity-80">{w.errorCode}</p>
                   )}

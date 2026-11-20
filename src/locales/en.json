@@ -182,7 +182,8 @@
       "high": "pricey",
       "free": "free",
       "included": "in plan"
-    }
+    },
+    "manualGuide": "Open the setup guide"
   },
   "s6": {
     "title": "Real test message",
@@ -272,7 +273,8 @@
     "verifyNoKey": "No API key yet. Go back a step and paste your key, then test again.",
     "verifyUnsupported": "This provider can't be tested from here. Pick another provider, or configure it manually.",
     "verifyBadResponse": "The provider's reply wasn't in the expected format. Try again, or use another provider.",
-    "verifyFailed": "The test request didn't go through. Retry, or try a different route."
+    "verifyFailed": "The test request didn't go through. Retry, or try a different route.",
+    "configUnsupported": "AiBOX does not know how to write this app's config file yet (it is not a JSON config). Your file was not changed — set it up by hand with the guide, it takes a minute."
   },
   "resume": {
     "title": "Continue last install?",

@@ -182,7 +182,8 @@
       "high": "偏贵",
       "free": "免费",
       "included": "订阅内"
-    }
+    },
+    "manualGuide": "看配置教程"
   },
   "s6": {
     "title": "发一条真实消息",
@@ -272,7 +273,8 @@
     "verifyNoKey": "还没有 API key。回到上一步把 key 填上，再测一次。",
     "verifyUnsupported": "这条路线不能在这里测。换一家服务商，或照教程手动配置。",
     "verifyBadResponse": "服务商的回复不是预期的格式。再试一次，或换一家服务商。",
-    "verifyFailed": "测试请求没能完成。可以重试，或换一条线路。"
+    "verifyFailed": "测试请求没能完成。可以重试，或换一条线路。",
+    "configUnsupported": "AiBOX 还不会写这个应用的配置文件（它不是 JSON 格式的配置）。你的原文件**没有被动过** —— 照着教程手动配一下，一分钟就好。"
   },
   "resume": {
     "title": "继续上次安装？",

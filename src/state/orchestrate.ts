@@ -38,6 +38,9 @@ const EXACT_CODES: Record<string, string> = {
   // 前者必须告诉用户「原文件没被动过」，后者要指向权限/磁盘。
   CONFIG_PARSE: "err.configParse",
   CONFIG_NO_VALUES: "err.configNoValues",
+  // AiBOX 还不会写这个应用的配置格式（YAML/TOML/SQLite…）→
+  // 必须明确告诉用户「原文件没被改动」+ 给手动教程入口
+  CONFIG_FORMAT_UNSUPPORTED: "err.configUnsupported",
   // VERIFY_ 精确码（模型测试）；下载期的 SHA 校验码也在此档，
   // 因为 VERIFY_ 前缀被两个流程共用（见 PREFIX_CODES 说明）。
   VERIFY_FILE_MISSING: "err.downloadFailed",

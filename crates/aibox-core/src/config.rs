@@ -78,6 +78,71 @@ pub fn resolve_target(input: &ConfigWriteInput) -> CoreResult<PathBuf> {
     )))
 }
 
+/// 该 provider 在此应用下**是否可由 AiBOX 自动写入**。
+///
+/// **为什么必须有这个闸门**：通用写入布局是 JSON5（`models.providers.*`），
+/// 而各应用的真实配置格式**五花八门**（json / yaml / yml / toml / sqlite / 无扩展名）。
+/// 对不认识的格式硬写，会把用户的 YAML/TOML/SQLite 配置**覆盖成 JSON** → 应用直接坏掉。
+/// registry 的 `modelProviders.<p>.configWritable` 是真源：只有验证过写结构的应用才为 true。
+pub fn provider_writable(input: &ConfigWriteInput) -> CoreResult<bool> {
+    match registry::read_cached_app(&input.app_id) {
+        Ok(v) => Ok(provider_writable_in(&v, &input.provider)),
+        // registry 缓存里查不到 → 保守：只有 json/json5 目标才允许（见 write_allowed）
+        Err(_) => Ok(false),
+    }
+}
+
+/// 目标是不是「通用 JSON5 结构」能安全写的文件（只看扩展名）。
+fn is_json_target(p: &PathBuf) -> bool {
+    matches!(
+        p.extension().and_then(|e| e.to_str()),
+        Some("json") | Some("json5")
+    )
+}
+
+/// **写入闸门**（纯函数，可单测）：这次写入允许吗？
+///
+/// 两道防线（任一不过 → 拒绝，**绝不碰用户的文件**）：
+/// 1. registry 真源：该 provider 是否声明 `configWritable: true`（只有验证过写结构的应用才为 true）
+/// 2. 兜底：registry 没这个声明时，**只允许 json/json5 目标**
+///    （YAML/TOML/SQLite/无扩展名 → 通用结构会把它写坏 → 宁可拒绝，让用户照教程手动配）
+pub fn write_allowed(app_doc: Option<&Value>, provider: &str, target: &PathBuf) -> bool {
+    if let Some(doc) = app_doc {
+        // registry 有明确声明 → 以它为准（false 也不写）
+        if let Some(b) = doc
+            .pointer(&format!("/modelProviders/{provider}/configWritable"))
+            .and_then(|x| x.as_bool())
+        {
+            return b;
+        }
+    }
+    is_json_target(target)
+}
+
+/// 纯函数：app 文档里该 provider 是否声明为「AiBOX 知道怎么写」。
+pub fn provider_writable_in(app_doc: &Value, provider: &str) -> bool {
+    app_doc
+        .pointer(&format!("/modelProviders/{provider}/configWritable"))
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false)
+}
+
+/// 目标配置格式（仅用于错误说明；registry 的 `configFormat`）。
+pub fn provider_format(input: &ConfigWriteInput) -> String {
+    registry::read_cached_app(&input.app_id)
+        .map(|v| provider_format_in(&v, &input.provider))
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+/// 纯函数：app 文档里该 provider 的配置格式（仅用于错误说明）。
+pub fn provider_format_in(app_doc: &Value, provider: &str) -> String {
+    app_doc
+        .pointer(&format!("/modelProviders/{provider}/configFormat"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
 /// 构造补丁（仅包含调用方提供的值）。
 pub fn build_patch(input: &ConfigWriteInput) -> CoreResult<Value> {
     if !PROVIDERS.contains(&input.provider.as_str()) {
@@ -115,6 +180,18 @@ pub fn build_patch(input: &ConfigWriteInput) -> CoreResult<Value> {
 pub fn config_write(input: &ConfigWriteInput) -> CoreResult<ConfigWriteResult> {
     let patch = build_patch(input)?;
     let target = resolve_target(input)?;
+    // **格式闸门**：只对「已知写结构」的应用动手。
+    // 未知格式（yaml/toml/sqlite/…）→ 直接拒绝，**绝不碰用户的文件**。
+    let app_doc = registry::read_cached_app(&input.app_id).ok();
+    if !write_allowed(app_doc.as_ref(), &input.provider, &target) {
+        return Err(CoreError::new(
+            "CONFIG_FORMAT_UNSUPPORTED",
+            format!(
+                "AiBOX does not know how to write this app's config ({} format); the file was left untouched",
+                provider_format(input)
+            ),
+        ));
+    }
 
     // 1) 备份（已有原文件才备份；首次写入 backupPath = ""）
     let backup_path = if target.is_file() {
@@ -256,5 +333,53 @@ mod tests {
         // 无 appId 无 target → 结构化错误
         let e = resolve_target(&ConfigWriteInput::default()).unwrap_err();
         assert_eq!(e.code, "CONFIG_NO_APP");
+    }
+}
+
+#[cfg(test)]
+mod write_gate_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn doc(writable: Option<bool>) -> Value {
+        let mut mp = serde_json::Map::new();
+        let mut p = serde_json::Map::new();
+        p.insert("configFormat".into(), json!("yaml"));
+        p.insert("configTarget".into(), json!("~/.aider.conf.yml"));
+        if let Some(w) = writable {
+            p.insert("configWritable".into(), json!(w));
+        }
+        mp.insert("openai".into(), Value::Object(p));
+        json!({ "modelProviders": Value::Object(mp) })
+    }
+
+    #[test]
+    fn registry_declares_writable_is_the_truth() {
+        let t = PathBuf::from("/tmp/x.json5");
+        // 明确声明可写 → 允许（即使格式看着陌生，registry 是真源）
+        assert!(write_allowed(Some(&doc(Some(true))), "openai", &t));
+        // 明确声明不可写 → 拒绝（哪怕目标是 .json）
+        assert!(!write_allowed(
+            Some(&doc(Some(false))),
+            "openai",
+            &PathBuf::from("/tmp/x.json")
+        ));
+    }
+
+    #[test]
+    fn no_registry_declaration_falls_back_to_json_only() {
+        // 没有声明 → 只允许 json/json5（YAML/TOML/SQLite 绝不能碰）
+        assert!(write_allowed(None, "openai", &PathBuf::from("/tmp/x.json5")));
+        assert!(write_allowed(None, "openai", &PathBuf::from("/tmp/x.json")));
+        assert!(!write_allowed(None, "openai", &PathBuf::from("/tmp/x.yml")));
+        assert!(!write_allowed(None, "openai", &PathBuf::from("/tmp/x.toml")));
+        assert!(!write_allowed(None, "openai", &PathBuf::from("/tmp/x.db")));
+        assert!(!write_allowed(None, "openai", &PathBuf::from("/tmp/ComfyUI")));
+        // 有声明但没这个 provider → 同样退回 json 兜底
+        assert!(!write_allowed(
+            Some(&doc(Some(true))),
+            "anthropic",
+            &PathBuf::from("/tmp/x.yml")
+        ));
     }
 }

@@ -182,7 +182,8 @@
       "high": "偏貴",
       "free": "免費",
       "included": "訂閱內"
-    }
+    },
+    "manualGuide": "看設定教學"
   },
   "s6": {
     "title": "發一條真實訊息",
@@ -272,7 +273,8 @@
     "verifyNoKey": "還沒有 API key。回到上一步把 key 填上，再測一次。",
     "verifyUnsupported": "這條路線不能在這裡測。換一家服務商，或照教學手動設定。",
     "verifyBadResponse": "服務商的回覆不是預期的格式。再試一次，或換一家服務商。",
-    "verifyFailed": "測試請求沒能完成。可以重試，或換一條線路。"
+    "verifyFailed": "測試請求沒能完成。可以重試，或換一條線路。",
+    "configUnsupported": "AiBOX 還不會寫這個應用的設定檔（它不是 JSON 格式的設定）。你的原檔案**沒有被動過** —— 照著教學手動配一下，一分鐘就好。"
   },
   "resume": {
     "title": "繼續上次安裝？",

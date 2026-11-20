@@ -1,6 +1,6 @@
 {
-  "registryVersion": "2026.11.20.1",
-  "generatedAt": "2026-11-20T04:40:00Z",
+  "registryVersion": "2026.11.21.2",
+  "generatedAt": "2026-11-20T15:20:00Z",
   "note": "SSOT for AiBOX.im (aibox-site + AiBOX installer both read this repo). Data baselines were live-verified on 2026-11-09/11/12/14 (see README).",
   "apps": [
     {
@@ -18,7 +18,21 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google",
+        "claude-oauth",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google"
+      ]
     },
     {
       "id": "ollama",
@@ -36,6 +50,10 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "ollama"
+      ],
+      "keyProviders": [],
       "updatedAt": "2026-11-11T21:45:00Z"
     },
     {
@@ -54,6 +72,18 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google"
+      ],
       "updatedAt": "2026-11-11T21:45:00Z"
     },
     {
@@ -72,6 +102,18 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google"
+      ],
       "updatedAt": "2026-11-11T21:45:00Z"
     },
     {
@@ -90,6 +132,18 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google"
+      ],
       "updatedAt": "2026-11-11T21:45:00Z"
     },
     {
@@ -108,6 +162,15 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "openrouter",
+        "openai-compatible",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "openai-compatible"
+      ],
       "updatedAt": "2026-11-16T21:29:10Z"
     },
     {
@@ -126,6 +189,17 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "openrouter",
+        "openai",
+        "anthropic",
+        "nous-portal"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "openai",
+        "anthropic"
+      ],
       "updatedAt": "2026-11-12T12:30:00Z"
     },
     {
@@ -144,6 +218,15 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "openai",
+        "anthropic",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openai",
+        "anthropic"
+      ],
       "updatedAt": "2026-11-12T12:30:00Z"
     },
     {
@@ -162,6 +245,17 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "openai",
+        "anthropic",
+        "google",
+        "custom"
+      ],
+      "keyProviders": [
+        "openai",
+        "anthropic",
+        "google"
+      ],
       "updatedAt": "2026-11-12T12:30:00Z"
     },
     {
@@ -180,6 +274,17 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "anthropic",
+        "openai",
+        "openrouter",
+        "ollama"
+      ],
+      "keyProviders": [
+        "anthropic",
+        "openai",
+        "openrouter"
+      ],
       "updatedAt": "2026-11-12T14:30:00Z"
     },
     {
@@ -198,6 +303,10 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "local"
+      ],
+      "keyProviders": [],
       "updatedAt": "2026-11-12T14:30:00Z"
     },
     {
@@ -216,6 +325,17 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "anthropic",
+        "openai"
+      ],
       "updatedAt": "2026-11-12T14:30:00Z"
     },
     {
@@ -234,6 +354,13 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "local",
+        "openai"
+      ],
+      "keyProviders": [
+        "openai"
+      ],
       "updatedAt": "2026-11-12T14:30:00Z"
     },
     {
@@ -252,6 +379,17 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "anthropic",
+        "openai",
+        "openrouter",
+        "ollama"
+      ],
+      "keyProviders": [
+        "anthropic",
+        "openai",
+        "openrouter"
+      ],
       "updatedAt": "2026-11-14T08:30:00Z"
     },
     {
@@ -270,6 +408,17 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "openai",
+        "anthropic",
+        "openrouter",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openai",
+        "anthropic",
+        "openrouter"
+      ],
       "updatedAt": "2026-11-14T08:30:00Z"
     },
     {
@@ -288,6 +437,19 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "openai",
+        "anthropic",
+        "google",
+        "openrouter",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openai",
+        "anthropic",
+        "google",
+        "openrouter"
+      ],
       "updatedAt": "2026-11-14T08:30:00Z"
     },
     {
@@ -306,6 +468,13 @@
         "macos"
       ],
       "status": "stable",
+      "providers": [
+        "local",
+        "google"
+      ],
+      "keyProviders": [
+        "google"
+      ],
       "updatedAt": "2026-11-14T08:30:00Z"
     },
     {
@@ -323,7 +492,21 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google",
+        "claude-oauth",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google"
+      ]
     },
     {
       "id": "moneyprinterturbo",
@@ -339,7 +522,18 @@
       "platforms": [
         "windows"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "anthropic",
+        "openai",
+        "openrouter",
+        "ollama"
+      ],
+      "keyProviders": [
+        "anthropic",
+        "openai",
+        "openrouter"
+      ]
     },
     {
       "id": "stable-diffusion-webui",
@@ -356,7 +550,21 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google",
+        "claude-oauth",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google"
+      ]
     },
     {
       "id": "fooocus",
@@ -373,7 +581,21 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google",
+        "claude-oauth",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "anthropic",
+        "openai",
+        "google"
+      ]
     },
     {
       "id": "openhands",
@@ -390,7 +612,18 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "anthropic",
+        "openai",
+        "openrouter",
+        "ollama"
+      ],
+      "keyProviders": [
+        "anthropic",
+        "openai",
+        "openrouter"
+      ]
     },
     {
       "id": "goose",
@@ -407,7 +640,18 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "anthropic",
+        "openai",
+        "openrouter",
+        "ollama"
+      ],
+      "keyProviders": [
+        "anthropic",
+        "openai",
+        "openrouter"
+      ]
     },
     {
       "id": "codex",
@@ -424,7 +668,13 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "openai"
+      ],
+      "keyProviders": [
+        "openai"
+      ]
     },
     {
       "id": "opencode",
@@ -441,7 +691,16 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "openrouter",
+        "anthropic",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "anthropic"
+      ]
     },
     {
       "id": "zed",
@@ -458,7 +717,16 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "anthropic",
+        "openai",
+        "ollama"
+      ],
+      "keyProviders": [
+        "anthropic",
+        "openai"
+      ]
     },
     {
       "id": "5ire",
@@ -475,7 +743,20 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "openai",
+        "anthropic",
+        "google",
+        "deepseek",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openai",
+        "anthropic",
+        "google",
+        "deepseek"
+      ]
     },
     {
       "id": "dyad",
@@ -492,7 +773,16 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "openai",
+        "anthropic",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openai",
+        "anthropic"
+      ]
     },
     {
       "id": "pi",
@@ -509,7 +799,16 @@
         "windows",
         "macos"
       ],
-      "status": "stable"
+      "status": "stable",
+      "providers": [
+        "openrouter",
+        "anthropic",
+        "ollama"
+      ],
+      "keyProviders": [
+        "openrouter",
+        "anthropic"
+      ]
     }
   ]
 }
