@@ -31,6 +31,9 @@ fn main() {
         // SQLite（断点续装）：只注册，表结构与读写在 TS 侧
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
+        // 系统通知：托盘常驻时也能把「有升级 / 有上新」推到桌面通知中心
+        // （窗口关着时用户在界面上看不到任何提示 → 必须有系统通知这一层）
+        .plugin(tauri_plugin_notification::init())
         // 开机自启（官方插件；Windows = HKCU Run 键，免提权）
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,

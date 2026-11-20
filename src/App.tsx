@@ -47,6 +47,12 @@ import { usePrefetch } from "./hooks/usePrefetch";
 import { buildTrayLabels } from "./state/tray";
 import { logDrawer } from "./state/logDrawer";
 import { siteUrl } from "./lib/links";
+import { notifyDesktop, trayLocationHint } from "./lib/notify";
+import {
+  DEFAULT_NOTIFY_PREFS,
+  createNotifyStore,
+  type NotifyPrefs,
+} from "./state/notifyPrefs";
 import { APP_UPDATE_TTL_MS } from "./state/appUpdates";
 import { useSessionResume } from "./hooks/useSessionResume";
 import E1DiagPanel from "./screens/E1DiagPanel";
@@ -62,6 +68,11 @@ export default function App() {
   const [overlay, setOverlay] = useState<Overlay>("none");
   /** 打开设置时是否自动跑一次体检（首屏侧栏「打开体检」触发） */
   const [doctorAutoRun, setDoctorAutoRun] = useState(false);
+  /** 通知偏好（用户说了算；持久化） */
+  const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>(DEFAULT_NOTIFY_PREFS);
+  /** 偏好是否已从存储读出（未读出前不按偏好做「启动即收进托盘」等动作） */
+  const [notifyPrefsLoaded, setNotifyPrefsLoaded] = useState(false);
+  const notifyStoreRef = useRef(createNotifyStore());
   const [version, setVersion] = useState(__APP_VERSION__);
   const [appIndex, setAppIndex] = useState<AppIndex | null>(null);
   const [indexLoading, setIndexLoading] = useState(true);
@@ -209,8 +220,12 @@ export default function App() {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const win = getCurrentWindow();
         const off = await win.onCloseRequested((event) => {
-          // 自己处理：先提示，再让 Rust 侧按原逻辑隐藏
-          if (alive) channelToast.show(t("tray.closedHint"));
+          // 自己处理：先提示（**按平台说清在哪**：Windows=右下角任务栏，macOS=右上角菜单栏），再隐藏
+          if (alive) {
+            channelToast.show(
+              t("tray.closedHint", { where: trayLocationHint(i18next.resolvedLanguage) }),
+            );
+          }
           event.preventDefault();
           void win.hide();
         });
@@ -224,7 +239,7 @@ export default function App() {
       alive = false;
       unlisten?.();
     };
-  }, [t]);
+  }, [t, i18next.resolvedLanguage]);
 
   // E1 触发源：EXECUTE 中同一任务连败 2 次（RETRY 后再败即计 2）
   useEffect(() => {
@@ -277,6 +292,88 @@ export default function App() {
     return () => clearInterval(id);
   }, [recheckAppUpdates, banner.recheck]);
 
+  // 载入通知偏好（一次性）
+  useEffect(() => {
+    void notifyStoreRef.current.loadPrefs().then((p) => {
+      setNotifyPrefs(p);
+      setNotifyPrefsLoaded(true);
+    });
+  }, []);
+
+  /**
+   * **启动即收进托盘**（用户要的「运行后最小化到右下角」）。
+   *
+   * 只在本次启动生效一次（ref 守卫）：用户之后在设置里打开这个开关时，
+   * 不能把正在用的窗口也收走（那会让人以为程序崩了）。
+   */
+  const startupMinRef = useRef(false);
+  useEffect(() => {
+    if (!notifyPrefsLoaded) return;
+    if (startupMinRef.current) return;
+    if (!notifyPrefs.startMinimized) return;
+    startupMinRef.current = true;
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().hide();
+      } catch {
+        /* 非 Tauri → 不处理 */
+      }
+      // **启动就收进托盘 = 双击后什么都看不到** → 必须告诉用户「我在哪」，
+      // 否则用户会以为程序没启动（同一台机器只提醒一次）。
+      const first = await notifyStoreRef.current.markSeen("first-minimized");
+      if (first) {
+        await notifyDesktop(
+          t("notify.startedHiddenTitle"),
+          t("notify.startedHiddenBody", {
+            where: trayLocationHint(i18next.resolvedLanguage),
+          }),
+        );
+      }
+    })();
+  }, [notifyPrefsLoaded, notifyPrefs.startMinimized, t, i18next.resolvedLanguage]);
+
+  /**
+   * **装完 10 秒后收进托盘**（可被任何操作取消）。
+   *
+   * 为什么不是立刻收：完成页是整个流程里最有价值的时刻（「装到哪了」「怎么打开」），
+   * 一装完就消失等于白做。为什么可以延后：用户点开应用、看完完成页，
+   * 一次交互就该取消自动收（否则会「我正看着它突然没了」）。
+   */
+  const afterInstallRef = useRef(false);
+  useEffect(() => {
+    if (state.status !== "DONE") {
+      afterInstallRef.current = false;
+      return;
+    }
+    if (!notifyPrefsLoaded || !notifyPrefs.minimizeAfterInstall) return;
+    if (afterInstallRef.current) return;
+    afterInstallRef.current = true;
+    const cancel = () => {
+      afterInstallRef.current = false;
+      window.removeEventListener("pointerdown", cancel);
+      window.removeEventListener("keydown", cancel);
+    };
+    const id = window.setTimeout(() => {
+      cancel();
+      void (async () => {
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          await getCurrentWindow().hide();
+        } catch {
+          /* 非 Tauri */
+        }
+      })();
+    }, 10_000);
+    window.addEventListener("pointerdown", cancel);
+    window.addEventListener("keydown", cancel);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener("pointerdown", cancel);
+      window.removeEventListener("keydown", cancel);
+    };
+  }, [state.status, notifyPrefs.minimizeAfterInstall, notifyPrefsLoaded]);
+
   // 托盘状态同步（i18n 后下发 tooltip/菜单；本体新版/可升级数量联动）
   const appUpdateCount = checks.appUpdates.filter((r) => r.hasUpdate).length;
   useEffect(() => {
@@ -284,9 +381,69 @@ export default function App() {
       hasCoreUpdate: banner.info?.hasUpdate ?? false,
       coreVersion: banner.info?.version,
       appUpdateCount,
+      newAppCount: checks.newApps.length,
     });
     void api.traySync(labels).catch(() => undefined);
-  }, [t, i18next.resolvedLanguage, banner.info, appUpdateCount]);
+  }, [t, i18next.resolvedLanguage, banner.info, appUpdateCount, checks.newApps.length]);
+
+  /**
+   * 系统通知：**窗口关着时唯一能让用户感知的通道**（AiBOX 常驻托盘 → 界面黄条用户看不到）。
+   *
+   * 克制三原则：
+   * ① 偏好关掉的类别一律不发；② 同一事件（同一应用同一版本）只发一次（markSeen 去重）；
+   * ③ 正文写人话，不写错误码/内部词。
+   */
+  useEffect(() => {
+    if (!notifyPrefsLoaded) return;
+    const pending = checks.appUpdates.filter((r) => r.hasUpdate && r.latest);
+    if (pending.length === 0) return;
+    if (!notifyPrefs.appUpdate) return;
+    void (async () => {
+      const fresh = [];
+      for (const r of pending) {
+        if (await notifyStoreRef.current.markSeen(`upd:${r.appId}@${r.latest}`)) fresh.push(r);
+      }
+      if (fresh.length === 0) return;
+      await notifyDesktop(
+        t("notify.appUpdateTitle", { count: fresh.length }),
+        fresh.length === 1
+          ? t("notify.appUpdateBodyOne", { name: fresh[0].appId, version: fresh[0].latest })
+          : t("notify.appUpdateBodyMany", { count: fresh.length }),
+      );
+    })();
+  }, [checks.appUpdates, notifyPrefs.appUpdate, notifyPrefsLoaded, t]);
+
+  // 本体有新版 → 通知（每版只发一次）
+  useEffect(() => {
+    if (!notifyPrefsLoaded || !notifyPrefs.coreUpdate) return;
+    const info = banner.info;
+    if (!info?.hasUpdate || !info.version) return;
+    void (async () => {
+      const key = `core:${info.version}`;
+      if (!(await notifyStoreRef.current.markSeen(key))) return;
+      await notifyDesktop(
+        t("notify.coreUpdateTitle"),
+        t("notify.coreUpdateBody", { version: info.version }),
+      );
+    })();
+  }, [banner.info, notifyPrefs.coreUpdate, notifyPrefsLoaded, t]);
+
+  // 目录上新 → 通知（每个新应用只提醒一次）
+  useEffect(() => {
+    if (!notifyPrefsLoaded || !notifyPrefs.newApps) return;
+    if (checks.newApps.length === 0) return;
+    void (async () => {
+      const fresh: string[] = [];
+      for (const id of checks.newApps) {
+        if (await notifyStoreRef.current.markSeen(`new:${id}`)) fresh.push(id);
+      }
+      if (fresh.length === 0) return;
+      await notifyDesktop(
+        t("notify.newAppsTitle"),
+        t("notify.newAppsBody", { count: fresh.length }),
+      );
+    })();
+  }, [checks.newApps, notifyPrefs.newApps, notifyPrefsLoaded, t]);
 
   // 托盘菜单动作（Rust 发出）：下载=开官网；检查=三类合并重查；退出=安装中先确认
   useEffect(
@@ -301,12 +458,24 @@ export default function App() {
           api.registryIndex()
             .then((idx) => setAppIndex(idx))
             .catch(() => undefined);
+        } else if (e.payload.action === "updates") {
+          // 托盘待办「N 个应用可升级」→ 打开窗口并直接进「管理已装」
+          setOverlay("manage");
+        } else if (e.payload.action === "newapps") {
+          // 托盘待办「N 个新应用」→ 打开窗口并回到应用列表（S1）
+          // 注意：RESTART 只在 DONE 态有效；其他态只开窗口，不打断正在进行的流程。
+          setOverlay("none");
+          if (state.status === "DONE") dispatch({ type: "RESTART" });
+          else if (state.status === "IDLE") setAppIndex((idx) => idx);
+        } else if (e.payload.action === "core") {
+          // 托盘待办「AiBOX 有新版」→ 打开窗口 + 跳更新条
+          void openExternal(siteUrl("/download/", i18next.resolvedLanguage));
         } else if (e.payload.action === "quit") {
           if (state.status === "EXECUTE") setQuitConfirm(true);
           else void api.appQuit().catch(() => undefined);
         }
       }),
-    [recheckAppUpdates, banner.recheck, state.status],
+    [recheckAppUpdates, banner.recheck, state.status, i18next.resolvedLanguage],
   );
 
   // 安装完成（任务全部干完 → CONFIG）→ 登记 install-manifest（已装应用更新检查的数据源）
@@ -616,6 +785,12 @@ export default function App() {
               setDoctorAutoRun(false);
             }}
             autoRunDoctor={doctorAutoRun}
+            notifyPrefs={notifyPrefs}
+            onNotifyPrefsChange={(p) => {
+              setNotifyPrefs(p);
+              void notifyStoreRef.current.savePrefs(p);
+            }}
+            trayHint={trayLocationHint(i18next.resolvedLanguage)}
           />
           ) : overlay === "manage" ? (
             <S8Manage

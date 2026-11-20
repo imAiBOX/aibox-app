@@ -296,6 +296,17 @@ export interface TraySync {
   firstAction: "open" | "download";
   checkLabel: string;
   quitLabel: string;
+  /** 角标数字（Windows 托盘图标旁；空 = 不显示） */
+  badge?: string;
+  /** 待办项：已装应用可升级（count=0 → 不显示） */
+  pendingUpdatesLabel?: string;
+  pendingUpdatesCount?: number;
+  /** 待办项：目录新上 */
+  pendingNewLabel?: string;
+  pendingNewCount?: number;
+  /** 待办项：本体有新版 */
+  pendingCoreLabel?: string;
+  pendingCoreCount?: number;
 }
 
 /** 单应用计数（`GET /api/stats` 条目） */
@@ -328,7 +339,14 @@ export type AiboxEvent =
         sha256?: string;
       };
     }
-  | { event: "tray_action"; payload: { action: "open" | "check" | "quit" | "download" } };
+  | {
+      event: "tray_action";
+      payload: {
+        /** open=显示窗口；check=检查更新；quit=退出；download=下载新版；
+         *  updates/newapps/core = 托盘待办项（已装可升级 / 目录上新 / 本体新版） */
+        action: "open" | "check" | "quit" | "download" | "updates" | "newapps" | "core";
+      };
+    };
 
 type Handler = (e: AiboxEvent) => void;
 const handlers = new Set<Handler>();

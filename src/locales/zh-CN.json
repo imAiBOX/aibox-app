@@ -416,7 +416,13 @@
     "tip": "AiBOX",
     "tipUpdate": "AiBOX · 有新版本",
     "tipApps": "AiBOX · {{count}} 个可升级",
-    "closedHint": "AiBOX 还在后台运行。在屏幕右下角的任务栏图标区找它（可能被 ^ 箭头收起来了）。"
+    "closedHint": "AiBOX 还在后台运行，在{{where}}找它。",
+    "newApps": "{{count}} 个新应用",
+    "tipNew": "目录里有 {{count}} 个新应用",
+    "pendingUpdates": "{{count}} 个应用可以升级",
+    "pendingNew": "{{count}} 个新应用",
+    "pendingCore": "AiBOX {{version}} 可下载",
+    "pendingCoreNoVersion": "AiBOX 有新版本可下载"
   },
   "quit": {
     "title": "退出 AiBOX？",
@@ -470,5 +476,29 @@
     "errBackupFailed": "备份没做完，所以什么都没删。清理磁盘空间或检查权限后再试。",
     "errDeleteFailed": "删除时遇到系统问题（权限不足 / 文件正被占用），没有删掉任何东西。",
     "errIo": "本地文件操作失败（权限不足 / 路径不可写）。"
+  },
+  "notify": {
+    "tab": "通知",
+    "intro": "AiBOX 常驻后台，是为了在有事需要你时告诉你。哪些想听、哪些不想听，你来定 —— 同一件事绝不会提醒你两次。",
+    "coreUpdate": "AiBOX 本身有新版本",
+    "coreUpdateDesc": "每个新版本提醒一次。",
+    "appUpdate": "你装的应用有升级",
+    "appUpdateDesc": "每个应用的新版本提醒一次。",
+    "newApps": "目录里有新上架的应用",
+    "newAppsDesc": "每个新应用提醒一次。",
+    "startMinimized": "启动时直接收进托盘",
+    "startMinimizedDesc": "AiBOX 启动后直接到{{where}}，不弹窗口。",
+    "minimizeAfterInstall": "装完后自动收进托盘",
+    "minimizeAfterInstallDesc": "最后一个应用装好后 10 秒，AiBOX 回到{{where}} —— 但你只要点一下屏幕，这次自动收起就取消。",
+    "reset": "恢复默认",
+    "coreUpdateTitle": "AiBOX 有新版本",
+    "coreUpdateBody": "版本 {{version}} 已经可以下载。",
+    "appUpdateTitle": "有 {{count}} 个应用可以升级",
+    "appUpdateBodyOne": "{{name}} 有新版本 {{version}}。",
+    "appUpdateBodyMany": "有 {{count}} 个已装应用出现了新版本。",
+    "newAppsTitle": "目录里有新应用",
+    "newAppsBody": "有 {{count}} 个新上架的应用可以装了。",
+    "startedHiddenTitle": "AiBOX 在后台运行",
+    "startedHiddenBody": "没有弹出窗口，因为它直接去了{{where}}。点那里的图标就能把它叫回来。"
   }
 }

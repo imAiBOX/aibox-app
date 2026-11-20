@@ -13,25 +13,43 @@ export interface TrayState {
   hasCoreUpdate: boolean;
   coreVersion?: string;
   appUpdateCount: number;
+  /** 目录新上的应用数（待办项之一；缺省 0） */
+  newAppCount?: number;
 }
 
 export function buildTrayLabels(t: TFn, s: TrayState): TraySync {
+  const newCount = s.newAppCount ?? 0;
   const firstAction: TraySync["firstAction"] = s.hasCoreUpdate ? "download" : "open";
   const firstLabel = s.hasCoreUpdate
     ? t("tray.firstUpdate", { version: s.coreVersion ?? "?" })
     : s.appUpdateCount > 0
       ? t("tray.appUpdates", { count: s.appUpdateCount })
-      : t("tray.open");
+      : newCount > 0
+        ? t("tray.newApps", { count: newCount })
+        : t("tray.open");
   const tooltip = s.hasCoreUpdate
     ? t("tray.tipUpdate")
     : s.appUpdateCount > 0
       ? t("tray.tipApps", { count: s.appUpdateCount })
-      : t("tray.tip");
+      : newCount > 0
+        ? t("tray.tipNew", { count: newCount })
+        : t("tray.tip");
+  // 角标数字 = 待办总数（Windows 托盘图标旁；其他平台忽略）
+  const total = s.appUpdateCount + newCount + (s.hasCoreUpdate ? 1 : 0);
   return {
     tooltip,
     firstLabel,
     firstAction,
     checkLabel: t("tray.check"),
     quitLabel: t("tray.quit"),
+    badge: total > 0 ? String(total) : "",
+    pendingUpdatesLabel: t("tray.pendingUpdates", { count: s.appUpdateCount }),
+    pendingUpdatesCount: s.appUpdateCount,
+    pendingNewLabel: t("tray.pendingNew", { count: newCount }),
+    pendingNewCount: newCount,
+    pendingCoreLabel: s.coreVersion
+      ? t("tray.pendingCore", { version: s.coreVersion })
+      : t("tray.pendingCoreNoVersion"),
+    pendingCoreCount: s.hasCoreUpdate ? 1 : 0,
   };
 }

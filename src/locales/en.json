@@ -416,7 +416,13 @@
     "tip": "AiBOX",
     "tipUpdate": "AiBOX · update available",
     "tipApps": "AiBOX · {{count}} apps can update",
-    "closedHint": "AiBOX is still running in the background. Find it in the tray at the bottom-right of your screen (it may be under the ^ arrow)."
+    "closedHint": "AiBOX is still running in the background — find it in {{where}}.",
+    "newApps": "{{count}} new apps",
+    "tipNew": "{{count}} new apps in the catalog",
+    "pendingUpdates": "{{count}} apps can be updated",
+    "pendingNew": "{{count}} new apps",
+    "pendingCore": "AiBOX {{version}} is available",
+    "pendingCoreNoVersion": "A new AiBOX version is available"
   },
   "quit": {
     "title": "Quit AiBOX?",
@@ -470,5 +476,29 @@
     "errBackupFailed": "The backup didn't finish, so nothing was deleted. Free up disk space or check permissions and retry.",
     "errDeleteFailed": "Deleting hit a system problem (no permission, or a file is in use). Nothing was removed.",
     "errIo": "A local file operation failed (no permission, or the path isn't writable)."
+  },
+  "notify": {
+    "tab": "Notifications",
+    "intro": "AiBOX stays in the background so it can tell you when something needs your attention. Choose what you want to hear about — it will never nag you twice about the same thing.",
+    "coreUpdate": "AiBOX itself has a new version",
+    "coreUpdateDesc": "Shown once per new version.",
+    "appUpdate": "An app you installed has an update",
+    "appUpdateDesc": "Shown once per app version.",
+    "newApps": "New apps are available in the catalog",
+    "newAppsDesc": "Shown once per new app.",
+    "startMinimized": "Start minimized in the tray",
+    "startMinimizedDesc": "AiBOX goes straight to the {{where}} when it starts, without opening a window.",
+    "minimizeAfterInstall": "Minimize after an install finishes",
+    "minimizeAfterInstallDesc": "Ten seconds after the last app is installed, AiBOX returns to the {{where}} — unless you click something first.",
+    "reset": "Restore defaults",
+    "coreUpdateTitle": "AiBOX has a new version",
+    "coreUpdateBody": "Version {{version}} is ready to download.",
+    "appUpdateTitle": "{{count}} app can be updated",
+    "appUpdateBodyOne": "{{name}} has version {{version}} available.",
+    "appUpdateBodyMany": "{{count}} installed apps have new versions.",
+    "newAppsTitle": "New apps in the catalog",
+    "newAppsBody": "{{count}} new apps are available to install.",
+    "startedHiddenTitle": "AiBOX is running in the background",
+    "startedHiddenBody": "Nothing opened because it goes straight to the {{where}}. Click the icon there to bring it back."
   }
 }

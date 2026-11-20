@@ -416,7 +416,13 @@
     "tip": "AiBOX",
     "tipUpdate": "AiBOX · 有新版本",
     "tipApps": "AiBOX · {{count}} 個可升級",
-    "closedHint": "AiBOX 還在背景執行。在螢幕右下角的系統匣圖示區找它（可能被 ^ 箭頭收起來了）。"
+    "closedHint": "AiBOX 還在背景執行，在{{where}}找它。",
+    "newApps": "{{count}} 個新應用",
+    "tipNew": "目錄裡有 {{count}} 個新應用",
+    "pendingUpdates": "{{count}} 個應用可以升級",
+    "pendingNew": "{{count}} 個新應用",
+    "pendingCore": "AiBOX {{version}} 可下載",
+    "pendingCoreNoVersion": "AiBOX 有新版本可下載"
   },
   "quit": {
     "title": "退出 AiBOX？",
@@ -470,5 +476,29 @@
     "errBackupFailed": "備份沒做完，所以什麼都沒刪。清理磁碟空間或檢查權限後再試。",
     "errDeleteFailed": "刪除時遇到系統問題（權限不足 / 檔案正被占用），沒有刪掉任何東西。",
     "errIo": "本地檔案操作失敗（權限不足 / 路徑不可寫）。"
+  },
+  "notify": {
+    "tab": "通知",
+    "intro": "AiBOX 常駐背景，是為了在有事需要你時告訴你。哪些想聽、哪些不想聽，你來定 —— 同一件事絕不會提醒你兩次。",
+    "coreUpdate": "AiBOX 本身有新版本",
+    "coreUpdateDesc": "每個新版本提醒一次。",
+    "appUpdate": "你裝的應用有升級",
+    "appUpdateDesc": "每個應用的新版本提醒一次。",
+    "newApps": "目錄裡有新上架的應用",
+    "newAppsDesc": "每個新應用提醒一次。",
+    "startMinimized": "啟動時直接收進匣",
+    "startMinimizedDesc": "AiBOX 啟動後直接到{{where}}，不彈視窗。",
+    "minimizeAfterInstall": "裝完後自動收進匣",
+    "minimizeAfterInstallDesc": "最後一個應用裝好後 10 秒，AiBOX 回到{{where}} —— 但你只要點一下螢幕，這次自動收起就取消。",
+    "reset": "恢復預設",
+    "coreUpdateTitle": "AiBOX 有新版本",
+    "coreUpdateBody": "版本 {{version}} 已經可以下載。",
+    "appUpdateTitle": "有 {{count}} 個應用可以升級",
+    "appUpdateBodyOne": "{{name}} 有新版本 {{version}}。",
+    "appUpdateBodyMany": "有 {{count}} 個已裝應用出現了新版本。",
+    "newAppsTitle": "目錄裡有新應用",
+    "newAppsBody": "有 {{count}} 個新上架的應用可以裝了。",
+    "startedHiddenTitle": "AiBOX 在背景執行",
+    "startedHiddenBody": "沒有彈出視窗，因為它直接去了{{where}}。點那裡的圖示就能把它叫回來。"
   }
 }

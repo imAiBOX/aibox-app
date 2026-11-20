@@ -47,3 +47,33 @@ describe("buildTrayLabels", () => {
     expect(s.firstLabel).toBe("tray.firstUpdate(version=?)");
   });
 });
+
+describe("托盘待办（状态面板）", () => {
+  const t = (k: string, o?: Record<string, string | number>) => `${k}${o ? JSON.stringify(o) : ""}`;
+
+  it("角标数字 = 待办总数；无待办 → 空（不显示角标）", () => {
+    const none = buildTrayLabels(t, { hasCoreUpdate: false, appUpdateCount: 0 });
+    expect(none.badge).toBe("");
+    expect(none.pendingUpdatesCount).toBe(0);
+    expect(none.pendingNewCount).toBe(0);
+    expect(none.pendingCoreCount).toBe(0);
+
+    const some = buildTrayLabels(t, {
+      hasCoreUpdate: true,
+      coreVersion: "0.1.11",
+      appUpdateCount: 2,
+      newAppCount: 1,
+    });
+    expect(some.badge).toBe("4");
+    expect(some.pendingUpdatesCount).toBe(2);
+    expect(some.pendingNewCount).toBe(1);
+    expect(some.pendingCoreCount).toBe(1);
+  });
+
+  it("只有目录上新时，首项与 tooltip 指向新应用", () => {
+    const r = buildTrayLabels(t, { hasCoreUpdate: false, appUpdateCount: 0, newAppCount: 3 });
+    expect(r.firstAction).toBe("open");
+    expect(r.firstLabel).toContain("tray.newApps");
+    expect(r.tooltip).toContain("tray.tipNew");
+  });
+});

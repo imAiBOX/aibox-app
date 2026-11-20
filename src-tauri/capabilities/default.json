@@ -1,6 +1,18 @@
 {
   "identifier": "default",
-  "description": "Default capability for the main window",
-  "windows": ["main"],
-  "permissions": ["core:default", "sql:default", "sql:allow-execute", "opener:default", "opener:allow-open-url"]
+  "description": "Default capability for the main window（+ 系统通知：托盘常驻时的升级/上新提示）",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "sql:default",
+    "sql:allow-execute",
+    "opener:default",
+    "opener:allow-open-url",
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission"
+  ]
 }

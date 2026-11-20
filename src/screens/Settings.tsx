@@ -6,16 +6,26 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import SettingsGeneral from "./SettingsGeneral";
 import SettingsNetwork from "./SettingsNetwork";
+import SettingsNotify from "./SettingsNotify";
+import { DEFAULT_NOTIFY_PREFS, type NotifyPrefs } from "../state/notifyPrefs";
 
-type Tab = "general" | "network";
+type Tab = "general" | "network" | "notify";
 
 export default function Settings({
   onClose,
   autoRunDoctor,
+  notifyPrefs,
+  onNotifyPrefsChange,
+  trayHint,
 }: {
   onClose: () => void;
   /** 打开即自动跑一次网络体检（首屏侧栏「打开体检」用：承诺「看看你的电脑」就要真看） */
   autoRunDoctor?: boolean;
+  /** 通知偏好（用户说了算） */
+  notifyPrefs?: NotifyPrefs;
+  onNotifyPrefsChange?: (p: NotifyPrefs) => void;
+  /** 「AiBOX 在哪」的人话说明（按平台自适应） */
+  trayHint?: string;
 }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("network");
@@ -23,6 +33,7 @@ export default function Settings({
   const tabs: { id: Tab; labelKey: string }[] = [
     { id: "general", labelKey: "gen.title" },
     { id: "network", labelKey: "net.tab" },
+    { id: "notify", labelKey: "notify.tab" },
   ];
 
   return (
@@ -56,7 +67,17 @@ export default function Settings({
         ))}
       </div>
 
-      {tab === "general" ? <SettingsGeneral /> : <SettingsNetwork autoRun={autoRunDoctor} />}
+      {tab === "general" ? (
+        <SettingsGeneral />
+      ) : tab === "notify" ? (
+        <SettingsNotify
+          prefs={notifyPrefs ?? DEFAULT_NOTIFY_PREFS}
+          onChange={onNotifyPrefsChange ?? (() => undefined)}
+          trayHint={trayHint ?? ""}
+        />
+      ) : (
+        <SettingsNetwork autoRun={autoRunDoctor} />
+      )}
     </div>
   );
 }
