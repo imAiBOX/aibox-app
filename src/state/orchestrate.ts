@@ -107,6 +107,8 @@ export interface ExecuteApi {
   downloadStart(task: DownloadTask): Promise<string>;
   downloadCancel(jobId: string): Promise<void>;
   verifySha256(path: string, expected: string): Promise<boolean>;
+  /** gzip 内层内容摘要校验（源码归档：外层 gzip 会漂移，内层内容稳定） */
+  verifyGzInnerSha256?(path: string, expected: string): Promise<boolean>;
   execInstall(task: ExecTask): Promise<{ code: number; out: string }>;
   probeRun(spec: ProbeSpec): Promise<{ version: string }>;
   /** 安装上报（best-effort：fire-and-forget，reject/同步抛都不影响编排；可选） */
@@ -288,10 +290,11 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     deps.dispatch({ type: "TASK_PHASE", taskId: task.id, phase: "verify" });
     let verified: boolean;
     try {
-      verified = await deps.api.verifySha256(
-        downloadPath(spec.download.destName, spec.download.sha256),
-        spec.download.sha256,
-      );
+      const dlPath = downloadPath(spec.download.destName, spec.download.sha256);
+      verified =
+        spec.download.hashMode === "content" && deps.api.verifyGzInnerSha256
+          ? await deps.api.verifyGzInnerSha256(dlPath, spec.download.sha256)
+          : await deps.api.verifySha256(dlPath, spec.download.sha256);
     } catch (e) {
       return fail(errCode(e, "VERIFY_FAILED"), task.id, errorHumanOf(e));
     }

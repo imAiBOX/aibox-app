@@ -67,7 +67,9 @@ function downloadsPath(home: string, destName: string): string {
 /** 单包 → 四阶段 spec（kind 映射 + exe 绝对路径） */
 export function specOf(pkg: RegistryPackage, home: string): { spec: TaskSpec; exeArgs: string[] } | null {
   const url = pkg.channels?.[0]?.url;
-  const sha256 = pkg.sha256;
+  // 源码归档（hashMode=content）：字节 sha 会漂移 → 用 gzip 内层内容摘要
+  const hashMode = pkg.hashMode ?? "bytes";
+  const sha256 = hashMode === "content" ? pkg.contentSha256 ?? pkg.sha256 : pkg.sha256;
   const install = pkg.install;
   if (!url || !sha256 || !install) return null;
   const destName = destNameOf(url);
@@ -108,6 +110,7 @@ export function specOf(pkg: RegistryPackage, home: string): { spec: TaskSpec; ex
     channels: pkg.channels.map((c) => ({ type: c.type, url: c.url })),
     sha256,
     destName,
+    ...(hashMode === "content" ? { hashMode: "content" as const } : {}),
   };
   const exec = {
     id: pkg.id,

@@ -255,6 +255,8 @@ pub async fn download_start(
     id: String,
     channels: Vec<Value>,
     sha256: String,
+    // 校验方式："bytes"（默认）| "content"（gzip 内层内容摘要；源码归档用）
+    hash_mode: Option<String>,
     dest_name: String,
     app_id: Option<String>,
     size_bytes: Option<u64>,
@@ -296,6 +298,7 @@ pub async fn download_start(
     let spec = DownloadSpec {
         channels: channel_urls,
         sha256,
+        hash_mode: hash_mode.clone(),
         dest_name,
         size_bytes,
         skip_channels: skip.clone(),
@@ -488,6 +491,22 @@ pub async fn download_cancel(job_id: String) -> Cmd<()> {
     }
     // job 不存在也返回成功（幂等；TS 可能对已完成任务补点取消）
     Ok(())
+}
+
+/// **gzip 内层内容摘要校验**（源码归档用）。
+///
+/// 字节 sha256 对 GitHub 自动生成的源码包**必然漂移**（每次 fetch 重新 gzip），
+/// 而内层 tar 内容稳定 → 用它做完整性校验，既不漂移又不丢完整性保证。
+#[tauri::command]
+pub async fn verify_gz_inner_sha256(path: String, expected: String) -> Cmd<bool> {
+    blocking(move || {
+        let p = paths::expand(&path);
+        match aibox_core::content_digest::gz_inner_sha256(&p) {
+            Ok(actual) => Ok(actual.eq_ignore_ascii_case(expected.trim())),
+            Err(_) => Ok(false),
+        }
+    })
+    .await
 }
 
 #[tauri::command]

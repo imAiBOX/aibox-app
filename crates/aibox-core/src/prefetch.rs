@@ -26,6 +26,8 @@ pub struct PrefetchPlan {
     pub pkg_id: String,
     pub channels: Vec<aibox_net::ChannelUrl>,
     pub sha256: String,
+    /// 校验方式（"content" = gzip 内层内容摘要；源码归档用；None = 字节 sha256）
+    pub hash_mode: Option<String>,
     pub size_bytes: Option<u64>,
     /// 旧式文件名（URL basename）；实际落盘名 = `content_name(dest_name, sha256)`
     pub dest_name: String,
@@ -160,7 +162,20 @@ pub fn plan_from_manifest(
         .find(|p| !is_dep_id(p.get("id").and_then(|i| i.as_str()).unwrap_or("")))
         .or_else(|| selected.last())?;
 
-    let sha256 = main.get("sha256").and_then(|s| s.as_str())?.trim().to_lowercase();
+    // 校验方式：content → 用 contentSha256（gzip 内层摘要；字节 sha 会漂移）
+    let hash_mode = main
+        .get("hashMode")
+        .and_then(|s| s.as_str())
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty());
+    let sha256 = if hash_mode.as_deref() == Some("content") {
+        main.get("contentSha256")
+            .and_then(|s| s.as_str())?
+            .trim()
+            .to_lowercase()
+    } else {
+        main.get("sha256").and_then(|s| s.as_str())?.trim().to_lowercase()
+    };
     if sha256.len() != 64 || !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
@@ -178,6 +193,7 @@ pub fn plan_from_manifest(
             .to_string(),
         channels,
         sha256,
+        hash_mode: hash_mode.clone(),
         size_bytes: main.get("sizeBytes").and_then(|s| s.as_u64()),
         dest_name: url_basename(&url),
     })
@@ -223,13 +239,16 @@ pub fn run_at(
     if cancel.load(Ordering::Relaxed) {
         return Err(CoreError::new("PREFETCH_CANCELLED", "prefetch cancelled"));
     }
-    if download::resolve_cached(dir, &plan.dest_name, &plan.sha256)?.is_some() {
+    if download::resolve_cached(dir, &plan.dest_name, &plan.sha256, plan.hash_mode.as_deref())?
+        .is_some()
+    {
         return Ok(PrefetchStatus::Cached);
     }
     if cancel.load(Ordering::Relaxed) {
         return Err(CoreError::new("PREFETCH_CANCELLED", "prefetch cancelled"));
     }
     let spec = DownloadSpec {
+        hash_mode: plan.hash_mode.clone(),
         channels: plan.channels.clone(),
         sha256: plan.sha256.clone(),
         dest_name: plan.dest_name.clone(),
@@ -395,6 +414,7 @@ mod tests {
         let plan = PrefetchPlan {
             app_id: "demo".into(),
             pkg_id: "demo-x64".into(),
+            hash_mode: None,
             channels: vec![aibox_net::ChannelUrl::new(
                 aibox_net::ChannelType::Direct,
                 "https://x.invalid/Demo-Setup.exe",

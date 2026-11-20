@@ -144,6 +144,10 @@ export interface RegistryPackage {
   arch?: string; // 'x64' | 'arm64' | 'any' | 缺省
   sha256?: string;
   sizeBytes?: number;
+  /** 完整性校验方式：bytes=字节 sha256（默认）；content=gzip 内层内容摘要（源码归档专用） */
+  hashMode?: "bytes" | "content";
+  /** hashMode=content 时的期望摘要 */
+  contentSha256?: string;
   channels: RegistryChannel[];
   install?: RegistryInstall;
 }
@@ -192,6 +196,8 @@ export interface DownloadTask {
   id: string;
   channels: { type: string; url: string }[];
   sha256: string;
+  /** 校验方式（bytes=字节 sha256；content=gzip 内层内容摘要——源码归档用） */
+  hashMode?: "bytes" | "content";
   destName: string;
   /** 所属应用 id（任务日志子目录 ~/.aibox/logs/<app>/） */
   appId?: string;
@@ -469,6 +475,9 @@ export const api = {
   downloadCancel: (jobId: string) => invoke<void>("download_cancel", { jobId }),
   verifySha256: (path: string, expected: string) =>
     invoke<boolean>("verify_sha256", { path, expected }),
+  /** gzip 内层内容摘要校验（源码归档：外层 gzip 会漂移，内层稳定） */
+  verifyGzInnerSha256: (path: string, expected: string) =>
+    invoke<boolean>("verify_gz_inner_sha256", { path, expected }),
   execInstall: (task: ExecTask) => invoke<{ code: number; out: string }>("exec_install", task),
   probeRun: (spec: ProbeSpec) => invoke<{ version: string }>("probe_run", spec),
   configWrite: (input: ConfigWriteInput) =>

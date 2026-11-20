@@ -85,6 +85,11 @@ pub fn dest_for(dest_name: &str) -> CoreResult<PathBuf> {
 pub struct DownloadSpec {
     pub channels: Vec<ChannelUrl>,
     pub sha256: String,
+    /// 校验方式："bytes"（默认，校验下载字节的 sha256）| "content"（校验 gzip 内层内容摘要）
+    ///
+    /// **为什么需要**：GitHub 自动生成的源码包每次 fetch 重新 gzip → 字节摘要必然漂移；
+    /// 内层 tar 内容稳定 → 用内容摘要校验，既不漂移又不丢完整性保证。
+    pub hash_mode: Option<String>,
     pub dest_name: String,
     /// registry 包级期望字节数（`sizeBytes`，通道无关）；`None` = 不知道
     pub size_bytes: Option<u64>,
@@ -92,6 +97,21 @@ pub struct DownloadSpec {
     pub skip_channels: Vec<aibox_net::ChannelType>,
     /// 所属应用 id（任务日志子目录 `~/.aibox/logs/<app>/`）
     pub app_id: Option<String>,
+}
+
+/// 按校验方式核对文件摘要。
+///
+/// - `hash_mode = "content"` → 校验 **gzip 内层内容** 的 sha256（源码归档用；外层 gzip 会漂移）
+/// - 其它（含 None）→ 校验文件字节的 sha256
+pub fn verify_digest(path: &Path, expected: &str, hash_mode: Option<&str>) -> bool {
+    match hash_mode {
+        Some(m) if m.eq_ignore_ascii_case("content") => {
+            crate::content_digest::gz_inner_sha256(path)
+                .map(|a| a.eq_ignore_ascii_case(expected.trim()))
+                .unwrap_or(false)
+        }
+        _ => crate::verify::verify_sha256(path, expected).unwrap_or(false),
+    }
 }
 
 /// 解析 `skipChannels`（TS 传通道类型名，大小写不敏感）。
@@ -137,7 +157,7 @@ pub fn download_to_cache(
     let _ = dest_for(&spec.dest_name)?; // 名称合法性（防穿越）+ 目录确保存在
     let sha = spec.sha256.trim().to_ascii_lowercase();
     // 1) 缓存命中（含旧 destName → sha 迁移）→ 零网络直接过
-    if let Some(hit) = resolve_cached(&dir, &spec.dest_name, &sha)? {
+    if let Some(hit) = resolve_cached(&dir, &spec.dest_name, &sha, spec.hash_mode.as_deref())? {
         let bytes = std::fs::metadata(&hit).map(|m| m.len()).unwrap_or(0);
         let (channel, url) = spec
             .channels
@@ -175,6 +195,7 @@ pub fn resolve_cached(
     dir: &Path,
     dest_name: &str,
     sha256: &str,
+    hash_mode: Option<&str>,
 ) -> CoreResult<Option<PathBuf>> {
     let sha = sha256.trim().to_ascii_lowercase();
     if sha.len() != 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -195,19 +216,14 @@ pub fn resolve_cached(
     }
     let content = dir.join(content_name(dest_name, &sha));
     if content.is_file() {
-        match crate::verify::verify_sha256(&content, &sha) {
-            Ok(true) => return Ok(Some(content)),
-            Ok(false) | Err(_) => {
-                let _ = std::fs::remove_file(&content); // 校验失败删文件不留毒
-            }
+        if verify_digest(&content, &sha, hash_mode) {
+            return Ok(Some(content));
         }
+        let _ = std::fs::remove_file(&content); // 校验失败删文件不留毒
     }
     // 旧 destName 文件（老版本缓存）：校验通过 → 迁移到内容寻址文件名
     let legacy = dir.join(dest_name);
-    if legacy != content
-        && legacy.is_file()
-        && crate::verify::verify_sha256(&legacy, &sha).unwrap_or(false)
-    {
+    if legacy != content && legacy.is_file() && verify_digest(&legacy, &sha, hash_mode) {
         let _ = std::fs::remove_file(&content); // 清掉可能的坏残留
         if std::fs::rename(&legacy, &content).is_ok() {
             return Ok(Some(content));
@@ -326,10 +342,10 @@ mod tests {
         let d = tmp_dir("hit");
         let content = d.join(content_name("app.exe", HELLO_SHA));
         std::fs::write(&content, b"hello").unwrap();
-        let got = resolve_cached(&d, "app.exe", HELLO_SHA).unwrap();
+        let got = resolve_cached(&d, "app.exe", HELLO_SHA, None).unwrap();
         assert_eq!(got, Some(content.clone()), "内容寻址文件存在且校验过 → 命中");
         // 重复检查：仍命中，不多出文件（幂等）
-        let got2 = resolve_cached(&d, "app.exe", HELLO_SHA).unwrap();
+        let got2 = resolve_cached(&d, "app.exe", HELLO_SHA, None).unwrap();
         assert_eq!(got2, Some(content.clone()));
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1, "重复下载不重复存");
         let _ = std::fs::remove_dir_all(&d);
@@ -340,7 +356,7 @@ mod tests {
         let d = tmp_dir("migrate");
         let legacy = d.join("app.exe");
         std::fs::write(&legacy, b"hello").unwrap();
-        let got = resolve_cached(&d, "app.exe", HELLO_SHA).unwrap();
+        let got = resolve_cached(&d, "app.exe", HELLO_SHA, None).unwrap();
         let content = d.join(content_name("app.exe", HELLO_SHA));
         assert_eq!(got, Some(content.clone()), "旧 destName 校验过 → 迁移并命中");
         assert!(!legacy.exists(), "迁移后旧文件名不残留");
@@ -354,12 +370,12 @@ mod tests {
         // 内容寻址文件存在但内容不对 → 删除（不留毒）且不命中
         let content = d.join(content_name("app.exe", HELLO_SHA));
         std::fs::write(&content, b"evil").unwrap();
-        assert!(resolve_cached(&d, "app.exe", HELLO_SHA).unwrap().is_none());
+        assert!(resolve_cached(&d, "app.exe", HELLO_SHA, None).unwrap().is_none());
         assert!(!content.exists(), "校验失败删文件不留毒");
         // 旧文件内容不对 → 不迁移、不命中（留给网络重下）
         let legacy = d.join("app.exe");
         std::fs::write(&legacy, b"evil").unwrap();
-        assert!(resolve_cached(&d, "app.exe", HELLO_SHA).unwrap().is_none());
+        assert!(resolve_cached(&d, "app.exe", HELLO_SHA, None).unwrap().is_none());
         assert!(legacy.exists(), "不删非内容寻址的未知文件");
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -380,9 +396,9 @@ mod tests {
     #[test]
     fn resolve_cached_rejects_bad_inputs() {
         let d = tmp_dir("bad");
-        assert!(resolve_cached(&d, "../x", HELLO_SHA).is_err());
-        assert!(resolve_cached(&d, "a/b", HELLO_SHA).is_err());
-        assert!(resolve_cached(&d, "a.bin", "zz").is_err());
+        assert!(resolve_cached(&d, "../x", HELLO_SHA, None).is_err());
+        assert!(resolve_cached(&d, "a/b", HELLO_SHA, None).is_err());
+        assert!(resolve_cached(&d, "a.bin", "zz", None).is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
 }

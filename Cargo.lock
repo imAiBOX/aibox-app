@@ -39,11 +39,13 @@ name = "aibox-core"
 version = "0.1.14"
 dependencies = [
  "aibox-net",
+ "flate2",
  "json5",
  "regex",
  "serde",
  "serde_json",
  "sha1",
+ "sha2",
  "ureq",
  "uuid",
  "windows-sys 0.61.2",

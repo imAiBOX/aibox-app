@@ -21,6 +21,10 @@ sha1 = "0.10"
 json5 = "0.4"
 # 诊断包 zip（default-features 关闭：只要 deflate；flate2→miniz_oxide/zlib-rs 纯 Rust）
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# gzip 解码（源码归档「内容摘要」用；miniz_oxide 纯 Rust，无系统 C 库）
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# sha2（gzip 内层内容摘要；纯 Rust）
+sha2 = "0.10"
 
 # Windows 系统信息读取（GetDiskFreeSpaceExW / GlobalMemoryStatusEx）——windows-sys 纯绑定无 C 构建
 [target.'cfg(windows)'.dependencies]

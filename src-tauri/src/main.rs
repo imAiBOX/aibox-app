@@ -63,6 +63,7 @@ fn main() {
             commands::download_start,
             commands::download_cancel,
             commands::verify_sha256,
+            commands::verify_gz_inner_sha256,
             commands::exec_install,
             commands::probe_run,
             // CONFIG / VERIFY
