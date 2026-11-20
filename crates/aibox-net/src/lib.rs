@@ -31,9 +31,13 @@ pub use doh::{
     DOH_TTL_SECS,
 };
 pub use download::{
-    classify_product, download_fallback, looks_like_fault_page, sha256_file, sha256_hex,
-    ChannelFailure, ChannelUrl, DownloadError, DownloadOptions, DownloadProgress, DownloadReceipt,
-    ProductVerdict, DEFAULT_TIMEOUT, SEGMENT_RETRIES, SEGMENT_SIZE,
+    all_failures_too_slow, classify_product, download_fallback, looks_like_fault_page,
+    observed_bps, segment_speed_too_slow, sha256_file, sha256_hex, slow_guard_enabled,
+    ChannelFailure, ChannelFailureKind, ChannelUrl, DownloadError, DownloadOptions,
+    DownloadProgress, DownloadReceipt, ProductVerdict, SlowValve, SlowValveInfo,
+    DEFAULT_MIN_SEGMENT_BPS, DEFAULT_TIMEOUT, SEGMENT_RETRIES, SEGMENT_SIZE,
+    SLOW_SEGMENT_MIN_SAMPLE_BYTES, SLOW_SKIP_TOTAL_BYTES, SLOW_WINDOW,
+    SLOW_WINDOW_MIN_SAMPLE_BYTES,
 };
 pub use probe::{probe_head, probe_head_with, ProbeOutcome};
 pub use proxy::{
