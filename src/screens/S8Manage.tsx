@@ -85,6 +85,8 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
       backupFirst: paths.backupFirst,
       riskText: paths.riskText,
       dataPaths: paths.dataPaths,
+      residualPaths: paths.residualPaths,
+      steps: paths.steps,
     });
   };
 
@@ -131,10 +133,14 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
       return;
     }
     const shown = m.risk.dataPaths ?? [];
+    const shownResidual = m.risk.residualPaths ?? [];
+    const shownSteps = m.risk.steps ?? [];
     const changed =
-      JSON.stringify([...paths.dataPaths].sort()) !== JSON.stringify([...shown].sort());
+      JSON.stringify([...paths.dataPaths].sort()) !== JSON.stringify([...shown].sort()) ||
+      JSON.stringify([...paths.residualPaths].sort()) !== JSON.stringify([...shownResidual].sort()) ||
+      JSON.stringify([...paths.steps].sort()) !== JSON.stringify([...shownSteps].sort());
     if (changed) {
-      // 清单又变了 → 刷新风险卡让用户按新清单再确认一次
+      // 清单又变了 → 刷新风险卡让用户按**新清单**再确认一次（三项全比）
       dispatch({
         type: "M_RISK_OPEN",
         op: m.risk.op,
@@ -142,6 +148,8 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
         backupFirst: paths.backupFirst,
         riskText: paths.riskText,
         dataPaths: paths.dataPaths,
+        residualPaths: paths.residualPaths,
+        steps: paths.steps,
       });
       return;
     }
@@ -205,6 +213,8 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
           backupFirst: fresh.backupFirst,
           riskText: fresh.riskText,
           dataPaths: fresh.dataPaths,
+          residualPaths: fresh.residualPaths,
+          steps: fresh.steps,
         });
         return;
       }
@@ -313,11 +323,33 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
         </header>
         <div className="panel space-y-3 border-aibox-danger/60 text-sm">
           <p className="text-aibox-cream">{risk.riskText ?? t("s8.riskDefault")}</p>
+          {/* 展示**全部**将被执行的破坏性清单（数据路径 + 应用残留路径 + 删除步骤）：
+              只显示数据路径会让用户以为「只删这些」，而实际执行的清单更大。 */}
           {risk.dataPaths.length > 0 && (
             <div>
               <p className="mb-1 text-xs text-aibox-text2">{t("s8.riskPaths")}</p>
               <ul className="space-y-1">
                 {risk.dataPaths.map((p) => (
+                  <li key={p} className="break-all font-mono text-xs text-aibox-text1">{p}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(risk.residualPaths?.length ?? 0) > 0 && (
+            <div>
+              <p className="mb-1 text-xs text-aibox-text2">{t("s8.riskResidual")}</p>
+              <ul className="space-y-1">
+                {risk.residualPaths!.map((p) => (
+                  <li key={p} className="break-all font-mono text-xs text-aibox-text1">{p}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(risk.steps?.length ?? 0) > 0 && (
+            <div>
+              <p className="mb-1 text-xs text-aibox-text2">{t("s8.riskSteps")}</p>
+              <ul className="space-y-1">
+                {risk.steps!.map((p) => (
                   <li key={p} className="break-all font-mono text-xs text-aibox-text1">{p}</li>
                 ))}
               </ul>

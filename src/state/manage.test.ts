@@ -303,3 +303,36 @@ describe("manage 错误码 → 人话（不给用户看英文原文）", () => {
     expect(isRetryableManageError("")).toBe(false);
   });
 });
+
+describe("ERROR → 重新确认风险卡 → REMOVE（第三轮审计 REJECT 的回归防护）", () => {
+  it("从 ERROR 开风险卡必须离开 ERROR 态，否则界面提前 return → 用户卡死", () => {
+    let s = createInitialManageState();
+    s = manageReduce(s, { type: "M_RISK_OPEN", op: "REMOVE", appId: "a", backupFirst: true });
+    s = manageReduce(s, { type: "M_RISK_CONFIRM" });
+    expect(s.status).toBe("REMOVE");
+
+    // 制造一次错误
+    s = manageReduce(s, { type: "M_ERROR", code: "MANAGE_DELETE_FAILED", messageKey: "s8.errRemove" });
+    expect(s.status).toBe("ERROR");
+
+    // 从 ERROR 重新开风险卡（registry 清单变了 → 要按新清单再确认）
+    s = manageReduce(s, {
+      type: "M_RISK_OPEN",
+      op: "REMOVE",
+      appId: "a",
+      backupFirst: true,
+      dataPaths: ["/new/path"],
+      residualPaths: ["/residual"],
+      steps: ["rm -rf /new/path"],
+    });
+    expect(s.status).toBe("MANAGE"); // 必须离开 ERROR
+    expect(s.error).toBeNull();
+    expect(s.risk?.dataPaths).toEqual(["/new/path"]);
+    expect(s.risk?.residualPaths).toEqual(["/residual"]);
+    expect(s.risk?.steps).toEqual(["rm -rf /new/path"]);
+
+    // 确认（备份默认勾选）→ 回到 REMOVE，可执行
+    s = manageReduce(s, { type: "M_RISK_CONFIRM" });
+    expect(s.status).toBe("REMOVE");
+  });
+});

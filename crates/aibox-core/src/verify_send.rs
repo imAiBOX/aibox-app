@@ -162,8 +162,14 @@ pub fn build_request(input: &VerifyInput) -> CoreResult<VerifyRequest> {
 
 /// 从 2xx 响应体提取模型文本（纯函数）。
 pub fn parse_response(provider: &str, body: &str) -> CoreResult<String> {
-    let v: Value = serde_json::from_str(body)
-        .map_err(|e| CoreError::new("VERIFY_BAD_RESPONSE", format!("Response is not JSON: {e}")))?;
+    let v: Value = serde_json::from_str(body).map_err(|e| {
+        // 解析器报错理论上不含响应体，但**一律走脱敏**：宁可多掩一次，
+        // 也不能让某个解析器版本把输入片段带进错误串（第三轮审计 REJECT-1）。
+        CoreError::new(
+            "VERIFY_BAD_RESPONSE",
+            format!("Response is not JSON: {}", redact_body(&e.to_string())),
+        )
+    })?;
     let text = match provider {
         "anthropic" => v
             .pointer("/content/0/text")

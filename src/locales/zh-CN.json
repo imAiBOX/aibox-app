@@ -413,6 +413,8 @@
     "riskTitle": "继续之前请确认",
     "riskDefault": "卸载会删除该应用的文件，你的数据也会被删除。",
     "riskPaths": "这些文件夹装着你的数据和配置：",
+    "riskResidual": "这些应用残留文件也会被删：",
+    "riskSteps": "还会执行这些步骤：",
     "backupLabel": "先备份我的数据（推荐）",
     "noBackupAck": "我已明白：不备份就直接删除数据",
     "confirmUninstall": "卸载",

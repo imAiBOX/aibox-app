@@ -34,6 +34,10 @@ export interface RiskState {
   riskText?: string;
   /** 会被删除的用户数据路径（人话展示；只来自 registry dataPaths） */
   dataPaths: string[];
+  /** 会被删除的应用残留路径（registry residualPaths）——同样有破坏性，必须展示 */
+  residualPaths?: string[];
+  /** registry 声明的删除步骤（steps）——同样属于破坏性清单 */
+  steps?: string[];
 }
 
 export interface ManageError {
@@ -95,7 +99,7 @@ export function canConfirmRisk(risk: RiskState): boolean {
 
 export type ManageEvent =
   | { type: "M_OPEN" } // 关闭/复位 → MANAGE
-  | { type: "M_RISK_OPEN"; op: Exclude<ManageOp, "UPDATE">; appId: string; backupFirst: boolean; riskText?: string; dataPaths?: string[] }
+  | { type: "M_RISK_OPEN"; op: Exclude<ManageOp, "UPDATE">; appId: string; backupFirst: boolean; riskText?: string; dataPaths?: string[]; residualPaths?: string[]; steps?: string[] }
   | { type: "M_RISK_BACKUP"; checked: boolean } // 备份勾选（默认勾）
   | { type: "M_RISK_NO_BACKUP_ACK"; acked: boolean } // 不勾时二次确认
   | { type: "M_RISK_CANCEL" } // 取消 = 不触发
@@ -136,12 +140,18 @@ export function manageReduce(state: ManageState, event: ManageEvent): ManageStat
 
     case "M_RISK_OPEN":
       // MANAGE 态可开风险卡；**ERROR 态也允许**（重试时发现 registry 清单变了
-      // → 要按新清单重新确认；若这里只认 MANAGE，事件会被静默忽略 →
-      // 用户卡在错误页出不来（独立审计 2026-11-20 REJECT）。
+      // → 要按新清单重新确认）。
+      // **必须同时离开 ERROR 态**：只写 risk 不改 status 的话，
+      // 界面在 ERROR 分支就提前 return（风险卡看不见），
+      // 且 M_RISK_CONFIRM 只接受 MANAGE → 确认事件也被忽略 → 用户彻底卡死
+      // （独立审计 2026-11-20 第三轮 REJECT）。
+      // 错误上下文由组件侧的 attemptRef 保留，不丢。
       // backupFirst 缺省 → 默认勾选备份（硬规则①）
       if (state.status !== "MANAGE" && state.status !== "ERROR") return state;
       return {
         ...state,
+        status: "MANAGE",
+        error: null,
         risk: {
           op: event.op,
           appId: event.appId,
@@ -149,6 +159,8 @@ export function manageReduce(state: ManageState, event: ManageEvent): ManageStat
           noBackupAck: false,
           ...(event.riskText ? { riskText: event.riskText } : {}),
           dataPaths: event.dataPaths ?? [],
+          residualPaths: event.residualPaths ?? [],
+          steps: event.steps ?? [],
         },
       };
 

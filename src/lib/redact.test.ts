@@ -18,8 +18,16 @@ describe("maskSecrets", () => {
     expect(maskSecrets("sk-example 这种写法")).toBe("sk-example 这种写法");
     expect(maskSecrets("task-1")).toBe("task-1");
     expect(maskSecrets("risk")).toBe("risk");
-    // 左侧是字母数字时不算 key（不是词边界）
+    // 左侧是字母数字 / 下划线 / 连字符 / 点时都不算 key 起点（不是词边界）
     expect(maskSecrets("xsk-ant-SECRET1234")).toBe("xsk-ant-SECRET1234");
+    expect(maskSecrets("_sk-ant-SECRET1234")).toBe("_sk-ant-SECRET1234");
+    expect(maskSecrets("foo-sk-abcdefgh")).toBe("foo-sk-abcdefgh");
+    expect(maskSecrets("pkg.sk-abcdefgh")).toBe("pkg.sk-abcdefgh");
+  });
+
+  it("真 key 前有分隔符时仍要掩（= : 等常见赋值符号）", () => {
+    expect(maskSecrets("key=sk-ant-SECRET1234")).toBe("key=sk-****1234");
+    expect(maskSecrets("(sk-ant-SECRET1234)")).toBe("(sk-****1234)");
   });
 
   it("漏网形态：base64 字符集 / Bearer / URL 凭据 / 多种 key 字段名", () => {
@@ -30,6 +38,8 @@ describe("maskSecrets", () => {
     expect(maskSecrets('"apiKey":"abcdef123456"')).toBe('"apiKey":"****"');
     expect(maskSecrets("secret_key=abcdef123456")).toBe("secret_key=****");
     expect(maskSecrets("access_token=abcdef123456")).toBe("access_token=****");
+    expect(maskSecrets("auth_token=abcdef123456")).toBe("auth_token=****");
+    expect(maskSecrets("authorization=abcdef123456")).toBe("authorization=****");
   });
 
   it("不含敏感串的文本原样返回", () => {

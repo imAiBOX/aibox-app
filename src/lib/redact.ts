@@ -13,14 +13,26 @@
  * 且 `sk-` 之后至少 8 位（真实 key 远长于此；短词不掩，避免把正常词改坏）。
  */
 
-/** sk- 开头的 key：左边界 + 至少 8 位后续字符 + 完整 token 字符集（含 base64 的 + / =） */
-const SK = /(?<![A-Za-z0-9_])sk-[A-Za-z0-9][A-Za-z0-9._+/=-]{7,}/g;
+/**
+ * sk- 开头的 key：左边界 + 至少 8 位后续字符 + 完整 token 字符集（含 base64 的 + / = ~ :）
+ *
+ * 左边界含 `-` 与 `.`：否则 `foo-sk-abcdefgh` 这类普通标识符会被误伤
+ * （第三轮审计 NOTE）。右侧字符集放宽到 `~ :` 等常见 token 字符，避免漏掩。
+ */
+const SK = /(?<![A-Za-z0-9_.-])sk-[A-Za-z0-9][A-Za-z0-9._+/=~:-]{7,}/g;
 /** Authorization: Bearer <token> */
 const BEARER = /bearer\s+[A-Za-z0-9._+/=-]{6,}/gi;
 /** URL 内联凭据 scheme://user:pass@host */
 const URL_CRED = /:\/\/[^\s/@]+:[^\s/@]+@/g;
 /** api_key = "xxxx" / "apiKey":"xxxx" / secret_key / access_token … */
-const KV = /((?:api[_-]?key|apikey|secret[_-]?key|access[_-]?token|auth[_-]?token)["']?\s*[:=]\s*["']?)([A-Za-z0-9._+/=-]{6,})(["']?)/gi;
+/**
+ * 字段名赋值形态：api_key=… / "apiKey":"…" / authorization=…
+ *
+ * 值用负向断言跳过 `Bearer` / `Basic` 这类**认证方案词**：
+ * 否则 `Authorization: Bearer <token>` 会先被这条规则把 "Bearer" 当值掩掉，
+ * 真正的 token 反而留在后面（第三轮审计发现的回归）。
+ */
+const KV = /((?:api[_-]?key|apikey|secret[_-]?key|access[_-]?token|auth[_-]?token|authorization)["']?\s*[:=]\s*["']?)(?!Bearer\b|Basic\b|Digest\b)([A-Za-z0-9._+/=~:-]{6,})(["']?)/gi;
 
 /** 对任意文本做脱敏；不改长度语义，只替换敏感片段。 */
 export function maskSecrets(text: string): string {
