@@ -188,8 +188,14 @@ export default function S1Idle({
               </span>
             )}
           </div>
-          <span className="font-mono text-[11px] text-aibox-text2">{t("s1.subtitle")}</span>
+          <span className="font-mono text-[11px] text-aibox-text2">
+            {t("s1.subtitle", { count: allApps.length })}
+          </span>
         </header>
+
+        {/* 一句话说清「AiBOX 是干什么的、会不会动我的系统」——
+            小白第一次打开一个陌生软件，最想知道的就是这两件事。 */}
+        <p className="-mt-2 mb-3 text-xs leading-relaxed text-aibox-text2">{t("s1.intro")}</p>
 
         {/* 已装应用更新聚合条（黄条；点击展开列表 → 跳卡片；本批只提醒+入口） */}
         {updatable.length > 0 && (
@@ -356,6 +362,12 @@ export default function S1Idle({
                 >
                   {a.name.slice(0, 1)}
                 </span>
+                {/* 选中反馈：旧版只有边框变色，小白不知道选没选上 */}
+                {selectedId === a.id && (
+                  <span className="rounded-[4px] border border-aibox-green px-2 py-0.5 font-mono text-[10px] text-aibox-green">
+                    {t("s1.selected")}
+                  </span>
+                )}
                 <StatusBadge entry={a} upgradeTo={appUpdates.find((r) => r.hasUpdate && r.appId === a.id)?.latest} />
               </div>
               <span className="font-display text-base font-semibold text-aibox-text1">

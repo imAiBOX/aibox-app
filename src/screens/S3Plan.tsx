@@ -7,6 +7,7 @@ import { Fragment } from "react";
 import { useTranslation } from "react-i18next";
 import type { Plan, PlanNode } from "../state";
 import type { Status } from "../state";
+import type { ScanReport } from "../net/client";
 
 /** registry 路线代号 → 人话（direct-install / proxy-install / nsis-hub / npm-prefix） */
 const ROUTE_KEYS: Record<string, string> = {
@@ -51,11 +52,16 @@ function Node({ node, target }: { node: PlanNode; target: boolean }) {
 export default function S3Plan({
   plan,
   status,
+  scan,
 }: {
   plan: Plan | null;
   status: Status;
+  /** 体检报告（确认页复读非 ok 项：磁盘不够这类是「必然装不下」，不能拖到下载时才炸） */
+  scan?: ScanReport | null;
 }) {
   const { t } = useTranslation();
+  /** 体检里非 ok 的项（warn/fail） */
+  const badChecks = (scan?.checks ?? []).filter((c) => c.level !== "ok");
   if (!plan) return <p className="font-mono text-xs text-aibox-text2">{t("s3.building")}</p>;
 
   const roots = plan.nodes.filter((n) => !plan.nodes.some((p) => p.children.includes(n.id)));
@@ -116,7 +122,26 @@ export default function S3Plan({
               <dd className="text-aibox-text1">~{plan.estMinutes} min</dd>
             </div>
           </dl>
-          <p className="text-xs text-aibox-text2">{t("s3.confirmNote")}</p>
+          {/* 体检红灯复读：磁盘只剩 1GB 装 760MB 是**必然**装不下，
+              体检早就知道，不该让用户一路走到下载才炸。 */}
+          {badChecks.length > 0 && (
+            <div className="mt-3 rounded-[4px] border border-aibox-danger/60 bg-aibox-danger/10 p-3">
+              <p className="mb-1 text-xs font-semibold text-aibox-danger">{t("s3.scanIssues")}</p>
+              <ul className="flex flex-col gap-1">
+                {badChecks.map((c) => (
+                  <li key={c.id} className="text-[11px] leading-relaxed text-aibox-text2">
+                    {c.human}
+                    {c.id === "disk" && plan.diskMb > 0 && (
+                      <span className="text-aibox-text1">
+                        {t("s3.diskNeed", { mb: plan.diskMb })}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="mt-3 text-xs text-aibox-text2">{t("s3.confirmNote")}</p>
         </section>
       )}
     </div>

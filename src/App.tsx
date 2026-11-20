@@ -39,6 +39,7 @@ import { useUpdateChecks } from "./hooks/useUpdateChecks";
 import { usePrefetch } from "./hooks/usePrefetch";
 import { buildTrayLabels } from "./state/tray";
 import { logDrawer } from "./state/logDrawer";
+import { siteUrl } from "./lib/links";
 import { APP_UPDATE_TTL_MS } from "./state/appUpdates";
 import { useSessionResume } from "./hooks/useSessionResume";
 import E1DiagPanel from "./screens/E1DiagPanel";
@@ -88,7 +89,50 @@ export default function App() {
   const checks = useUpdateChecks();
   // 空闲预下载：已装应用有新版 + 常驻 IDLE → 后台静默预下主安装包（升级秒装闭环）
   usePrefetch(checks.appUpdates, state.status);
-  const resume = useSessionResume(persistence, dispatch, state);
+  /**
+   * 断点续装前的准备：重建 install plan（冷启动时 state.plan 为 null → 没有任务队列）。
+   *
+   * 旧版直接 RESUME_SESSION → 空队列 → 界面永远停在「安装中 / 全部任务完成」，
+   * 用户既不能前进也不能退出（死胡同）。现在：先拉 manifest + scan + buildPlan，
+   * 注入 RESUME_PLAN 后再 RESUME_SESSION；失败就留在 IDLE。
+   */
+  const prepareResume = useCallback(
+    async (appId: string): Promise<boolean> => {
+      try {
+        const [report, manifest] = await Promise.all([api.scanSystem(), api.registryApp(appId)]);
+        const region = await api.netRegion().catch((e: unknown) => {
+          const effective = staticRegionFallback();
+          console.warn(`[aibox] net_region failed, using static fallback (${effective}):`, e);
+          return { source: "auto", effective } as NetRegionResult;
+        });
+        const home = await (async () => {
+          if (isMock()) return "~";
+          try {
+            const { homeDir } = await import("@tauri-apps/api/path");
+            return await homeDir();
+          } catch {
+            return "~";
+          }
+        })();
+        const plan = buildPlan(manifest, {
+          platform: report.os.platform,
+          arch: report.os.arch,
+          region: region.effective,
+          home,
+          scan: report,
+          netRegion: { source: region.source, effective: region.effective },
+        });
+        dispatch({ type: "RESUME_PLAN", plan });
+        return true;
+      } catch (e) {
+        console.warn("[aibox] resume plan rebuild failed:", e);
+        return false;
+      }
+    },
+    [dispatch],
+  );
+
+  const resume = useSessionResume(persistence, dispatch, state, prepareResume);
 
   // 版本号：Tauri 壳优先，失败回落构建期注入
   useEffect(() => {
@@ -142,6 +186,34 @@ export default function App() {
 
   // 通道切换 toast：3s 自动消失（不打断流程）
   useEffect(() => channelToast.subscribe(setToast), []);
+
+  // 点 X 关闭 → Rust 侧隐藏到托盘（不退出）。小白看到窗口「啪」地消失、
+  // 任务栏也没有它，会直接判定「软件崩了」→ 给一次明确提示（托盘在哪、怎么找回）。
+  useEffect(() => {
+    if (isMock()) return;
+    let unlisten: (() => void) | undefined;
+    let alive = true;
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        const off = await win.onCloseRequested((event) => {
+          // 自己处理：先提示，再让 Rust 侧按原逻辑隐藏
+          if (alive) channelToast.show(t("tray.closedHint"));
+          event.preventDefault();
+          void win.hide();
+        });
+        if (!alive) off();
+        else unlisten = off;
+      } catch {
+        /* 非 Tauri / 旧版本 → 落回 Rust 侧默认行为（隐藏，不提示） */
+      }
+    })();
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, [t]);
 
   // E1 触发源：EXECUTE 中同一任务连败 2 次（RETRY 后再败即计 2）
   useEffect(() => {
@@ -390,13 +462,22 @@ export default function App() {
       });
   }, [creds, state.configPathId, t]);
 
+  /** 当前选中的应用名（底栏按钮文案用：「安装 OpenClaw」而不是笼统的「开始安装」） */
+  const selectedName = useMemo(
+    () => appIndex?.apps.find((a) => a.id === selectedId)?.name ?? null,
+    [appIndex, selectedId],
+  );
+
   // ── 底部操作条（按状态出按钮；主右危险左）──
   const bar: BarAction[] = useMemo(() => {
     switch (state.status) {
       case "IDLE":
         return [
           {
-            labelKey: "btn.startInstall",
+            // 动态文案：按钮自己说明白「装的是哪个」（旧版统一叫「开始安装」，
+            // 选没选中都看不出区别）
+            labelKey: selectedName ? "btn.startInstallNamed" : "btn.startInstall",
+            labelArgs: selectedName ? { name: selectedName } : undefined,
             primary: true,
             disabled: !selectedId,
             onClick: startInstall,
@@ -424,6 +505,9 @@ export default function App() {
               // 旧版取消只发一个 ERROR，点「关闭」又会 recover() → EXECUTE → 安装重新跑起来。
               execHandle.current?.stop();
               logDrawer.close();
+              // 主动取消 = 放弃这次安装 → **清掉会话快照**，
+              // 否则下次启动还会问「继续上次安装？」（用户上次明明主动取消了）
+              void persistence.clearSession();
               channelToast.show(t("btn.cancelDone"));
               dispatch({ type: "DISMISS" });
             },
@@ -443,14 +527,20 @@ export default function App() {
       case "DONE":
         return [
           { labelKey: "btn.again", onClick: () => dispatch({ type: "RESTART" }) },
-          { labelKey: "btn.docs", primary: true, onClick: () => void openExternal("https://aibox.im/docs") },
+          {
+            labelKey: "btn.docs",
+            primary: true,
+            // 指向当前应用的教程页（原先 /docs 在站点上是 404）
+            onClick: () =>
+              void openExternal(siteUrl(`/apps/${state.appId ?? "openclaw"}/`, i18next.resolvedLanguage)),
+          },
         ];
       case "ERROR":
         return [];
       default:
         return [];
     }
-  }, [state.status, selectedId, startInstall, sendVerify, verifyPending]);
+  }, [state.status, selectedId, selectedName, startInstall, sendVerify, verifyPending]);
 
   const screen = screenFor(state.status);
   const isOverlay = overlay !== "none";
@@ -479,18 +569,24 @@ export default function App() {
                     const ver = banner.version ? String(banner.version).replace(/^v/, "") : "";
                     const platform = isMacPlatform() ? "mac" : "win";
                     const direct = ver ? `https://dl.aibox.im/v${ver}/${platform}` : null;
+                    // 回落官网下载页（原先 banner.url 指向根路径 /download/ → 404）
+                    const fallback = siteUrl("/download/", i18next.resolvedLanguage);
                     if (!direct) {
-                      void openExternal(banner.url);
+                      void openExternal(fallback);
                       return;
                     }
                     fetch(direct, { method: "HEAD", redirect: "follow" })
-                      .then((r) => void openExternal(r.ok ? direct : banner.url))
-                      .catch(() => void openExternal(banner.url));
+                      .then((r) => void openExternal(r.ok ? direct : fallback))
+                      .catch(() => void openExternal(fallback));
                   }}
                 >
                   {t("update.download")}
                 </button>
-                <button type="button" className="font-mono text-xs" onClick={banner.dismiss}>
+                <button
+                  type="button"
+                  className="font-mono text-xs"
+                  onClick={() => banner.dismiss(banner.version ?? undefined)}
+                >
                   {t("update.later")}
                 </button>
               </div>
@@ -532,7 +628,7 @@ export default function App() {
         ) : screen === "S2Scan" ? (
           <S2Scan report={state.scan} plan={state.plan} />
         ) : screen === "S3Plan" ? (
-          <S3Plan plan={state.plan} status={state.status} />
+          <S3Plan plan={state.plan} status={state.status} scan={state.scan} />
         ) : screen === "S4Execute" ? (
           <S4Execute state={state} />
         ) : screen === "S5Config" ? (
@@ -567,10 +663,25 @@ export default function App() {
                 {t("resume.title")}
               </h2>
               <p className="mb-4 text-sm text-aibox-text2">{t("resume.desc")}</p>
+              {/* 旧版只说「上次安装没走完」，不说是哪个应用、到第几步 → 用户只能赌 */}
+              {resume.snapshot && (
+                <p className="mb-4 text-xs leading-relaxed text-aibox-text2">
+                  {t("resume.which", {
+                    name:
+                      appIndex?.apps.find((a) => a.id === resume.snapshot?.appId)?.name ??
+                      resume.snapshot.appId,
+                    done: resume.snapshot.doneTaskIds.length,
+                  })}
+                </p>
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={resume.dismiss}
+                  onClick={() => {
+                    // 「重新开始」= 丢弃这次会话（真清快照），否则点了等于没点
+                    void persistence.clearSession();
+                    resume.dismiss();
+                  }}
                   className="rounded-[4px] border border-aibox-line px-4 py-2 font-mono text-xs text-aibox-text2"
                 >
                   {t("resume.no")}
@@ -638,6 +749,8 @@ export default function App() {
               // 旧版这里 dispatch RETRY/EXPORT_DIAG → recover() → 回到 EXECUTE →
               // useEffect 重新 startExecute() → 用户点「关闭」反而把安装又跑起来了。
               logDrawer.close();
+              // 「不重试，返回」= 放弃 → 同样清掉会话快照
+              void persistence.clearSession();
               dispatch({ type: "DISMISS" });
             }}
           />
@@ -652,11 +765,19 @@ export default function App() {
             rawE1({ type: "ACK" });
             dispatch({ type: "RETRY" });
           }}
+          onSkip={() => {
+            // 「跳过这个组件」：E1 打开时 ErrorOverlay 是隐藏的 → 这里必须给出口，
+            // 否则用户被困在「只能一直重试」的循环里。
+            rawE1({ type: "ACK" });
+            dispatch({ type: "SKIP" });
+          }}
           errorCode={state.error?.code}
           regionEffective={netRegion?.effective ?? null}
           onClose={() => {
+            // 「✕」= **真关闭**（只 ACK，不重试）。
+            // 旧版这里 dispatch RETRY → 用户点「✕」以为关掉了，实际立刻又重下那个包。
+            // ACK 后 e1.open=false → ErrorOverlay 回来（那里有重试/跳过/不重试返回）。
             rawE1({ type: "ACK" });
-            dispatch({ type: "RETRY" });
           }}
           onRetry={() => {
             rawE1({ type: "ACK" });

@@ -3,6 +3,7 @@
  */
 import { useTranslation } from "react-i18next";
 import type { MachineState } from "../state";
+import { appGuideUrl, siteUrl } from "../lib/links";
 
 export default function S7Done({
   state,
@@ -11,7 +12,7 @@ export default function S7Done({
   state: MachineState;
   onRestart: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const installed = state.tasks.filter((tk) => tk.status === "done");
   /** 跳过的组件（之前会静默消失 → 用户以为全装上了） */
   const skipped = state.tasks.filter((tk) => tk.status === "skipped");
@@ -79,8 +80,10 @@ export default function S7Done({
           {t("s7.nextTitle")}
         </h2>
         <p className="mb-3 text-sm leading-relaxed text-aibox-text2">{t("s7.nextDesc")}</p>
+        {/* 教程指向**这个应用自己的**教程页（落地页内含完整教程）；
+            原先指向 /docs —— 该路径在站点上是 404（装完点一下就弹错误页）。 */}
         <a
-          href="https://aibox.im/docs"
+          href={appGuideUrl(state.appId ?? "openclaw", i18n.resolvedLanguage)}
           target="_blank"
           rel="noreferrer"
           className="inline-block rounded-[4px] bg-aibox-green px-4 py-2 font-display text-sm font-semibold text-aibox-bg"
@@ -99,7 +102,7 @@ export default function S7Done({
           {t("s7.again")}
         </button>
         <a
-          href="https://aibox.im/feedback"
+          href={siteUrl("/feedback/", i18n.resolvedLanguage)}
           target="_blank"
           rel="noreferrer"
           className="font-mono text-xs text-aibox-text2 underline hover:text-aibox-green"

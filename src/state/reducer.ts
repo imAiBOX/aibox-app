@@ -25,11 +25,12 @@ function setError(
   code: string,
   messageKey: string,
   taskId?: string,
+  human?: string,
 ): MachineState {
   return {
     ...s,
     status: "ERROR",
-    error: { code, messageKey, from: s.status, taskId },
+    error: { code, messageKey, from: s.status, taskId, ...(human ? { human } : {}) },
   };
 }
 
@@ -146,9 +147,13 @@ export function reduce(state: MachineState, event: Event): MachineState {
 
     case "ALL_DONE":
       // skipped 也算已处置（SKIP 后不能死锁在 EXECUTE）
-      return state.status === "EXECUTE" &&
-        state.tasks.length > 0 &&
-        state.tasks.every((t) => t.status === "done" || t.status === "skipped")
+      if (state.status !== "EXECUTE") return state;
+      if (state.tasks.length === 0) {
+        // **空队列兜底**：没有任务可执行 → 回 IDLE（绝不能停在 EXECUTE 空转）。
+        // 真实触发路径：断点续装时 plan 还没重建好就进了 EXECUTE（冷启动 state.plan=null）。
+        return { ...state, status: "IDLE", error: null };
+      }
+      return state.tasks.every((t) => t.status === "done" || t.status === "skipped")
         ? { ...state, status: "CONFIG", error: null }
         : state;
 
@@ -177,7 +182,7 @@ export function reduce(state: MachineState, event: Event): MachineState {
     case "ERROR": {
       // EXECUTE 内带 taskId 的失败 → 同步标 failed
       // （否则 SKIP 的 failed→skipped 转移永远不命中，任务会重跑）
-      const next = setError(state, event.code, event.messageKey, event.taskId);
+      const next = setError(state, event.code, event.messageKey, event.taskId, event.human);
       if (event.taskId && state.status === "EXECUTE") {
         next.tasks = state.tasks.map((t) =>
           t.id === event.taskId && t.status !== "done" && t.status !== "skipped"
@@ -234,10 +239,25 @@ export function reduce(state: MachineState, event: Event): MachineState {
           }
         : state;
 
+    case "RESUME_PLAN":
+      // 续装前注入重建好的 plan（冷启动时 state.plan 为 null → 没有任务队列）
+      return state.status === "IDLE" && state.resume.snapshot
+        ? {
+            ...state,
+            plan: event.plan,
+            appId: event.plan.appId,
+            tasks: event.plan.tasks,
+            currentTaskIndex: 0,
+          }
+        : state;
+
     case "RESUME_SESSION": {
       if (state.status !== "IDLE" || !state.resume.snapshot) return state;
       const snap = state.resume.snapshot;
-      return resumeToExec(state, snap.appId, snap.doneTaskIds, state.plan);
+      const next = resumeToExec(state, snap.appId, snap.doneTaskIds, state.plan);
+      // 兜底：既没有 plan 也没有任务 → 留在 IDLE（进 EXECUTE 会空转卡死）
+      if (next.tasks.length === 0) return state;
+      return next;
     }
 
     case "DISMISS_RESUME":

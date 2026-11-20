@@ -9,6 +9,8 @@ import { isMacPlatform } from "../platform";
 
 export interface BarAction {
   labelKey: string;
+  /** 插值参数（按钮文案可动态，如「安装 OpenClaw」） */
+  labelArgs?: Record<string, unknown>;
   onClick: () => void;
   disabled?: boolean;
   /** 危险操作 → 左对齐 + danger 色 */

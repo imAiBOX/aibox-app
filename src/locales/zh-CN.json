@@ -40,11 +40,12 @@
     "reVerify": "再测一次",
     "again": "再装一个",
     "docs": "看教程",
-    "cancelDone": "安装已取消。已下载的文件留在缓存里，下次安装直接用。"
+    "cancelDone": "安装已取消。已下载的文件留在缓存里，下次安装直接用。",
+    "startInstallNamed": "安装 {{name}}"
   },
   "s1": {
     "title": "选择应用",
-    "subtitle": "数据来自 GitHub registry",
+    "subtitle": "共 {{count}} 个应用 · 免费，不需要注册账号",
     "loading": "正在加载应用列表…",
     "empty": "没找到应用，检查下网络",
     "loadFail": "应用列表没加载出来。",
@@ -64,7 +65,9 @@
     "noMatches": "没有匹配的应用",
     "statsSr": "{{views}} 次浏览，{{installs}} 次安装",
     "all": "全部",
-    "offlineSnapshot": "离线目录（快照）"
+    "offlineSnapshot": "离线目录（快照）",
+    "intro": "AiBOX 会把你选的应用装到这台电脑上。它不会改动你的系统设置，每个安装包在运行前都会先校验完整性。",
+    "selected": "已选择"
   },
   "s2": {
     "title": "体检报告",
@@ -89,7 +92,9 @@
     "routeDirect": "官方安装包",
     "routeProxy": "加速安装",
     "routeNsis": "Windows 安装程序",
-    "routeNpm": "Node.js 方式安装"
+    "routeNpm": "Node.js 方式安装",
+    "scanIssues": "开始之前先看一眼",
+    "diskNeed": " —— 这个应用大约需要 {{mb}} MB 磁盘空间"
   },
   "s4": {
     "title": "安装中",
@@ -98,6 +103,11 @@
     "phaseInstall": "安装中",
     "phaseProbe": "探测中",
     "channelIdle": "连接中…",
+    "eta": "预计还要 {{time}}",
+    "phaseHint.download": "正在下载安装包，还没开始安装。",
+    "phaseHint.verify": "正在核对下载的文件是不是完整无误，这个过程不会改动你的电脑。",
+    "phaseHint.install": "正在把软件装到电脑上，可能需要 1–2 分钟。",
+    "phaseHint.probe": "正在确认这个软件真的能用了。",
     "units": "步",
     "allDone": "全部任务完成。",
     "doneList": "已完成",
@@ -109,7 +119,9 @@
     "channelDirect": "官方直连",
     "channelMirror": "国内镜像",
     "channelProxy": "加速通道",
-    "channelCustom": "自定义源"
+    "channelCustom": "自定义源",
+    "skippedList": "没装上的",
+    "skippedHint": "这几项被跳过了，所以对应功能用不了。之后可以照着该应用自己的教程补装。"
   },
   "s5": {
     "title": "连接模型",
@@ -174,8 +186,8 @@
     "subtitlePartial": "装好的在下面；标 ⊘ 的那几项没装上。",
     "listTitle": "已装清单",
     "listEmpty": "暂无记录。",
-    "nextTitle": "下一步",
-    "nextDesc": "绑定 Telegram / WhatsApp 等渠道，让 AI 找得到你。",
+    "nextTitle": "接下来",
+    "nextDesc": "打开刚装好的应用试一下。每个应用都有一份自己的教程，写着第一步该做什么。",
     "nextCta": "打开教程",
     "again": "再装一个",
     "feedback": "反馈",
@@ -217,6 +229,8 @@
   "err": {
     "title": "出了点问题",
     "code": "错误码",
+    "failedPart": "没装上的是：{{name}}",
+    "reasonLabel": "具体原因：{{reason}}",
     "retry": "重试",
     "switchSource": "换个下载源",
     "skip": "跳过这项",
@@ -250,7 +264,8 @@
     "title": "继续上次安装？",
     "desc": "上次安装没走完，可以从断点接着来。",
     "yes": "继续",
-    "no": "重新开始"
+    "no": "重新开始",
+    "which": "上次你在装 {{name}}（已经完成 {{done}} 项）。"
   },
   "net": {
     "back": "返回",
@@ -292,12 +307,15 @@
     "desc": "这个任务连续失败了 2 次。最近一次网络体检：",
     "close": "关闭",
     "retry": "重试",
+    "skip": "跳过这个组件",
+    "skipHint": "跳过意味着这一项不会被安装，相关功能可能用不了。",
     "r2Tag": "建议修复",
     "r2Advice": "可能走了代理或被网络过滤。去 设置 → 网络 把地区切成「国际」，再重试。",
     "r2AdviceCn": "已走国内镜像通道；若持续失败，检查网络或稍后重试。",
     "adviceHashMismatch": "下载源返回了异常内容，已中止安装。点「换个下载源」换一个通道再试。",
     "failHint": "部分下载源暂时不可达，安装器会继续尝试其他镜像。",
-    "symptom": "安装任务连续失败 2 次。"
+    "symptom": "安装任务连续失败 2 次。",
+    "skipConfirm": "确定跳过"
   },
   "update": {
     "banner": "发现新版本 {{version}}",
@@ -390,7 +408,8 @@
     "appUpdates": "{{count}} 个应用可升级",
     "tip": "AiBOX",
     "tipUpdate": "AiBOX · 有新版本",
-    "tipApps": "AiBOX · {{count}} 个可升级"
+    "tipApps": "AiBOX · {{count}} 个可升级",
+    "closedHint": "AiBOX 还在后台运行。在屏幕右下角的任务栏图标区找它（可能被 ^ 箭头收起来了）。"
   },
   "quit": {
     "title": "退出 AiBOX？",

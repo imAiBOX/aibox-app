@@ -30,6 +30,13 @@ export default function ErrorOverlay({
   const acts = errorActions(state);
   // 只有下载类错误才有「另一个源」可换（扫描/配置类错误不展示）
   const switchable = canSwitchSource(err.code);
+  /** 失败组件名（taskId → 任务名+版本）；没有任务上下文时为 null */
+  const failedTask = err.taskId
+    ? (() => {
+        const t = state.tasks.find((x) => x.id === err.taskId);
+        return t ? `${t.name} ${t.version}`.trim() : null;
+      })()
+    : null;
 
   return (
     <div
@@ -51,8 +58,20 @@ export default function ErrorOverlay({
           </h2>
         </div>
 
+        {/* 失败的是哪个组件（用户最想知道「哪一步没装上」） */}
+        {failedTask && (
+          <p className="mb-1.5 text-xs text-aibox-text2">
+            {t("err.failedPart", { name: failedTask })}
+          </p>
+        )}
         {/* 人话原因 */}
         <p className="mb-1.5 text-sm leading-relaxed text-aibox-text1">{t(err.messageKey)}</p>
+        {/* Rust 算好的真实原因（如「这个软件需要管理员权限」）——旧版只有一句笼统话术 */}
+        {err.human && (
+          <p className="mb-1.5 text-xs leading-relaxed text-aibox-text2">
+            {t("err.reasonLabel", { reason: err.human })}
+          </p>
+        )}
         {/* 只给错误码（反馈时够用）；内部 task id 对用户零意义，不显示 */}
         <p className="mb-4 font-mono text-[11px] text-aibox-text2">
           {t("err.code")}: {err.code}

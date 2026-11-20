@@ -5,8 +5,8 @@
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { completedTasks, currentTask, progress, type MachineState } from "../state";
-import { useDownloadProgress } from "../hooks/useDownloadProgress";
+import { currentTask, progress, type MachineState } from "../state";
+import { formatBytes, formatEta, useDownloadProgress } from "../hooks/useDownloadProgress";
 import { appLog, onEvent } from "../net/events";
 import { logDrawer } from "../state/logDrawer";
 
@@ -25,6 +25,14 @@ const CHANNEL_KEYS: Record<string, string> = {
   CUSTOM: "s4.channelCustom",
 };
 
+/** 阶段 → 一句话说明（这阶段到底在干什么、会不会动你的电脑） */
+const PHASE_HINT_KEYS: Record<string, string> = {
+  download: "s4.phaseHint.download",
+  verify: "s4.phaseHint.verify",
+  install: "s4.phaseHint.install",
+  probe: "s4.phaseHint.probe",
+};
+
 /** 线路代号归一（Rust 大写；mock 可能小写） */
 function channelKey(raw: string): string | null {
   const k = raw.trim().toUpperCase();
@@ -37,14 +45,31 @@ export default function S4Execute({ state }: { state: MachineState }) {
   const [logLines, setLogLines] = useState<string[]>([]);
   const task = currentTask(state);
   const prog = progress(state);
-  const done = completedTasks(state);
+  /** 已装好的 / 没装上的（跳过的）—— 旧版把两者混在「已完成」下面，
+      ⊘ 没有图例，用户读成「完成了（打个叉？）」 */
+  const doneItems = state.tasks.filter((tk) => tk.status === "done");
+  const skippedItems = state.tasks.filter((tk) => tk.status === "skipped");
   const dl = useDownloadProgress();
   // 进度条数据源：download 阶段用事件（真分支 download_progress，jobId=任务 id），
   // 其余阶段/任务切换用状态机阶段进度（避免下载完成后 dl 残留 100%）
   const dlActive = !!task && task.phase === "download" && dl.pct > 0 && dl.jobId === task.id;
-  const barPct = dlActive ? dl.pct : prog.pct;
+  /**
+   * 总进度条**只用阶段步数**（prog.pct），**永不倒退**。
+   *
+   * 旧版：包内字节百分比（dl.pct）与全局步数百分比（prog.pct）塞进同一条条子 →
+   * 某包下完瞬间是 100%，切到「校验中」又退回 5% → **进度条从满格倒回一小格**，
+   * 用户以为「白下了 / 装坏了」。现在：条子只走全局步数，包内进度另起一行文字。
+   */
+  const barPct = prog.pct;
   /** 线路徽章：DIRECT/MIRROR/PROXY/CUSTOM → 人话（小白看到裸英文缩写只会懵） */
-  const channelKeyRaw = dlActive && dl.channel ? channelKey(dl.channel) : null;
+  const channelKeyRaw = dl.channel ? channelKey(dl.channel) : null;
+  /** 包内进度（字节量 + 速度 + 剩余时间；只在下载中显示） */
+  const packLine =
+    dlActive && dl.total > 0
+      ? `${formatBytes(dl.done)} / ${formatBytes(dl.total)}（${dl.pct}%）` +
+        (dl.bps ? ` · ${formatBytes(dl.bps)}/s` : "") +
+        (dl.etaSec !== null ? ` · ${t("s4.eta", { time: formatEta(dl.etaSec) ?? "" })}` : "")
+      : null;
 
   // 日志抽屉：订阅 log_line → 环形缓冲（4KB 截断），只读展示
   useEffect(
@@ -74,6 +99,11 @@ export default function S4Execute({ state }: { state: MachineState }) {
             </span>
           </div>
 
+          {/* 阶段人话说明（「校验中」「探测中」对小白是天书） */}
+          <p className="mb-2 text-xs leading-relaxed text-aibox-text2">
+            {t(PHASE_HINT_KEYS[task.phase] ?? "s4.phaseHint.download")}
+          </p>
+
           {/* 当前任务大字 */}
           <div className="mb-3 flex items-baseline gap-3">
             <span className="font-display text-xl font-semibold text-aibox-text1">
@@ -95,6 +125,10 @@ export default function S4Execute({ state }: { state: MachineState }) {
               style={{ width: `${barPct}%` }}
             />
           </div>
+          {/* 包内进度（下载中）：已下载多少 / 一共多少 / 多快 / 还要多久 */}
+          {packLine && (
+            <p className="mt-1.5 font-mono text-[11px] text-aibox-text2">{packLine}</p>
+          )}
           <div className="mt-1.5 flex justify-between font-mono text-[11px] text-aibox-text2">
             <span>
               {prog.done}/{prog.total} {t("s4.units")}
@@ -107,24 +141,48 @@ export default function S4Execute({ state }: { state: MachineState }) {
       )}
 
       {/* 已完成任务折叠列表（灰） */}
-      {done.length > 0 && (
+      {doneItems.length > 0 && (
         <details className="rounded-[6px] border border-aibox-line bg-aibox-raised px-4 py-2">
           <summary className="cursor-pointer py-1 font-mono text-xs text-aibox-text2">
-            {t("s4.doneList")} ({done.length})
+            {t("s4.doneList")} ({doneItems.length})
           </summary>
           <ul className="flex flex-col gap-1 py-2">
-            {done.map((tk) => (
+            {doneItems.map((tk) => (
               <li
                 key={tk.id}
                 className="flex items-center justify-between font-mono text-xs text-aibox-text2 opacity-70"
               >
                 <span>
-                  {tk.status === "skipped" ? "⊘" : "√"} {tk.name}
+                  √ {tk.name}
                 </span>
                 <span>{tk.version}</span>
               </li>
             ))}
           </ul>
+        </details>
+      )}
+
+      {/* 没装上的（跳过）—— 单独一段并写明后果，不与「已完成」混在一起 */}
+      {skippedItems.length > 0 && (
+        <details className="rounded-[6px] border border-aibox-danger/50 bg-aibox-raised px-4 py-2">
+          <summary className="cursor-pointer py-1 font-mono text-xs text-aibox-danger">
+            {t("s4.skippedList")} ({skippedItems.length})
+          </summary>
+          <ul className="flex flex-col gap-1 py-2">
+            {skippedItems.map((tk) => (
+              <li
+                key={tk.id}
+                className="flex items-center justify-between font-mono text-xs text-aibox-text2"
+              >
+                <span>
+                  ⊘ {tk.name}
+                  <span className="ml-2 text-[10px] text-aibox-danger">{t("s7.skippedLabel")}</span>
+                </span>
+                <span>{tk.version}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="pb-2 text-[11px] leading-relaxed text-aibox-text2">{t("s4.skippedHint")}</p>
         </details>
       )}
 

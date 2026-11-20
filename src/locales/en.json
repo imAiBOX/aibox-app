@@ -40,11 +40,12 @@
     "reVerify": "Test again",
     "again": "Install another",
     "docs": "Open guide",
-    "cancelDone": "Install cancelled. Downloaded files stay in the cache for next time."
+    "cancelDone": "Install cancelled. Downloaded files stay in the cache for next time.",
+    "startInstallNamed": "Install {{name}}"
   },
   "s1": {
     "title": "Pick an app",
-    "subtitle": "Data from GitHub registry",
+    "subtitle": "{{count}} apps · free, no account needed",
     "loading": "Loading app list…",
     "empty": "No apps found. Check your network.",
     "loadFail": "The app list didn't load.",
@@ -64,7 +65,9 @@
     "noMatches": "No apps match your search.",
     "statsSr": "{{views}} views, {{installs}} installs",
     "all": "All",
-    "offlineSnapshot": "Offline catalog (snapshot)"
+    "offlineSnapshot": "Offline catalog (snapshot)",
+    "intro": "AiBOX installs the app you pick onto this computer. It never changes your system settings, and every download is checked before it runs.",
+    "selected": "Selected"
   },
   "s2": {
     "title": "Checkup report",
@@ -89,7 +92,9 @@
     "routeDirect": "Official installer",
     "routeProxy": "Accelerated install",
     "routeNsis": "Windows installer",
-    "routeNpm": "Node.js install"
+    "routeNpm": "Node.js install",
+    "scanIssues": "Before you start",
+    "diskNeed": " — this app needs about {{mb}} MB of disk space"
   },
   "s4": {
     "title": "Installing",
@@ -98,6 +103,11 @@
     "phaseInstall": "Installing",
     "phaseProbe": "Checking it runs",
     "channelIdle": "connecting…",
+    "eta": "about {{time}} left",
+    "phaseHint.download": "Downloading the installer. Nothing is installed yet.",
+    "phaseHint.verify": "Checking the downloaded file is exactly the right one. Your computer is not being changed.",
+    "phaseHint.install": "Installing the app on your computer. This can take 1–2 minutes.",
+    "phaseHint.probe": "Checking the app really works now.",
     "units": "steps",
     "allDone": "All tasks finished.",
     "doneList": "Finished",
@@ -109,7 +119,9 @@
     "channelDirect": "Official direct",
     "channelMirror": "China mirror",
     "channelProxy": "Accelerated route",
-    "channelCustom": "Custom source"
+    "channelCustom": "Custom source",
+    "skippedList": "Not installed",
+    "skippedHint": "These parts were skipped, so they will not work. You can install them later from the app's own guide."
   },
   "s5": {
     "title": "Connect your model",
@@ -174,8 +186,8 @@
     "subtitlePartial": "Installed items are below; the ones marked ⊘ didn't make it.",
     "listTitle": "Installed items",
     "listEmpty": "Nothing recorded.",
-    "nextTitle": "Next step",
-    "nextDesc": "Bind Telegram / WhatsApp and other channels so your AI can reach you.",
+    "nextTitle": "What's next",
+    "nextDesc": "Open the app you just installed and try it out. Each app has its own guide with the first steps.",
     "nextCta": "Open the guide",
     "again": "Install another",
     "feedback": "Feedback",
@@ -217,6 +229,8 @@
   "err": {
     "title": "Something went wrong",
     "code": "Code",
+    "failedPart": "Failed step: {{name}}",
+    "reasonLabel": "Details: {{reason}}",
     "retry": "Retry",
     "switchSource": "Try another source",
     "skip": "Skip this",
@@ -250,7 +264,8 @@
     "title": "Continue last install?",
     "desc": "Your previous install did not finish. You can pick up where you left off.",
     "yes": "Continue",
-    "no": "Start over"
+    "no": "Start over",
+    "which": "Last time you were installing {{name}} ({{done}} parts already done)."
   },
   "net": {
     "back": "Back",
@@ -292,12 +307,15 @@
     "desc": "This task failed twice in a row. Here's the latest network check:",
     "close": "Close",
     "retry": "Retry",
+    "skip": "Skip this component",
+    "skipHint": "Skipping means this part won't be installed, and the app may not work without it.",
     "r2Tag": "Suggested fix",
     "r2Advice": "Your connection may be behind a proxy or filtered. Go to Settings → Network and switch the region to Global, then retry.",
     "r2AdviceCn": "You're on the mainland mirror channels. If it keeps failing, check your network or try again later.",
     "adviceHashMismatch": "The download source returned unexpected content, so the install stopped. Tap \"Try another source\" to retry on a different channel.",
     "failHint": "Some download sources are unreachable right now; the installer will keep trying mirrors.",
-    "symptom": "Install task failed twice."
+    "symptom": "Install task failed twice.",
+    "skipConfirm": "Yes, skip it"
   },
   "update": {
     "banner": "New version {{version}} available",
@@ -390,7 +408,8 @@
     "appUpdates": "{{count}} apps have updates",
     "tip": "AiBOX",
     "tipUpdate": "AiBOX · update available",
-    "tipApps": "AiBOX · {{count}} apps can update"
+    "tipApps": "AiBOX · {{count}} apps can update",
+    "closedHint": "AiBOX is still running in the background. Find it in the tray at the bottom-right of your screen (it may be under the ^ arrow)."
   },
   "quit": {
     "title": "Quit AiBOX?",

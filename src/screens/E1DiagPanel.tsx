@@ -19,6 +19,7 @@ export default function E1DiagPanel({
   onClose,
   onRetry,
   onRetrySource,
+  onSkip,
   errorCode,
   regionEffective,
 }: {
@@ -27,6 +28,8 @@ export default function E1DiagPanel({
   onRetry: () => void;
   /** 换源重试（跳过当前失败通道；与 ErrorOverlay 同语义） */
   onRetrySource: () => void;
+  /** 跳过这个组件（E1 打开时 ErrorOverlay 隐藏，这里是唯一的「不装它」出口） */
+  onSkip?: () => void;
   /** 当前错误码（建议文案分支：哈希/网络类不同话术） */
   errorCode?: string;
   /** 生效区域（cn → 不给国内用户「切国际」反建议；缺省前端静态判定） */
@@ -36,6 +39,8 @@ export default function E1DiagPanel({
   const [report, setReport] = useState<DiagReport | null>(null);
   const [failed, setFailed] = useState(false);
   const [slow, setSlow] = useState(false);
+  /** 跳过前的一次确认（跳过不可逆，必须让用户知道后果） */
+  const [skipConfirm, setSkipConfirm] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -156,6 +161,42 @@ export default function E1DiagPanel({
             >
               {t("err.switchSource")}
             </button>
+          )}
+          {onSkip && !skipConfirm && (
+            <button
+              type="button"
+              onClick={() => setSkipConfirm(true)}
+              data-testid="e1-skip"
+              className="rounded-[4px] border border-aibox-line px-3 py-2 font-mono text-xs text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
+            >
+              {t("e1.skip")}
+            </button>
+          )}
+          {/* 跳过不可逆 → 先说清后果再让用户点 */}
+          {onSkip && skipConfirm && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] leading-relaxed text-aibox-text2">{t("e1.skipHint")}</span>
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSkipConfirm(false)}
+                  className="rounded-[4px] border border-aibox-line px-3 py-2 font-mono text-xs text-aibox-text2"
+                >
+                  {t("btn.cancel")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSkipConfirm(false);
+                    onSkip();
+                  }}
+                  data-testid="e1-skip-confirm"
+                  className="rounded-[4px] border border-aibox-danger px-3 py-2 font-mono text-xs text-aibox-danger"
+                >
+                  {t("e1.skipConfirm")}
+                </button>
+              </span>
+            </div>
           )}
           <button
             type="button"

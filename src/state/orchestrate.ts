@@ -210,12 +210,15 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     if (j) void deps.api.downloadCancel(j).catch(() => undefined);
   };
 
-  const fail = (code: string, taskId?: string): RunResult => {
+  const fail = (code: string, taskId?: string, human?: string | null): RunResult => {
     deps.dispatch({
       type: "ERROR",
       code,
       messageKey: messageKeyForCode(code),
       ...(taskId ? { taskId } : {}),
+      // 人话原因（Rust 已算好，如「这个软件需要管理员权限」）——
+      // 旧版只给一句笼统的「安装失败」，用户完全不知道下一步该做什么。
+      ...(human ? { human } : {}),
     });
     return "error";
   };
@@ -267,7 +270,7 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
         ...(skip.length > 0 ? { skipChannels: skip } : {}),
       });
     } catch (e) {
-      return fail(errCode(e, "DOWNLOAD_START_FAILED"), task.id);
+      return fail(errCode(e, "DOWNLOAD_START_FAILED"), task.id, errorHumanOf(e));
     }
     const outcome = await waiter;
     state.jobId = null;
@@ -287,7 +290,7 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
         spec.download.sha256,
       );
     } catch (e) {
-      return fail(errCode(e, "VERIFY_FAILED"), task.id);
+      return fail(errCode(e, "VERIFY_FAILED"), task.id, errorHumanOf(e));
     }
     if (!verified) return fail("HASH_MISMATCH", task.id);
 
@@ -298,7 +301,7 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     try {
       exit = await deps.api.execInstall(spec.exec);
     } catch (e) {
-      return fail(errCode(e, "EXEC_SPAWN_FAILED"), task.id);
+      return fail(errCode(e, "EXEC_SPAWN_FAILED"), task.id, errorHumanOf(e));
     }
     if (exit.code !== 0) return fail(`EXEC_EXIT_${exit.code}`, task.id);
 
@@ -309,7 +312,7 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
       try {
         await deps.api.probeRun(spec.probe);
       } catch (e) {
-        return fail(errCode(e, "PROBE_MISMATCH"), task.id);
+        return fail(errCode(e, "PROBE_MISMATCH"), task.id, errorHumanOf(e));
       }
     }
 
@@ -358,6 +361,14 @@ function errCode(e: unknown, fallback: string): string {
  * 取 Rust `CommandError.code`；非结构化错误 → null（**不臆造** fallback）。
  * 需要「有没有 code」而不是「缺省是什么」时用这个。
  */
+/** 取 Rust `CommandError.human`（人话原因）；非结构化错误 → null */
+export function errorHumanOf(e: unknown): string | null {
+  if (e && typeof e === "object" && "human" in e && typeof (e as { human: unknown }).human === "string") {
+    return (e as { human: string }).human;
+  }
+  return null;
+}
+
 export function errorCodeOrNull(e: unknown): string | null {
   if (e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string") {
     return (e as { code: string }).code;

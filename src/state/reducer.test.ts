@@ -354,3 +354,35 @@ describe("flowTo 编排辅助自检", () => {
     expect(flowTo("VERIFY").status).toBe("VERIFY");
   });
 });
+
+describe("断点续装：不得空队列进 EXECUTE（死锁回归防护）", () => {
+  it("冷启动（plan=null, tasks=[]）下 RESUME_SESSION → 留在 IDLE，不进 EXECUTE", () => {
+    const s = reducer(createInitialState(), {
+      type: "DETECT_SESSION",
+      snapshot: { appId: "openclaw", doneTaskIds: ["node"], savedAt: 1 },
+    });
+    const after = reducer(s, { type: "RESUME_SESSION" });
+    // 旧版：tasks=[] 也进 EXECUTE → ALL_DONE 守卫 tasks.length>0 → 界面永远停在「安装中」
+    expect(after.status).toBe("IDLE");
+    expect(after.tasks).toEqual([]);
+  });
+
+  it("ALL_DONE 且任务队列为空 → 回 IDLE（不空转）", () => {
+    const s = { ...createInitialState(), status: "EXECUTE" as const, tasks: [] };
+    expect(reducer(s, { type: "ALL_DONE" }).status).toBe("IDLE");
+  });
+
+  it("RESUME_PLAN 注入计划后再 RESUME_SESSION → 进 EXECUTE 且跳过已完成任务", () => {
+    const s0 = reducer(createInitialState(), {
+      type: "DETECT_SESSION",
+      snapshot: { appId: "openclaw", doneTaskIds: ["node"], savedAt: 1 },
+    });
+    const withPlan = reducer(s0, { type: "RESUME_PLAN", plan });
+    expect(withPlan.plan).not.toBeNull();
+    expect(withPlan.tasks.length).toBe(plan.tasks.length);
+    const resumed = reducer(withPlan, { type: "RESUME_SESSION" });
+    expect(resumed.status).toBe("EXECUTE");
+    expect(resumed.tasks[0].status).toBe("done");
+    expect(resumed.currentTaskIndex).toBe(1);
+  });
+});

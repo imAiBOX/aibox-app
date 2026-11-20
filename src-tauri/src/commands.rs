@@ -378,7 +378,9 @@ pub async fn download_start(
             Ok(Err(e)) => {
                 let n = format!("download failed [{}]: {}", e.code, e.human);
                 let t = n.clone();
-                let f = json!({ "ok": false, "jobId": job_id, "code": e.code });
+                // 带 human：界面要能显示「真实原因」（如「这个软件需要管理员权限」），
+                // 只给 code 的话用户只能看到一句笼统的「安装失败」。
+                let f = json!({ "ok": false, "jobId": job_id, "code": e.code, "human": e.human });
                 (n, t, f)
             }
             Err(payload) => {

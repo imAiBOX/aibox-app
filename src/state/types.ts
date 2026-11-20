@@ -104,6 +104,8 @@ export interface AppError {
   /** 出错时所在主流程态（RETRY/SKIP/EXPORT_DIAG 恢复用） */
   from: Status;
   taskId?: string;
+  /** 人话原因（Rust CoreError.human；如「这个软件需要管理员权限」） */
+  human?: string;
 }
 
 /** 断点续装快照（EXECUTE 每任务完成持久化） */
@@ -149,7 +151,7 @@ export type Event =
   | { type: "ALL_DONE" } // EXECUTE → CONFIG
   | { type: "CONFIG_WRITTEN"; pathId: string } // CONFIG → VERIFY（pathId="none" → DONE，跳过模型配置）
   | { type: "VERIFY_OK" } // VERIFY → DONE
-  | { type: "ERROR"; code: string; messageKey: string; taskId?: string } // 任意态 → ERROR
+  | { type: "ERROR"; code: string; messageKey: string; taskId?: string; human?: string } // 任意态 → ERROR
   | { type: "RETRY" } // ERROR → 出错原态
   | { type: "SKIP" } // ERROR → 出错原态（跳过失败任务）
   | { type: "EXPORT_DIAG" } // ERROR → 出错原态（导出为副作用）
@@ -157,6 +159,7 @@ export type Event =
   | { type: "CONFIG_SELECT"; pathId: string } // CONFIG 内选路径（不转移状态）
   | { type: "BACK" } // 主流程回退一步（仅 IDLE/SCAN/PLAN 可回）
   | { type: "DETECT_SESSION"; snapshot: SessionSnapshot } // IDLE 检测未完成会话
+  | { type: "RESUME_PLAN"; plan: Plan } // 续装前注入重建的计划（冷启动 state.plan=null）
   | { type: "RESUME_SESSION" } // 恢复到 EXECUTE 该任务边界
   | { type: "DISMISS_RESUME" } // 放弃继续
   | { type: "RESTART" }; // DONE → IDLE（再装一个）

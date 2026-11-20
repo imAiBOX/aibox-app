@@ -9,26 +9,66 @@
 import { useCallback, useEffect, useReducer } from "react";
 import { api, type UpdateInfo } from "../net/client";
 
-/** 官网下载页（跳官网，不用 releases 直链） */
+/**
+ * 官网下载页（跳官网，不用 releases 直链）。
+ * 根路径 `/download/` 已有语言兼容跳转（2026-11-20 补：原本是 404），
+ * 但界面上的链接会用 `siteUrl('/download/', lang)` 直接指到当前语言版。
+ */
 export const OFFICIAL_DOWNLOAD_URL = "https://aibox.im/download/";
 
 export interface BannerState {
   info: UpdateInfo | null;
-  /** 本会话内已关闭（不落盘 → 本次启动不再弹） */
+  /** 已关闭（按版本持久化 → 同一版本不再每次启动都弹） */
   dismissed: boolean;
+}
+
+/** 「稍后」的持久化键（记被关闭的版本号；同版本不再弹） */
+const DISMISS_KEY = "aibox.update.dismissed";
+
+/** 读出被「稍后」关闭的版本（无 → null） */
+export function readDismissedVersion(): string | null {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    return localStorage.getItem(DISMISS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** 记住「稍后」关闭的版本（下次启动同版本不再弹） */
+export function rememberDismissedVersion(v: string): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(DISMISS_KEY, v);
+  } catch {
+    /* 隐私模式等 → 忽略（退化成会话内有效） */
+  }
 }
 
 export type BannerAction =
   | { type: "CHECK_RESULT"; info: UpdateInfo }
-  | { type: "DISMISS" };
+  | { type: "DISMISS"; version?: string };
 
 /** 纯逻辑：CHECK_RESULT 在 dismissed 后忽略（会话内只弹一次） */
 export function bannerReduce(s: BannerState, a: BannerAction): BannerState {
   switch (a.type) {
     case "CHECK_RESULT":
       // 已关闭 → 后续 update_check 结果（5min 缓存重查）不再展示
-      return s.dismissed ? s : { ...s, info: a.info };
+      if (s.dismissed) return s;
+      // **同版本被「稍后」过** → 本次启动也不再展示（持久化，见 rememberDismissedVersion）
+      const dismissedVersion = readDismissedVersion();
+      if (
+        dismissedVersion &&
+        a.info.hasUpdate &&
+        a.info.version &&
+        dismissedVersion === String(a.info.version)
+      ) {
+        return { ...s, dismissed: true };
+      }
+      return { ...s, info: a.info };
     case "DISMISS":
+      // 持久化：同一版本不再每次启动都弹（旧版只内存态 → 用户点了「稍后」下次照弹）
+      if (a.version) rememberDismissedVersion(a.version);
       return { ...s, dismissed: true };
     default:
       return s;
@@ -49,7 +89,7 @@ export interface UpdateBannerState {
   url: string;
   /** 原始检查结果（托盘联动用：不受 dismissed 影响） */
   info: UpdateInfo | null;
-  dismiss: () => void;
+  dismiss: (version?: string) => void;
   /** 重新检查（5min 缓存；托盘「检查更新」/ 常驻周期用） */
   recheck: () => void;
 }
@@ -68,7 +108,11 @@ export function useUpdateBanner(): UpdateBannerState {
     recheck();
   }, [recheck]);
 
-  const dismiss = useCallback(() => rawDispatch({ type: "DISMISS" }), []);
+  // 「稍后」带上版本号 → 持久化（同一版本不再每次启动都弹）
+  const dismiss = useCallback(
+    (version?: string) => rawDispatch({ type: "DISMISS", ...(version ? { version } : {}) }),
+    [],
+  );
 
   return {
     visible: bannerVisible(state),
