@@ -19,7 +19,14 @@ import {
   messageKeyForCode,
   type ExecuteHandle,
 } from "./state";
-import { api, getMockScenario, isMock, type AppIndex, type NetRegionResult } from "./net/client";
+import {
+  api,
+  getMockScenario,
+  isMock,
+  type AppIndex,
+  type AppManifest,
+  type NetRegionResult,
+} from "./net/client";
 import { staticRegionFallback } from "./net/region";
 import { channelToast, feedLogFromEvents, feedToastFromEvents, onEvent, startTauriEvents } from "./net/events";
 import { AppShell, type BarAction } from "./screens/Shell";
@@ -53,6 +60,8 @@ export default function App() {
   const [state, rawDispatch] = useReducer(reduce, undefined, createInitialState);
   const dispatch = rawDispatch;
   const [overlay, setOverlay] = useState<Overlay>("none");
+  /** 打开设置时是否自动跑一次体检（首屏侧栏「打开体检」触发） */
+  const [doctorAutoRun, setDoctorAutoRun] = useState(false);
   const [version, setVersion] = useState(__APP_VERSION__);
   const [appIndex, setAppIndex] = useState<AppIndex | null>(null);
   const [indexLoading, setIndexLoading] = useState(true);
@@ -61,6 +70,8 @@ export default function App() {
   /** 目录重载计数（S1「重试」自增 → 重新拉 registry_index） */
   const [indexRetry, setIndexRetry] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** 当前应用的 registry manifest（完成页要显示「装到哪了」→ maintenance.dataPaths） */
+  const [manifest, setManifest] = useState<AppManifest | null>(null);
   /** C5 写入成功后的凭据（内存态，仅供 VERIFY；不进持久化） */
   const [creds, setCreds] = useState<ConfigCreds | null>(null);
   const [verifyResult, setVerifyResult] = useState<{ text: string; ms: number } | null>(null);
@@ -347,6 +358,7 @@ export default function App() {
     void Promise.all([scanP, api.registryApp(selectedId)])
       .then(async ([report, manifest]) => {
         installVersionRef.current = manifest.version;
+        setManifest(manifest);
         // 路线按 net.effective 首条可行；region 取不到 → 前端静态判定兑底（不再硬编 global）
         const region = await api.netRegion().catch((e: unknown) => {
           const effective = staticRegionFallback();
@@ -598,7 +610,13 @@ export default function App() {
       >
         {isOverlay ? (
           overlay === "settings" ? (
-            <Settings onClose={() => setOverlay("none")} />
+            <Settings
+            onClose={() => {
+              setOverlay("none");
+              setDoctorAutoRun(false);
+            }}
+            autoRunDoctor={doctorAutoRun}
+          />
           ) : overlay === "manage" ? (
             <S8Manage
               onClose={() => setOverlay("none")}
@@ -620,7 +638,12 @@ export default function App() {
             onRetryIndex={() => setIndexRetry((n) => n + 1)}
             selectedId={selectedId}
             onSelect={setSelectedId}
-            onOpenDoctor={() => setOverlay("settings")}
+            // 「打开体检」= 打开设置的网络页**并自动跑一次体检**
+            // （旧版只打开设置页 → 用户看到的是「地区选择」，与「看看你的电脑」对不上）
+            onOpenDoctor={() => {
+              setDoctorAutoRun(true);
+              setOverlay("settings");
+            }}
             appUpdates={checks.appUpdates}
             newApps={checks.newApps}
             onDismissNewApps={checks.dismissNewApps}
@@ -652,7 +675,11 @@ export default function App() {
             onRetry={sendVerify}
           />
         ) : (
-          <S7Done state={state} onRestart={() => dispatch({ type: "RESTART" })} />
+          <S7Done
+            state={state}
+            dataPaths={manifest?.maintenance?.dataPaths ?? []}
+            onRestart={() => dispatch({ type: "RESTART" })}
+          />
         )}
 
         {/* 断点续装询问弹层 */}

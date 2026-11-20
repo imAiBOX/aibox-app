@@ -454,6 +454,8 @@ export const api = {
   diagExport: () => invoke<string>("diag_export"),
   /** 写入最后计划到 ~/.aibox/cache/last-plan.json（诊断包收录） */
   savePlan: (plan: unknown) => invoke<string>("save_plan", { plan }),
+  /** 打开目录（让用户看见「装到哪了」）——路径里的 ~ 由 Rust 侧展开 */
+  revealDir: (path: string) => invoke<void>("reveal_dir", { path }),
   updateCheck: () => invoke<UpdateInfo>("update_check"),
   /** 已装应用更新检查（Rust 读 install-manifest + 拉 registry 比对；4h 缓存门控在 TS） */
   checkAppUpdates: () => invoke<AppUpdateRow[]>("check_app_updates"),

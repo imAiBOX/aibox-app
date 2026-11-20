@@ -9,7 +9,14 @@ import SettingsNetwork from "./SettingsNetwork";
 
 type Tab = "general" | "network";
 
-export default function Settings({ onClose }: { onClose: () => void }) {
+export default function Settings({
+  onClose,
+  autoRunDoctor,
+}: {
+  onClose: () => void;
+  /** 打开即自动跑一次网络体检（首屏侧栏「打开体检」用：承诺「看看你的电脑」就要真看） */
+  autoRunDoctor?: boolean;
+}) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("network");
 
@@ -49,7 +56,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
         ))}
       </div>
 
-      {tab === "general" ? <SettingsGeneral /> : <SettingsNetwork />}
+      {tab === "general" ? <SettingsGeneral /> : <SettingsNetwork autoRun={autoRunDoctor} />}
     </div>
   );
 }

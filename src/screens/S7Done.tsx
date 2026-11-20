@@ -4,15 +4,21 @@
 import { useTranslation } from "react-i18next";
 import type { MachineState } from "../state";
 import { appGuideUrl, siteUrl } from "../lib/links";
+import { api } from "../net/client";
 
 export default function S7Done({
   state,
+  dataPaths,
   onRestart,
 }: {
   state: MachineState;
+  /** 该应用的数据/配置目录（registry maintenance.dataPaths；完成页告诉用户「装到哪了」） */
+  dataPaths?: string[];
   onRestart: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  /** 数据目录（可能为空：registry 未声明 maintenance.dataPaths） */
+  const paths = dataPaths ?? [];
   const installed = state.tasks.filter((tk) => tk.status === "done");
   /** 跳过的组件（之前会静默消失 → 用户以为全装上了） */
   const skipped = state.tasks.filter((tk) => tk.status === "skipped");
@@ -39,6 +45,31 @@ export default function S7Done({
           <p className="mt-1 text-sm leading-relaxed text-aibox-text2">
             {t("s7.configSkippedDesc")}
           </p>
+        </section>
+      )}
+
+      {/* 装到哪了：完成页只列名字+版本 → 用户不知道自己装到哪、怎么打开。
+          这里给出 registry 声明的真实数据目录，并给一个「打开」按钮。 */}
+      {paths.length > 0 && (
+        <section className="rounded-[6px] border border-aibox-line bg-aibox-raised px-4 py-3">
+          <h2 className="mb-1 font-display text-sm font-semibold text-aibox-cream">
+            {t("s7.whereTitle")}
+          </h2>
+          <ul className="flex flex-col gap-1.5">
+            {paths.map((p) => (
+              <li key={p} className="flex items-center justify-between gap-3">
+                <span className="break-all font-mono text-[11px] text-aibox-text2">{p}</span>
+                <button
+                  type="button"
+                  onClick={() => void api.revealDir(p).catch(() => undefined)}
+                  className="shrink-0 rounded-[4px] border border-aibox-line px-2 py-1 font-mono text-[10px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
+                >
+                  {t("s7.openFolder")}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] leading-relaxed text-aibox-text2">{t("s7.whereHint")}</p>
         </section>
       )}
 

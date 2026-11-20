@@ -55,7 +55,7 @@
     "statusChecking": "Checking version",
     "doctorTitle": "System checkup",
     "doctorDesc": "A quick look at your machine before installing.",
-    "doctorOpen": "Open checkup",
+    "doctorOpen": "Open checkup + test network",
     "upgradeTo": "Update to {{version}}",
     "updatesBar": "{{count}} installed apps have updates",
     "newApps": "New in the catalog: {{names}}",
@@ -113,7 +113,7 @@
     "doneList": "Finished",
     "viewLog": "View log",
     "logEmpty": "No log output yet.",
-    "logNote": "Log is read-only. Keys are masked.",
+    "logNote": "The lines below are technical details for maintainers. Your key is never written here.",
     "switchedSlow": "This download source is slow, so we switched to a faster one automatically ({{from}} → {{to}}).",
     "switchedFallback": "This download source is unavailable, so we switched to a backup one automatically ({{from}} → {{to}}).",
     "channelDirect": "Official direct",
@@ -121,7 +121,11 @@
     "channelProxy": "Accelerated route",
     "channelCustom": "Custom source",
     "skippedList": "Not installed",
-    "skippedHint": "These parts were skipped, so they will not work. You can install them later from the app's own guide."
+    "skippedHint": "These parts were skipped, so they will not work. You can install them later from the app's own guide.",
+    "installUacHint": "If Windows asks “Allow this app to make changes to your device?”, choose Yes — that is the app being installed.",
+    "stillWorking": "Still working (running for {{time}}). Large apps usually take 1–3 minutes. Please don’t close this window.",
+    "logNoTask": "no task running",
+    "logProgress": "{{done}} done · {{skipped}} skipped"
   },
   "s5": {
     "title": "Connect your model",
@@ -197,7 +201,10 @@
     "skippedLabel": "not installed",
     "configSkippedTitle": "No model configured yet",
     "configSkippedDesc": "The app itself is installed. You can add the model API key later in AiBOX, or set it up by hand with the guide.",
-    "shareText": "I installed an AI app with AiBOX.im"
+    "shareText": "I installed an AI app with AiBOX.im",
+    "whereTitle": "Where it lives",
+    "openFolder": "Open folder",
+    "whereHint": "These are the app's own data and config folders. Opening one shows you exactly where it was installed."
   },
   "ss": {
     "title": "Windows says “unknown publisher”?",

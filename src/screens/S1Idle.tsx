@@ -396,7 +396,9 @@ export default function S1Idle({
       </div>
 
       {/* 侧栏体检入口 E3 */}
-      <aside className="hidden w-52 shrink-0 flex-col gap-3 border-l border-aibox-line pl-4 lg:flex">
+      {/* 侧栏体检入口：旧版 `lg:flex` → 窗口宽度 <1024px 时**整个入口消失**
+          （而窗口最小可缩到 900px）→ 用户以为没有这个功能。改为 md 起可见。 */}
+      <aside className="hidden w-52 shrink-0 flex-col gap-3 border-l border-aibox-line pl-4 md:flex">
         <h2 className="font-display text-sm font-semibold text-aibox-cream">{t("s1.doctorTitle")}</h2>
         <p className="text-xs leading-relaxed text-aibox-text2">{t("s1.doctorDesc")}</p>
         {scan && (

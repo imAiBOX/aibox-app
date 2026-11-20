@@ -55,7 +55,7 @@
     "statusChecking": "版本核对中",
     "doctorTitle": "本机体检",
     "doctorDesc": "装之前先快速看看你的电脑。",
-    "doctorOpen": "打开体检",
+    "doctorOpen": "打开体检（顺便测下网络）",
     "upgradeTo": "可升级 {{version}}",
     "updatesBar": "已装应用有 {{count}} 个新版本",
     "newApps": "目录新增：{{names}}",
@@ -113,7 +113,7 @@
     "doneList": "已完成",
     "viewLog": "查看日志",
     "logEmpty": "还没有日志。",
-    "logNote": "日志只读，key 已脱敏。",
+    "logNote": "下面几行是给维护人员看的技术细节。你的 key 不会被写进来。",
     "switchedSlow": "当前下载线路较慢，已自动切换到加速线路（{{from}} → {{to}}）",
     "switchedFallback": "当前下载线路不可用，已自动切换到备用线路（{{from}} → {{to}}）",
     "channelDirect": "官方直连",
@@ -121,7 +121,11 @@
     "channelProxy": "加速通道",
     "channelCustom": "自定义源",
     "skippedList": "没装上的",
-    "skippedHint": "这几项被跳过了，所以对应功能用不了。之后可以照着该应用自己的教程补装。"
+    "skippedHint": "这几项被跳过了，所以对应功能用不了。之后可以照着该应用自己的教程补装。",
+    "installUacHint": "如果系统弹出「是否允许此应用更改设备」，请点「是」——那是被安装的软件在提问。",
+    "stillWorking": "还在进行中（已经跑了 {{time}}）。大型软件通常需要 1–3 分钟，请不要关掉这个窗口。",
+    "logNoTask": "当前没有任务",
+    "logProgress": "已完成 {{done}} · 跳过 {{skipped}}"
   },
   "s5": {
     "title": "连接模型",
@@ -197,7 +201,10 @@
     "skippedLabel": "没装上",
     "configSkippedTitle": "模型还没配置",
     "configSkippedDesc": "应用本身已经装好了。模型的 API key 你可以之后在 AiBOX 里补上，或者照着教程手动配。",
-    "shareText": "我用 AiBOX.im 装好了一个 AI 应用"
+    "shareText": "我用 AiBOX.im 装好了一个 AI 应用",
+    "whereTitle": "装到哪了",
+    "openFolder": "打开文件夹",
+    "whereHint": "这些是这个应用自己的数据和配置目录。点「打开文件夹」就能看到它到底装在哪。"
   },
   "ss": {
     "title": "Windows 提示「未知发布者」？",

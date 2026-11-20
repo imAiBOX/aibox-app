@@ -25,6 +25,15 @@ const CHANNEL_KEYS: Record<string, string> = {
   CUSTOM: "s4.channelCustom",
 };
 
+/** 秒 → 人话（1 分 20 秒） */
+function formatElapsed(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  if (s < 60) return `${s} 秒`;
+  const m = Math.floor(s / 60);
+  const rest = s % 60;
+  return rest === 0 ? `${m} 分` : `${m} 分 ${rest} 秒`;
+}
+
 /** 阶段 → 一句话说明（这阶段到底在干什么、会不会动你的电脑） */
 const PHASE_HINT_KEYS: Record<string, string> = {
   download: "s4.phaseHint.download",
@@ -80,8 +89,33 @@ export default function S4Execute({ state }: { state: MachineState }) {
     [],
   );
 
+  // **按任务隔离**：换任务时清空缓冲。
+  // 旧版缓冲是全局的 → 装第 3 个组件时抽屉里还混着第 1 个组件的旧日志，
+  // 用户看着像「日志乱了」。
+  useEffect(() => {
+    appLog.clear();
+    setLogLines(appLog.lines());
+  }, [task?.id]);
+
   // 外壳底栏的「查看日志」按钮 → 打开本页抽屉（跨组件开关）
   useEffect(() => logDrawer.subscribe(setLogsOpen), []);
+
+  /**
+   * 当前阶段已用时长。
+   *
+   * **为什么需要**：install 阶段的 Rust 超时是 15 分钟（exec.rs），
+   * 而界面在这段时间里**完全静止**（进度条不动、零文字）→
+   * 用户判断「程序是不是死了」的唯一依据就是界面还在动，
+   * 静止 30 秒开始怀疑、静止 3 分钟就去点「取消」，把好端端的安装搅黄。
+   */
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    setElapsed(0);
+    const id = window.setInterval(() => setElapsed((v) => v + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [task?.phase, task?.id]);
+  /** 超过 20 秒仍在本阶段 → 给一句安抚话（并显示已用时长） */
+  const slowPhase = elapsed >= 20;
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -103,6 +137,20 @@ export default function S4Execute({ state }: { state: MachineState }) {
           <p className="mb-2 text-xs leading-relaxed text-aibox-text2">
             {t(PHASE_HINT_KEYS[task.phase] ?? "s4.phaseHint.download")}
           </p>
+
+          {/* 安装阶段：系统可能弹 UAC 提权框（落在 AiBOX 窗口之外）→ 先告诉用户那是什么 */}
+          {task.phase === "install" && (
+            <p className="mb-2 text-xs leading-relaxed text-aibox-info">
+              {t("s4.installUacHint")}
+            </p>
+          )}
+
+          {/* 阶段静默超过 20 秒 → 安抚 + 已用时长（否则用户以为死了） */}
+          {slowPhase && (
+            <p className="mb-2 text-xs leading-relaxed text-aibox-text2">
+              {t("s4.stillWorking", { time: formatElapsed(elapsed) })}
+            </p>
+          )}
 
           {/* 当前任务大字 */}
           <div className="mb-3 flex items-baseline gap-3">
@@ -197,13 +245,25 @@ export default function S4Execute({ state }: { state: MachineState }) {
         </button>
       </div>
       {logsOpen && (
-        <div className="max-h-44 overflow-auto rounded-[6px] border border-aibox-line bg-aibox-bg p-3 font-mono text-[11px] leading-relaxed text-aibox-text2">
-          {logLines.length === 0 ? (
-            <p className="text-aibox-text2/60">{t("s4.logEmpty")}</p>
-          ) : (
-            logLines.map((line, i) => <p key={i}>{line}</p>)
-          )}
-          <p className="text-aibox-text2/60">{t("s4.logNote")}</p>
+        <div className="rounded-[6px] border border-aibox-line bg-aibox-bg p-3">
+          {/* 顶部人话摘要：小白先看这一行，不用去读英文机器日志 */}
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-aibox-line pb-2 text-[11px] text-aibox-text1">
+            <span className="font-mono">
+              {task ? `${task.name} ${task.version}` : t("s4.logNoTask")}
+            </span>
+            {task && <span className="text-aibox-text2">{t(PHASE_KEYS[task.phase] ?? "s4.phaseDownload")}</span>}
+            <span className="text-aibox-text2">
+              {t("s4.logProgress", { done: doneItems.length, skipped: skippedItems.length })}
+            </span>
+          </div>
+          <div className="max-h-36 overflow-auto font-mono text-[11px] leading-relaxed text-aibox-text2">
+            {logLines.length === 0 ? (
+              <p className="text-aibox-text2/60">{t("s4.logEmpty")}</p>
+            ) : (
+              logLines.map((line, i) => <p key={i}>{line}</p>)
+            )}
+          </div>
+          <p className="mt-2 text-[11px] text-aibox-text2/60">{t("s4.logNote")}</p>
         </div>
       )}
     </div>

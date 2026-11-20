@@ -51,6 +51,7 @@ fn main() {
             commands::registry_index,
             commands::registry_app,
             // 网络（net 层）
+            commands::reveal_dir,
             commands::net_region,
             commands::net_region_set,
             commands::net_probe,

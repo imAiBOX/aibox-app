@@ -25,7 +25,12 @@ function fmtDetail(detail: string): string {
 
 type Region = "auto" | "cn" | "global";
 
-export default function SettingsNetwork() {
+export default function SettingsNetwork({
+  autoRun,
+}: {
+  /** 打开即自动跑一次体检（首屏侧栏「打开体检」触发） */
+  autoRun?: boolean;
+}) {
   const { t, i18n } = useTranslation();
   const [region, setRegion] = useState<Region>("auto");
   const [report, setReport] = useState<DiagReport | null>(null);
@@ -53,6 +58,13 @@ export default function SettingsNetwork() {
       .catch(() => setDoctorErr(t("net.doctorFail")))
       .finally(() => setDoctorBusy(false));
   }, [t]);
+
+  // 打开即自动跑一次（首屏侧栏「打开体检」承诺的是「看看你的电脑」→ 就要真看）
+  useEffect(() => {
+    if (!autoRun) return;
+    runDoctor();
+    // 仅在打开时跑一次（autoRun 由外层在打开设置时置位）
+  }, [autoRun, runDoctor]);
 
   const rows = mapDiagRows(report, i18n.resolvedLanguage ?? "en");
   const worst = worstStatus(rows);

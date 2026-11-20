@@ -55,7 +55,7 @@
     "statusChecking": "版本核對中",
     "doctorTitle": "本機體檢",
     "doctorDesc": "裝之前先快速看看你的電腦。",
-    "doctorOpen": "開啟體檢",
+    "doctorOpen": "開啟體檢（順便測下網路）",
     "upgradeTo": "可升級 {{version}}",
     "updatesBar": "已裝應用有 {{count}} 個新版本",
     "newApps": "目錄新增：{{names}}",
@@ -113,7 +113,7 @@
     "doneList": "已完成",
     "viewLog": "檢視日誌",
     "logEmpty": "還沒有日誌。",
-    "logNote": "日誌只讀，key 已脫敏。",
+    "logNote": "下面幾行是給維護人員看的技術細節。你的 key 不會被寫進來。",
     "switchedSlow": "目前下載線路較慢，已自動切換到加速線路（{{from}} → {{to}}）",
     "switchedFallback": "目前下載線路無法使用，已自動切換到備用線路（{{from}} → {{to}}）",
     "channelDirect": "官方直連",
@@ -121,7 +121,11 @@
     "channelProxy": "加速通道",
     "channelCustom": "自訂來源",
     "skippedList": "沒裝上的",
-    "skippedHint": "這幾項被跳過了，所以對應功能用不了。之後可以照著該應用自己的教學補裝。"
+    "skippedHint": "這幾項被跳過了，所以對應功能用不了。之後可以照著該應用自己的教學補裝。",
+    "installUacHint": "如果系統彈出「是否允許此應用更改裝置」，請點「是」——那是被安裝的軟體在提問。",
+    "stillWorking": "還在進行中（已經跑了 {{time}}）。大型軟體通常需要 1–3 分鐘，請不要關掉這個視窗。",
+    "logNoTask": "目前沒有任務",
+    "logProgress": "已完成 {{done}} · 跳過 {{skipped}}"
   },
   "s5": {
     "title": "連線模型",
@@ -197,7 +201,10 @@
     "skippedLabel": "沒裝上",
     "configSkippedTitle": "模型還沒設定",
     "configSkippedDesc": "應用本身已經裝好了。模型的 API key 你可以之後在 AiBOX 裡補上，或者照著教學手動設定。",
-    "shareText": "我用 AiBOX.im 裝好了一個 AI 應用"
+    "shareText": "我用 AiBOX.im 裝好了一個 AI 應用",
+    "whereTitle": "裝到哪了",
+    "openFolder": "開啟資料夾",
+    "whereHint": "這些是這個應用自己的資料和設定目錄。點「開啟資料夾」就能看到它到底裝在哪。"
   },
   "ss": {
     "title": "Windows 提示「未知釋出者」？",

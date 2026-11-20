@@ -105,6 +105,39 @@ pub async fn registry_app(id: String) -> Cmd<Value> {
     Ok(doc)
 }
 
+// ── 打开目录（让用户看见「东西装到哪了」）─────────────────────────────
+
+/// 打开一个目录（系统默认文件管理器）。路径里的 `~` 会展开。
+///
+/// **为什么需要**：装完后小白最想知道「装到哪了、怎么打开」。
+/// 旧版完成页只列名字+版本，什么都不说 → 用户自己去网上搜「XXX 怎么启动」。
+/// 这里给出**真实可点的入口**：点一下就打开那个文件夹。
+///
+/// 安全：只开目录（不执行任何东西）；路径来自 registry 声明或安装前缀。
+#[tauri::command]
+pub async fn reveal_dir(path: String) -> Cmd<()> {
+    let p = paths::expand(&path);
+    if !p.is_dir() {
+        return Err(CommandError::new(
+            "REVEAL_NOT_FOUND",
+            format!("not a directory: {}", p.display()),
+        ));
+    }
+    let dir = p.to_string_lossy().into_owned();
+    let (prog, args): (&str, Vec<String>) = if cfg!(target_os = "windows") {
+        ("explorer", vec![dir])
+    } else if cfg!(target_os = "macos") {
+        ("open", vec![dir])
+    } else {
+        ("xdg-open", vec![dir])
+    };
+    let mut cmd = std::process::Command::new(prog);
+    cmd.args(&args);
+    cmd.spawn()
+        .map_err(|e| CommandError::new("REVEAL_FAILED", format!("open folder failed: {e}")))?;
+    Ok(())
+}
+
 // ── 网络（net 层）─────────────────────────────────────────────────────
 
 #[tauri::command]
