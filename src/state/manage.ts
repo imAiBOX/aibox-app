@@ -135,8 +135,11 @@ export function manageReduce(state: ManageState, event: ManageEvent): ManageStat
       return createInitialManageState();
 
     case "M_RISK_OPEN":
-      // 仅 MANAGE 态可开风险卡；backupFirst 缺省 → 默认勾选备份（硬规则①）
-      if (state.status !== "MANAGE") return state;
+      // MANAGE 态可开风险卡；**ERROR 态也允许**（重试时发现 registry 清单变了
+      // → 要按新清单重新确认；若这里只认 MANAGE，事件会被静默忽略 →
+      // 用户卡在错误页出不来（独立审计 2026-11-20 REJECT）。
+      // backupFirst 缺省 → 默认勾选备份（硬规则①）
+      if (state.status !== "MANAGE" && state.status !== "ERROR") return state;
       return {
         ...state,
         risk: {

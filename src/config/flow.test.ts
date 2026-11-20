@@ -230,6 +230,17 @@ describe("VERIFY 流转与弱判定拒绝", () => {
     expect(humanVerifyError("whatever", "VERIFY_HTTP_403")).toBe("err.verifyKey");
   });
 
+  it("runVerify 的 detail 进界面前已脱敏（key 不外泄）", async () => {
+    // 模拟服务商在错误体里回显 key（mock 场景的 error 串里塞进去）
+    setMockScenario("verify_fail");
+    const r = await runVerify({ provider: "openrouter", apiKey: "sk-ant-SECRET1234" });
+    expect(r.ok).toBe(false);
+    expect(r.detail).toBeDefined();
+    // mock 的 verify_fail 场景带了一个 key 回显 → detail 必须已被掩掉
+    expect(r.detail).not.toContain("sk-ant-ECHOED1234");
+    expect(r.detail).toContain("sk-****1234");
+  });
+
   it("extractErrorCode：从 'CODE: 人话' 形态取机器码", () => {
     expect(extractErrorCode("VERIFY_NET_FAIL: could not reach openrouter")).toBe("VERIFY_NET_FAIL");
     expect(extractErrorCode("plain english without code")).toBeUndefined();

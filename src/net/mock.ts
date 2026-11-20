@@ -456,7 +456,8 @@ export function mockVerifySend(input: VerifyInput): {
     // 模型侧拒绝：key 无效（非弱判定——有明确 error）
     return {
       ok: false,
-      error: "VERIFY_HTTP_401: provider rejected key (401 unauthorized)",
+      // 故意带一个 key 回显（真实服务商会在错误体里回显）→ 前端必须脱敏
+      error: "VERIFY_HTTP_401: provider rejected key sk-ant-ECHOED1234 (401 unauthorized)",
       errorCode: "VERIFY_HTTP_401",
     };
   }

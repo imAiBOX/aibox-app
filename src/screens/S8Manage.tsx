@@ -118,7 +118,33 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
   const confirmRisk = async () => {
     if (!m.risk || !canConfirmRisk(m.risk) || busy) return;
     const row = rows?.find((r) => r.entry.appId === m.risk!.appId);
-    const paths = buildRemovePaths(row?.maintenance);
+    const stale = buildRemovePaths(row?.maintenance);
+    // **权威清单 = 此刻 registry 的声明**（不是列表加载时的快照）。
+    // 风险卡上显示什么，就删什么 —— 显示与执行不一致是最危险的形态。
+    let paths = stale;
+    try {
+      const app: AppManifest = await api.registryApp(m.risk.appId);
+      paths = buildRemovePaths(app.maintenance);
+    } catch {
+      // registry 不可达 → 不拿旧清单盲删（fail-closed）
+      dispatch({ type: "M_ERROR", code: "MANAGE_NO_MANIFEST", messageKey: "s8.errRegistryChanged" });
+      return;
+    }
+    const shown = m.risk.dataPaths ?? [];
+    const changed =
+      JSON.stringify([...paths.dataPaths].sort()) !== JSON.stringify([...shown].sort());
+    if (changed) {
+      // 清单又变了 → 刷新风险卡让用户按新清单再确认一次
+      dispatch({
+        type: "M_RISK_OPEN",
+        op: m.risk.op,
+        appId: m.risk.appId,
+        backupFirst: paths.backupFirst,
+        riskText: paths.riskText,
+        dataPaths: paths.dataPaths,
+      });
+      return;
+    }
     if (paths.dataPaths.length === 0 && paths.residualPaths.length === 0 && paths.steps.length === 0) {
       // registry 没有维护清单 → 不允许删除（硬规则④：无清单不执行）
       dispatch({ type: "M_ERROR", code: "MANAGE_NO_MANIFEST", messageKey: "s8.errNoManifest" });
@@ -163,7 +189,15 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
         JSON.stringify([...fresh.residualPaths].sort()) === JSON.stringify([...a.residualPaths].sort()) &&
         JSON.stringify([...fresh.steps].sort()) === JSON.stringify([...a.steps].sort());
       if (!same) {
-        // 清单变了 → 回到风险卡，用户按新清单重新确认
+        // 清单变了 → 回到风险卡，用户按**新清单**重新确认
+        // （attemptRef 同步更新为新清单，确认时按新清单执行）
+        attemptRef.current = {
+          appId: a.appId,
+          residualPaths: fresh.residualPaths,
+          dataPaths: fresh.dataPaths,
+          steps: fresh.steps,
+          backup: a.backup,
+        };
         dispatch({
           type: "M_RISK_OPEN",
           op: "REMOVE",

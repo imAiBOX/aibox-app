@@ -317,6 +317,34 @@ mod tests {
     }
 
     #[test]
+    fn no_failure_path_leaks_the_key() {
+        // 逐条走遍会进入界面「技术细节」的失败路径，断言 key 不出现
+        let key = "sk-ant-SECRET1234";
+
+        // 1) HTTP 错误（服务商在错误体里回显 key）
+        let e = http_error("openai", 401, &format!(r#"{{"error":{{"message":"bad {key}"}}}}"#));
+        assert!(!e.human.contains(key), "http_error 泄露 key: {}", e.human);
+
+        // 2) 2xx 但响应体不是 JSON（响应体里含 key）
+        let e = parse_response("openai", &format!("not json {key}")).unwrap_err();
+        assert!(!e.human.contains(key), "parse_response 非 JSON 泄露 key: {}", e.human);
+
+        // 3) 2xx 但没有模型文本（响应体里含 key）
+        let e = parse_response("openai", &format!(r#"{{"error":"{key}"}}"#)).unwrap_err();
+        assert!(!e.human.contains(key), "parse_response 缺文本泄露 key: {}", e.human);
+
+        // 4) 建请求阶段（缺 key）——错误串里只该有 provider 名
+        let e = build_request(&VerifyInput {
+            provider: "openrouter".into(),
+            api_key: None,
+            model: None,
+            base_url: None,
+        })
+        .unwrap_err();
+        assert!(!e.human.contains(key), "build_request 泄露 key: {}", e.human);
+    }
+
+    #[test]
     fn failure_carries_machine_code() {
         // 前端要区分「网络不通」与「key 无效」，靠的是 error_code 而不是正则嗅 error 串
         let r = verify_send(&inp("nope-not-a-provider"));

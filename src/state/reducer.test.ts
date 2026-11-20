@@ -255,6 +255,15 @@ describe("任意态 → ERROR → 恢复", () => {
       expect(s.tasks).toEqual([]);
     }
   });
+
+  it("DISMISS 保留体检结果、清掉续装会话", () => {
+    let s = flowTo("EXECUTE");
+    s = { ...s, resume: { available: true, snapshot: { appId: "a", doneTaskIds: [], savedAt: 1 }, prompt: true } };
+    const after = reducer(s, { type: "DISMISS" });
+    expect(after.scan).not.toBeNull(); // 体检结果保留（S1 侧栏要显示）
+    expect(after.resume.prompt).toBe(false);
+    expect(after.resume.available).toBe(false);
+  });
 });
 
 describe("CONFIG_WRITTEN：跳过模型配置 → 直接 DONE（不进 VERIFY 死胡同）", () => {
