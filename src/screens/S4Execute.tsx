@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { completedTasks, currentTask, progress, type MachineState } from "../state";
 import { useDownloadProgress } from "../hooks/useDownloadProgress";
 import { appLog, onEvent } from "../net/events";
+import { logDrawer } from "../state/logDrawer";
 
 const PHASE_KEYS: Record<string, string> = {
   download: "s4.phaseDownload",
@@ -15,6 +16,20 @@ const PHASE_KEYS: Record<string, string> = {
   install: "s4.phaseInstall",
   probe: "s4.phaseProbe",
 };
+
+/** 下载线路代号 → 人话（Rust `ChannelType::as_str()`：DIRECT/MIRROR/PROXY/CUSTOM） */
+const CHANNEL_KEYS: Record<string, string> = {
+  DIRECT: "s4.channelDirect",
+  MIRROR: "s4.channelMirror",
+  PROXY: "s4.channelProxy",
+  CUSTOM: "s4.channelCustom",
+};
+
+/** 线路代号归一（Rust 大写；mock 可能小写） */
+function channelKey(raw: string): string | null {
+  const k = raw.trim().toUpperCase();
+  return CHANNEL_KEYS[k] ?? null;
+}
 
 export default function S4Execute({ state }: { state: MachineState }) {
   const { t } = useTranslation();
@@ -28,6 +43,8 @@ export default function S4Execute({ state }: { state: MachineState }) {
   // 其余阶段/任务切换用状态机阶段进度（避免下载完成后 dl 残留 100%）
   const dlActive = !!task && task.phase === "download" && dl.pct > 0 && dl.jobId === task.id;
   const barPct = dlActive ? dl.pct : prog.pct;
+  /** 线路徽章：DIRECT/MIRROR/PROXY/CUSTOM → 人话（小白看到裸英文缩写只会懵） */
+  const channelKeyRaw = dlActive && dl.channel ? channelKey(dl.channel) : null;
 
   // 日志抽屉：订阅 log_line → 环形缓冲（4KB 截断），只读展示
   useEffect(
@@ -38,6 +55,9 @@ export default function S4Execute({ state }: { state: MachineState }) {
     [],
   );
 
+  // 外壳底栏的「查看日志」按钮 → 打开本页抽屉（跨组件开关）
+  useEffect(() => logDrawer.subscribe(setLogsOpen), []);
+
   return (
     <div className="flex h-full flex-col gap-4">
       <h1 className="font-display text-xl font-bold text-aibox-cream">{t("s4.title")}</h1>
@@ -47,7 +67,7 @@ export default function S4Execute({ state }: { state: MachineState }) {
           {/* 通道徽章（进度条上方，12px 等宽） */}
           <div className="mb-2 flex items-center gap-2">
             <span className="rounded-[3px] border border-aibox-line px-2 py-0.5 font-mono text-xs text-aibox-info">
-              {dlActive && dl.channel ? dl.channel : t("s4.channelIdle")}
+              {channelKeyRaw ? t(channelKeyRaw) : t("s4.channelIdle")}
             </span>
             <span className="font-mono text-[11px] text-aibox-text2">
               {t(PHASE_KEYS[task.phase] ?? "s4.phaseDownload")}
@@ -112,7 +132,7 @@ export default function S4Execute({ state }: { state: MachineState }) {
       <div className="mt-auto flex justify-end">
         <button
           type="button"
-          onClick={() => setLogsOpen((v) => !v)}
+          onClick={() => logDrawer.toggle()}
           className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-xs text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
         >
           {t("s4.viewLog")}

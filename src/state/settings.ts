@@ -1,24 +1,18 @@
 /**
- * 网络页本地设置（PROXY 开关 / CUSTOM 前缀等）。
+ * 网络页本地设置存储（通用 KV 工具）。
  * 真 Tauri → SQLite kv 表；mock/浏览器 → localStorage（不可用则内存兜底）。
+ *
+ * **注意**：原本的「PROXY 开关 / CUSTOM 前缀」字段已下线 —— 它们只写不读，
+ * 下载层（channels 来自 registry）根本不消费，开关形同虚设，却把用户引向无效操作。
  * 地区选择不走这里——它经 `net_region_set` 写 Rust 侧 settings.json（真源）。
  */
 import { isMock } from "../net/client";
 import { createKv, isTauriEnv, tauriSqlDriver, type Kv } from "./persistence-sqlite";
 
-export interface NetLocalSettings {
-  proxyOn: boolean;
-  proxyAddr: string;
-  customOn: boolean;
-  customPrefix: string;
-}
+/** 网络页本地设置（通用键值对；具体字段由使用方定义） */
+export type NetLocalSettings = Record<string, unknown>;
 
-export const DEFAULT_NET_SETTINGS: NetLocalSettings = {
-  proxyOn: false,
-  proxyAddr: "http://127.0.0.1:7890",
-  customOn: false,
-  customPrefix: "https://ghfast.top/",
-};
+export const DEFAULT_NET_SETTINGS: NetLocalSettings = {};
 
 const LS_KEY = "aibox.net.settings";
 const KV_KEY = "net.settings";

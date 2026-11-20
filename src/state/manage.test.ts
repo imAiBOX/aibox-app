@@ -7,6 +7,8 @@ import {
   buildRemovePaths,
   canConfirmRisk,
   createInitialManageState,
+  isRetryableManageError,
+  manageErrorKey,
   manageReduce,
   type ManageEvent,
   type ManageState,
@@ -269,5 +271,32 @@ describe("路径清单组装（硬规则④：只来自 registry maintenance）"
     const r = buildRemovePaths(m);
     r.dataPaths.push("/evil/path");
     expect(m.dataPaths).toHaveLength(2);
+  });
+});
+
+describe("manage 错误码 → 人话（不给用户看英文原文）", () => {
+  it("按机器码分流", () => {
+    expect(manageErrorKey("MANAGE_NO_MANIFEST", "x")).toBe("s8.errNoManifest");
+    expect(manageErrorKey("MANAGE_PROTECTED", "x")).toBe("s8.errProtected");
+    expect(manageErrorKey("MANAGE_OUT_OF_SCOPE", "x")).toBe("s8.errOutOfScope");
+    expect(manageErrorKey("MANAGE_SYMLINK_ESCAPE", "x")).toBe("s8.errSymlinkEscape");
+    expect(manageErrorKey("MANAGE_BACKUP_FAILED", "x")).toBe("s8.errBackupFailed");
+    expect(manageErrorKey("MANAGE_BACKUP_INCOMPLETE", "x")).toBe("s8.errBackupFailed");
+    expect(manageErrorKey("MANAGE_DELETE_FAILED", "x")).toBe("s8.errDeleteFailed");
+    expect(manageErrorKey("IO_ERROR", "x")).toBe("s8.errIo");
+  });
+
+  it("认不出的码 → 按关键字嗅（权限 / 文件被占用），否则通用", () => {
+    expect(manageErrorKey("WHAT_IS_THIS", "permission denied (os error 5)")).toBe("s8.errPermission");
+    expect(manageErrorKey("WHAT_IS_THIS", "file is being used by another process")).toBe("s8.errInUse");
+    expect(manageErrorKey("WHAT_IS_THIS", "something else entirely")).toBe("s8.errRemove");
+  });
+
+  it("重试无意义的错误 → 不可重试", () => {
+    expect(isRetryableManageError("MANAGE_NO_MANIFEST")).toBe(false);
+    expect(isRetryableManageError("MANAGE_OUT_OF_SCOPE")).toBe(false);
+    expect(isRetryableManageError("MANAGE_SYMLINK_ESCAPE")).toBe(false);
+    expect(isRetryableManageError("MANAGE_DELETE_FAILED")).toBe(true);
+    expect(isRetryableManageError("IO_ERROR")).toBe(true);
   });
 });

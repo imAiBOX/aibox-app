@@ -53,9 +53,9 @@ export default function ErrorOverlay({
 
         {/* 人话原因 */}
         <p className="mb-1.5 text-sm leading-relaxed text-aibox-text1">{t(err.messageKey)}</p>
+        {/* 只给错误码（反馈时够用）；内部 task id 对用户零意义，不显示 */}
         <p className="mb-4 font-mono text-[11px] text-aibox-text2">
           {t("err.code")}: {err.code}
-          {err.taskId ? ` · task=${err.taskId}` : ""}
         </p>
 
         {/* 三按钮：主（重试）右对齐；危险/次要左对齐 */}

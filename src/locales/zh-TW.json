@@ -39,7 +39,8 @@
     "verify": "傳送測試",
     "reVerify": "再測一次",
     "again": "再裝一個",
-    "docs": "看教程"
+    "docs": "看教程",
+    "cancelDone": "安裝已取消。已下載的檔案留在快取裡，下次安裝直接用。"
   },
   "s1": {
     "title": "選擇應用",
@@ -81,10 +82,14 @@
     "legendSkip": "無需",
     "confirmTitle": "確認",
     "route": "路線",
-    "channel": "通道",
+    "channel": "下載伺服器",
     "disk": "佔磁碟",
     "est": "預計",
-    "confirmNote": "點「開始安裝」才會真正動手。"
+    "confirmNote": "點「開始安裝」才會真正動手。",
+    "routeDirect": "官方安裝包",
+    "routeProxy": "加速安裝",
+    "routeNsis": "Windows 安裝程式",
+    "routeNpm": "Node.js 方式安裝"
   },
   "s4": {
     "title": "安裝中",
@@ -100,7 +105,11 @@
     "logEmpty": "還沒有日誌。",
     "logNote": "日誌只讀，key 已脫敏。",
     "switchedSlow": "目前下載線路較慢，已自動切換到加速線路（{{from}} → {{to}}）",
-    "switchedFallback": "目前下載線路無法使用，已自動切換到備用線路（{{from}} → {{to}}）"
+    "switchedFallback": "目前下載線路無法使用，已自動切換到備用線路（{{from}} → {{to}}）",
+    "channelDirect": "官方直連",
+    "channelMirror": "國內鏡像",
+    "channelProxy": "加速通道",
+    "channelCustom": "自訂來源"
   },
   "s5": {
     "title": "連線模型",
@@ -135,12 +144,11 @@
     "keyLabel": "API key",
     "keyOk": "格式看起來沒錯",
     "c4Title": "選個模型",
-    "modelsEmpty": "沒拉到模型清單，先用內建預設。",
+    "modelsEmpty": "沒拉到模型清單，也沒有內建預設。點「返回」換一條路線。",
     "writeTitle": "寫入配置",
     "writeNote": "會先備份原檔案再合併寫入，你已有的設定都保留。",
     "write": "寫入",
     "writing": "寫入中…",
-    "writeFail": "寫入沒成功，原檔案沒動過，重試一次。",
     "backupOk": "已備份原檔案",
     "backupLabel": "備份檔案",
     "written": "配置寫好了。下一步：發一條真實測試訊息。",
@@ -159,14 +167,11 @@
     "pending": "等回覆…",
     "retry": "再試一次",
     "success": "它真的能用。",
-    "failGeneric": "模型沒回話，檢查 key 後再試。",
-    "errKey": "服務商說這個 key 無效（401），去他們後臺核對一下。",
-    "errNet": "網路沒通，請求根本沒發出去。檢查網路後再試。",
-    "errWeak": "有響應但沒有正文，這不算通過——我們要真收到模型回的文字。"
+    "techDetail": "技術細節"
   },
   "s7": {
     "title": "裝好了。它真的能用。",
-    "subtitle": "下面這些已經在你電腦上了。",
+    "subtitlePartial": "裝好的在下面；標 ⊘ 的那幾項沒裝上。",
     "listTitle": "已裝清單",
     "listEmpty": "暫無記錄。",
     "nextTitle": "下一步",
@@ -174,7 +179,13 @@
     "nextCta": "開啟教程",
     "again": "再裝一個",
     "feedback": "反饋",
-    "share": "分享"
+    "share": "分享",
+    "titlePartial": "裝好了，但有 {{count}} 項沒裝上。",
+    "subtitleCount": "下面這 {{count}} 個已經在你電腦上了。",
+    "skippedLabel": "沒裝上",
+    "configSkippedTitle": "模型還沒設定",
+    "configSkippedDesc": "應用本身已經裝好了。模型的 API key 你可以之後在 AiBOX 裡補上，或者照著教學手動設定。",
+    "shareText": "我用 AiBOX.im 裝好了一個 AI 應用"
   },
   "ss": {
     "title": "Windows 提示「未知釋出者」？",
@@ -210,8 +221,8 @@
     "switchSource": "換個下載源",
     "skip": "跳過這項",
     "export": "匯出診斷",
-    "close": "關閉",
-    "cancelled": "你取消了安裝，系統沒有改動。",
+    "close": "不重試，返回",
+    "cancelled": "安裝已取消。已下載的檔案留在快取裡，下次安裝會直接用上；已裝好的部分不會被刪除。",
     "registry": "應用列表拉不到，檢查網路後重試。",
     "registryMismatch": "應用目錄的幾個來源內容對不上，為安全起見已停止載入。這不是你的網路問題，請稍後重試。",
     "registryIntegrity": "應用目錄完整性校驗沒通過，為安全起見已停止載入。請稍後重試。",
@@ -222,7 +233,18 @@
     "execFailed": "安裝程式無法執行或返回錯誤。請匯出診斷後重試。",
     "probeFailed": "已安裝，但版本核對未通過。可重試或跳過此元件。",
     "downloadFailed": "下載沒有完成。請檢查網路後重試。",
-    "generic": "出了點問題。可以重試，或匯出診斷。"
+    "generic": "出了點問題。可以重試，或匯出診斷。",
+    "configParse": "這個應用原來的設定檔讀不懂，AiBOX 沒有動它。檔案可能壞了——修好或刪掉那個檔案再試。",
+    "configIo": "寫入時遇到系統問題（權限不足 / 磁碟滿 / 路徑不可寫）。原檔案沒有改動。",
+    "configNoValues": "沒有可寫入的內容。請先填一個 API key 或選一個模型。",
+    "configFailed": "設定寫入失敗。原檔案沒有改動，可以重試一次。",
+    "verifyKey": "服務商說這個 key 無效（401）。去他們後台核對一下 key。",
+    "verifyNet": "請求根本沒發出去——網路沒通。檢查網路後再試。",
+    "verifyWeak": "有回應但沒有正文，這不算通過——我們要真收到模型回的文字。",
+    "verifyNoKey": "還沒有 API key。回到上一步把 key 填上，再測一次。",
+    "verifyUnsupported": "這條路線不能在這裡測。換一家服務商，或照教學手動設定。",
+    "verifyBadResponse": "服務商的回覆不是預期的格式。再試一次，或換一家服務商。",
+    "verifyFailed": "測試請求沒能完成。可以重試，或換一條線路。"
   },
   "resume": {
     "title": "繼續上次安裝？",
@@ -239,10 +261,6 @@
       "global": "國際"
     },
     "regionHint": "自動會幫你選更快的路。",
-    "proxyTitle": "使用系統代理",
-    "proxyAddr": "代理地址",
-    "customTitle": "自定義下載字首",
-    "customPrefix": "下載字首",
     "doctorTitle": "立即體檢",
     "doctorDesc": "測一下 DNS、代理和下載源。",
     "doctorRun": "體檢一下",
@@ -256,15 +274,18 @@
       "fail": "失敗"
     },
     "fixHint": {
-      "R1": "自動修復：後臺自動處理，無需操作",
-      "R2": "建議修復：確認後我們幫你處理",
-      "R3": "高階修復：需要你明確授權"
+      "R1": "自動修復：背景自動處理，無需操作",
+      "R2": "建議修復：需要你手動處理（見上面建議）",
+      "R3": "進階修復：需要你明確授權"
     },
     "detailToggle": "詳情",
     "diagTitle": "匯出診斷",
     "diagDesc": "把日誌、體檢報告和計畫打包成 zip（不含 key）。",
     "diagSymptom": "從網路設定頁匯出。",
-    "tab": "網路"
+    "tab": "網路",
+    "fixBadge.R1": "自動修復",
+    "fixBadge.R2": "需手動",
+    "fixBadge.R3": "需授權"
   },
   "e1": {
     "title": "網路好像有問題",
@@ -272,7 +293,7 @@
     "close": "關閉",
     "retry": "重試",
     "r2Tag": "建議修復",
-    "r2Advice": "可能走了代理或被網路過濾。去 設定 → 網路 把地區切成「國際」，或開啟代理開關，然後重試。",
+    "r2Advice": "可能走了代理或被網路過濾。去 設定 → 網路 把地區切成「國際」，再重試。",
     "r2AdviceCn": "已走國內映象通道；若持續失敗，檢查網路或稍後重試。",
     "adviceHashMismatch": "下載源返回了異常內容，已中止安裝。點「換個下載源」換一個通道再試。",
     "failHint": "部分下載源暫時不可達，安裝器會繼續嘗試其他映象。",
@@ -389,7 +410,6 @@
     "upgrade": "升級",
     "uninstall": "解除安裝",
     "reinstall": "重灌",
-    "noMaint": "該應用暫無維護資料。",
     "riskTitle": "繼續之前請確認",
     "riskDefault": "解除安裝會刪除該應用的檔案，你的資料也會被刪除。",
     "riskPaths": "這些資料夾裝著你的資料和設定：",
@@ -405,9 +425,21 @@
     "goInstall": "重新安裝",
     "close": "關閉",
     "errTitle": "出了點問題",
-    "errRemove": "操作失敗，資料未完全變更——看下面的說明後重試。",
+    "errRemove": "操作失敗。你的資料可能有部分變動——看下面的說明後重試。",
     "errNoManifest": "該應用在 registry 裡沒有維護資料，AiBOX 不會刪除任何東西。",
     "retry": "重試",
-    "doneFailed": "有 {{count}} 項沒能刪除——請檢查權限後重試"
+    "doneFailed": "有 {{count}} 項沒能刪除——請檢查權限後重試",
+    "errPermission": "沒有權限刪除這個資料夾。用「以系統管理員身分執行」再試一次。",
+    "errInUse": "有檔案正被別的程式占用。先關掉那個應用，再試一次。",
+    "reload": "重新載入",
+    "techDetail": "技術細節",
+    "noUpdateHint": "已是最新",
+    "noMaintHint": "這個應用不支援解除安裝",
+    "errProtected": "這個檔案在系統保護區裡，AiBOX 不會刪它。",
+    "errOutOfScope": "要刪的路徑超出了 AiBOX 允許的範圍，已停止。",
+    "errSymlinkEscape": "那個路徑指向了別處，為安全起見已停止。",
+    "errBackupFailed": "備份沒做完，所以什麼都沒刪。清理磁碟空間或檢查權限後再試。",
+    "errDeleteFailed": "刪除時遇到系統問題（權限不足 / 檔案正被占用），沒有刪掉任何東西。",
+    "errIo": "本地檔案操作失敗（權限不足 / 路徑不可寫）。"
   }
 }

@@ -39,7 +39,8 @@
     "verify": "Send test",
     "reVerify": "Test again",
     "again": "Install another",
-    "docs": "Open guide"
+    "docs": "Open guide",
+    "cancelDone": "Install cancelled. Downloaded files stay in the cache for next time."
   },
   "s1": {
     "title": "Pick an app",
@@ -81,10 +82,14 @@
     "legendSkip": "Not needed",
     "confirmTitle": "Confirm",
     "route": "Route",
-    "channel": "Source",
+    "channel": "Download server",
     "disk": "Disk",
     "est": "Estimated",
-    "confirmNote": "Nothing runs until you press Install now."
+    "confirmNote": "Nothing runs until you press Install now.",
+    "routeDirect": "Official installer",
+    "routeProxy": "Accelerated install",
+    "routeNsis": "Windows installer",
+    "routeNpm": "Node.js install"
   },
   "s4": {
     "title": "Installing",
@@ -100,7 +105,11 @@
     "logEmpty": "No log output yet.",
     "logNote": "Log is read-only. Keys are masked.",
     "switchedSlow": "This download source is slow, so we switched to a faster one automatically ({{from}} → {{to}}).",
-    "switchedFallback": "This download source is unavailable, so we switched to a backup one automatically ({{from}} → {{to}})."
+    "switchedFallback": "This download source is unavailable, so we switched to a backup one automatically ({{from}} → {{to}}).",
+    "channelDirect": "Official direct",
+    "channelMirror": "China mirror",
+    "channelProxy": "Accelerated route",
+    "channelCustom": "Custom source"
   },
   "s5": {
     "title": "Connect your model",
@@ -135,12 +144,11 @@
     "keyLabel": "API key",
     "keyOk": "Format looks right",
     "c4Title": "Pick a model",
-    "modelsEmpty": "No model list — using built-in defaults.",
+    "modelsEmpty": "No model list came back, and there's no built-in default either. Go back and pick another route.",
     "writeTitle": "Save config",
     "writeNote": "We back up your original file first, then merge — your existing settings are kept.",
     "write": "Save",
     "writing": "Saving…",
-    "writeFail": "Could not save. Your original file is untouched — try again.",
     "backupOk": "Original file backed up",
     "backupLabel": "Backup",
     "written": "Config saved. Next: send one real test message.",
@@ -159,14 +167,11 @@
     "pending": "Waiting for reply…",
     "retry": "Try again",
     "success": "It works.",
-    "failGeneric": "No reply from the model. Check your key and try again.",
-    "errKey": "The provider says this key is not valid (401). Check it in their dashboard.",
-    "errNet": "Network problem — the request never went out. Check your connection and retry.",
-    "errWeak": "A response came back with no text — that does not count. We need a real model reply."
+    "techDetail": "Technical details"
   },
   "s7": {
     "title": "Installed. Really usable.",
-    "subtitle": "Everything below is on your machine now.",
+    "subtitlePartial": "Installed items are below; the ones marked ⊘ didn't make it.",
     "listTitle": "Installed items",
     "listEmpty": "Nothing recorded.",
     "nextTitle": "Next step",
@@ -174,7 +179,13 @@
     "nextCta": "Open the guide",
     "again": "Install another",
     "feedback": "Feedback",
-    "share": "Share"
+    "share": "Share",
+    "titlePartial": "Installed, but {{count}} item(s) didn't make it.",
+    "subtitleCount": "These {{count}} are now on your computer.",
+    "skippedLabel": "not installed",
+    "configSkippedTitle": "No model configured yet",
+    "configSkippedDesc": "The app itself is installed. You can add the model API key later in AiBOX, or set it up by hand with the guide.",
+    "shareText": "I installed an AI app with AiBOX.im"
   },
   "ss": {
     "title": "Windows says “unknown publisher”?",
@@ -210,8 +221,8 @@
     "switchSource": "Try another source",
     "skip": "Skip this",
     "export": "Export diagnostics",
-    "close": "Close",
-    "cancelled": "You cancelled the install. Nothing was changed.",
+    "close": "Don't retry — go back",
+    "cancelled": "Install cancelled. Downloaded files stay in the cache and will be reused next time; anything already installed is kept.",
     "registry": "Could not reach the app list. Check your network and retry.",
     "registryMismatch": "The app catalog's sources don't agree with each other, so loading stopped for safety. This isn't a network problem — please try again in a moment.",
     "registryIntegrity": "The app catalog failed its integrity check, so loading stopped for safety. Please try again in a moment.",
@@ -222,7 +233,18 @@
     "execFailed": "The installer couldn't run or exited with an error. Export diagnostics, then retry.",
     "probeFailed": "Installed, but the version check didn't pass. Retry, or skip this component.",
     "downloadFailed": "The download didn't finish. Check your network, then retry.",
-    "generic": "Something went wrong. Retry, or export diagnostics."
+    "generic": "Something went wrong. Retry, or export diagnostics.",
+    "configParse": "AiBOX could not read this app's existing config file, so it left it untouched. The file may be damaged — fix or delete it and retry.",
+    "configIo": "Writing the config hit a system problem (no permission, disk full, or path not writable). The original file was not changed.",
+    "configNoValues": "There was nothing to write. Fill in an API key or pick a model first.",
+    "configFailed": "Writing the config failed. The original file was not changed — you can retry.",
+    "verifyKey": "The provider says this key is not valid (401). Check it in their dashboard.",
+    "verifyNet": "The request never left your computer — the network isn't reachable. Check your connection, then retry.",
+    "verifyWeak": "There was a reply but no text in it, which doesn't count — we need real text back from the model.",
+    "verifyNoKey": "No API key yet. Go back a step and paste your key, then test again.",
+    "verifyUnsupported": "This provider can't be tested from here. Pick another provider, or configure it manually.",
+    "verifyBadResponse": "The provider's reply wasn't in the expected format. Try again, or use another provider.",
+    "verifyFailed": "The test request didn't go through. Retry, or try a different route."
   },
   "resume": {
     "title": "Continue last install?",
@@ -239,10 +261,6 @@
       "global": "Global"
     },
     "regionHint": "Auto picks the faster route for you.",
-    "proxyTitle": "Use system proxy",
-    "proxyAddr": "Proxy address",
-    "customTitle": "Custom download prefix",
-    "customPrefix": "Download prefix",
     "doctorTitle": "Run checkup now",
     "doctorDesc": "Test DNS, proxy and download sources.",
     "doctorRun": "Check now",
@@ -256,15 +274,18 @@
       "fail": "Failed"
     },
     "fixHint": {
-      "R1": "Auto-fix: handled in the background, no action needed",
-      "R2": "Suggested fix: confirm and we'll apply it",
-      "R3": "Advanced fix: needs your explicit approval"
+      "R1": "Auto fix: handled in the background, nothing for you to do",
+      "R2": "Suggested fix: you need to do it yourself (see the advice above)",
+      "R3": "Advanced fix: we only do this after you explicitly allow it"
     },
     "detailToggle": "details",
     "diagTitle": "Export diagnostics",
     "diagDesc": "Package logs, scan report and plan into a zip (no keys).",
     "diagSymptom": "Exported from network settings.",
-    "tab": "Network"
+    "tab": "Network",
+    "fixBadge.R1": "auto-fix",
+    "fixBadge.R2": "manual fix",
+    "fixBadge.R3": "needs approval"
   },
   "e1": {
     "title": "Network trouble",
@@ -272,7 +293,7 @@
     "close": "Close",
     "retry": "Retry",
     "r2Tag": "Suggested fix",
-    "r2Advice": "Your connection may be behind a proxy or filtered. Try switching the region to Global in Settings → Network, or turn on a proxy — then retry.",
+    "r2Advice": "Your connection may be behind a proxy or filtered. Go to Settings → Network and switch the region to Global, then retry.",
     "r2AdviceCn": "You're on the mainland mirror channels. If it keeps failing, check your network or try again later.",
     "adviceHashMismatch": "The download source returned unexpected content, so the install stopped. Tap \"Try another source\" to retry on a different channel.",
     "failHint": "Some download sources are unreachable right now; the installer will keep trying mirrors.",
@@ -389,7 +410,6 @@
     "upgrade": "Upgrade",
     "uninstall": "Uninstall",
     "reinstall": "Reinstall",
-    "noMaint": "No maintenance data for this app yet.",
     "riskTitle": "Before you continue",
     "riskDefault": "Uninstalling removes this app's files. Your data will be deleted.",
     "riskPaths": "These folders contain your data and settings:",
@@ -405,9 +425,21 @@
     "goInstall": "Install again",
     "close": "Close",
     "errTitle": "Something went wrong",
-    "errRemove": "The operation failed. Your data was not fully changed — check the message and retry.",
+    "errRemove": "The operation failed. Your data may be partially changed — check the details below, then retry.",
     "errNoManifest": "This app has no maintenance data in the registry, so AiBOX will not delete anything.",
     "retry": "Retry",
-    "doneFailed": "{{count}} item(s) could NOT be removed — check permissions and retry"
+    "doneFailed": "{{count}} item(s) could NOT be removed — check permissions and retry",
+    "errPermission": "No permission to delete this folder. Run AiBOX as administrator and try again.",
+    "errInUse": "A file is being used by another program. Close that app first, then retry.",
+    "reload": "Reload",
+    "techDetail": "Technical details",
+    "noUpdateHint": "Already up to date",
+    "noMaintHint": "Can't uninstall this app",
+    "errProtected": "This file is in a protected system area, so AiBOX won't delete it.",
+    "errOutOfScope": "The path to delete is outside what AiBOX is allowed to touch, so it stopped.",
+    "errSymlinkEscape": "That path points somewhere else, so AiBOX stopped for safety.",
+    "errBackupFailed": "The backup didn't finish, so nothing was deleted. Free up disk space or check permissions and retry.",
+    "errDeleteFailed": "Deleting hit a system problem (no permission, or a file is in use). Nothing was removed.",
+    "errIo": "A local file operation failed (no permission, or the path isn't writable)."
   }
 }

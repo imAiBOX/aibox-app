@@ -29,10 +29,28 @@ const CODE_KEYS: Array<[prefix: string, key: string]> = [
   ["REGISTRY_SINGLE_SOURCE", "err.registrySingleSource"],
   // 其余 REGISTRY_*（UNAVAILABLE / NO_CACHE / FETCH）→ 网络向。
   ["REGISTRY_", "err.registry"],
+  // 配置写入（C5）：「原文件读不懂」与「系统写不进去」要分开说，
+  // 前者必须告诉用户「原文件没被动过」，后者要指向权限/磁盘。
+  ["CONFIG_PARSE", "err.configParse"],
+  ["CONFIG_NO_VALUES", "err.configNoValues"],
+  ["CONFIG_", "err.configFailed"],
+  ["IO_ERROR", "err.configIo"],
+  // VERIFY_ 前缀被两个流程共用：下载期的 SHA 校验（VERIFY_FILE_MISSING）
+  // 与模型测试（VERIFY_HTTP_*/VERIFY_NET_FAIL/...）。**精确码必须排在前缀之前**，
+  // 否则模型测试的码会被下载期的兜底键吃掉。
+  ["VERIFY_FILE_MISSING", "err.downloadFailed"],
+  ["VERIFY_HTTP_401", "err.verifyKey"],
+  ["VERIFY_HTTP_403", "err.verifyKey"],
+  ["VERIFY_NET_FAIL", "err.verifyNet"],
+  ["VERIFY_EMPTY_TEXT", "err.verifyWeak"],
+  ["VERIFY_NO_KEY", "err.verifyNoKey"],
+  ["VERIFY_UNSUPPORTED_PROVIDER", "err.verifyUnsupported"],
+  ["VERIFY_BAD_RESPONSE", "err.verifyBadResponse"],
+  ["VERIFY_HTTP_", "err.verifyFailed"],
+  ["VERIFY_", "err.downloadFailed"],
   ["EXEC_", "err.execFailed"],
   ["PROBE_", "err.probeFailed"],
   ["DOWNLOAD_", "err.downloadFailed"],
-  ["VERIFY_", "err.downloadFailed"],
   ["NET_", "err.downloadFailed"],
 ];
 
@@ -320,14 +338,22 @@ function errCode(e: unknown, fallback: string): string {
 }
 
 /**
+ * 取 Rust `CommandError.code`；非结构化错误 → null（**不臆造** fallback）。
+ * 需要「有没有 code」而不是「缺省是什么」时用这个。
+ */
+export function errorCodeOrNull(e: unknown): string | null {
+  if (e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string") {
+    return (e as { code: string }).code;
+  }
+  return null;
+}
+
+/**
  * Tauri invoke reject 对象（Rust 侧 `CommandError {code, human}`）→ 机器可读 code。
  * 非 Tauri / 非结构化错误 → fallback（前端自行拍一个默认值）。
  */
 export function errorCodeOf(e: unknown, fallback: string): string {
-  if (e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string") {
-    return (e as { code: string }).code;
-  }
-  return fallback;
+  return errorCodeOrNull(e) ?? fallback;
 }
 
 /** 便捷构造（App 用真实 api 接线） */

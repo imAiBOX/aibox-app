@@ -7,6 +7,7 @@
  */
 import { api, type ConfigWriteInput, type VerifyInput } from "../net/client";
 import { fallbackModels, providerById, validateKey, type KeyCheck, type ProviderPath } from "./providers";
+import { errorCodeOf, errorCodeOrNull, messageKeyForCode } from "../state/orchestrate";
 import type { ModelOption, ProviderMeta } from "./types";
 
 /** 向导步骤（S5 屏内子状态；与八态状态机正交） */
@@ -26,6 +27,8 @@ export interface WizardState {
   writeResult: { ok: boolean; backupPath: string } | null;
   /** 人话错误 i18n key（写入失败等） */
   errorKey: string | null;
+  /** 机器可读错误码（写入失败等；界面小字展示） */
+  errorCode: string | null;
 }
 
 export type WizardEvent =
@@ -37,7 +40,7 @@ export type WizardEvent =
   | { type: "SET_META"; metas: Record<string, ProviderMeta> } // registry 数据注入
   | { type: "WRITE_START" }
   | { type: "WRITE_DONE"; ok: boolean; backupPath: string }
-  | { type: "WRITE_FAIL"; errorKey: string }
+  | { type: "WRITE_FAIL"; errorKey: string; errorCode?: string }
   | { type: "RESET" };
 
 export function createWizard(): WizardState {
@@ -49,6 +52,7 @@ export function createWizard(): WizardState {
     writing: false,
     writeResult: null,
     errorKey: null,
+    errorCode: null,
   };
 }
 
@@ -123,22 +127,29 @@ export function reduceWizard(s: WizardState, e: WizardEvent): WizardState {
       }
     case "SET_KEY":
       // 即时校验只反馈不清空；key 只进本流程态
-      return { ...s, key: e.key, errorKey: null };
+      return { ...s, key: e.key, errorKey: null, errorCode: null };
     case "SET_MODEL":
       return { ...s, model: e.model };
     case "SET_META":
       return { ...s, metas: e.metas };
     case "WRITE_START":
-      return { ...s, writing: true, errorKey: null, writeResult: null };
+      return { ...s, writing: true, errorKey: null, errorCode: null, writeResult: null };
     case "WRITE_DONE":
       return {
         ...s,
         writing: false,
         writeResult: e.ok ? { ok: true, backupPath: e.backupPath } : null,
-        errorKey: e.ok ? null : "s5.writeFail",
+        errorKey: e.ok ? null : "err.configFailed",
+        errorCode: e.ok ? null : "CONFIG_FAILED",
       };
     case "WRITE_FAIL":
-      return { ...s, writing: false, errorKey: e.errorKey, writeResult: null };
+      return {
+        ...s,
+        writing: false,
+        errorKey: e.errorKey,
+        errorCode: e.errorCode ?? null,
+        writeResult: null,
+      };
     case "RESET":
       return createWizard();
     default: {
@@ -155,16 +166,26 @@ export interface WriteOutcome {
   ok: boolean;
   backupPath: string;
   errorKey?: string;
+  /** 机器可读错误码（界面小字展示，便于用户反馈时给出准确定位） */
+  errorCode?: string;
 }
 
-/** C5 写入：备份→合并→回读（Rust 侧硬规则）；失败给大人话 errorKey */
+/**
+ * C5 写入：备份→合并→回读（Rust 侧硬规则）；失败给人话 errorKey。
+ *
+ * **按错误码分流**：Rust 的 `CoreError.code` 已区分「原文件读不懂」（CONFIG_PARSE）、
+ * 「系统写不进去」（IO_ERROR）、「没东西可写」（CONFIG_NO_VALUES）等，
+ * 旧版一律回落 `s5.writeFail` 一句「写入没成功」——用户不知道原文件有没有被动过。
+ */
 export async function runConfigWrite(input: ConfigWriteInput): Promise<WriteOutcome> {
   try {
     const r = await api.configWrite(input);
     if (r.ok && r.backupPath) return { ok: true, backupPath: r.backupPath };
-    return { ok: false, backupPath: "", errorKey: "s5.writeFail" };
-  } catch {
-    return { ok: false, backupPath: "", errorKey: "s5.writeFail" };
+    // 回读校验不过（文件写下去了但内容对不上）→ 归「写入失败」
+    return { ok: false, backupPath: "", errorKey: "err.configFailed", errorCode: "CONFIG_FAILED" };
+  } catch (e) {
+    const code = errorCodeOf(e, "CONFIG_FAILED");
+    return { ok: false, backupPath: "", errorKey: messageKeyForCode(code), errorCode: code };
   }
 }
 
@@ -175,17 +196,49 @@ export interface VerifyOutcome {
   errorKey?: string;
   /** 原始错误细节（小字展示，不含 key） */
   detail?: string;
+  /** 机器可读错误码（Rust `VerifyResult.errorCode`） */
+  errorCode?: string;
   latencyMs?: number;
 }
 
-/** 错误 → 人话 i18n key（不给用户抛英文栈） */
-export function humanVerifyError(error?: string): string {
-  const e = (error ?? "").toLowerCase();
-  if (/401|403|unauthorized|invalid|revoke|wrong/.test(e)) return "s6.errKey";
-  if (/network|timeout|timed out|unreachable|connect|dns|offline|proxy/.test(e)) {
-    return "s6.errNet";
+/** 从 "CODE: 人话" 形态的报错串里取机器码（Rust `CoreError` 的 Display 形态） */
+export function extractErrorCode(error?: string): string | undefined {
+  const m = (error ?? "").trim().match(/^([A-Z][A-Z0-9_]{3,})\b/);
+  return m ? m[1] : undefined;
+}
+
+/** 模型测试类的人话键（用于判断「这个码映射到了模型测试的文案」） */
+const VERIFY_KEYS = new Set([
+  "err.verifyKey",
+  "err.verifyNet",
+  "err.verifyWeak",
+  "err.verifyNoKey",
+  "err.verifyUnsupported",
+  "err.verifyBadResponse",
+  "err.verifyFailed",
+]);
+
+/**
+ * 错误 → 人话 i18n key（不给用户抛英文栈）。
+ *
+ * **优先用机器码**（Rust 给的 `errorCode`，或从报错串里取的 `VERIFY_*` 前缀码）：
+ * 正则嗅字符串会漏——例如 `VERIFY_NET_FAIL` 里没有 "network" 字样，
+ * 旧版会把它当成「通用失败」，让用户以为是自己 key 的问题。
+ * 只有拿不到机器码时（真·非结构化报错）才退回关键字嗅探。
+ */
+export function humanVerifyError(error?: string, code?: string): string {
+  const c = code ?? extractErrorCode(error);
+  if (c) {
+    const key = messageKeyForCode(c);
+    // 只有拿到确定的模型测试类映射才采用；否则继续退化。
+    if (VERIFY_KEYS.has(key)) return key;
   }
-  return "s6.failGeneric";
+  const e = (error ?? "").toLowerCase();
+  if (/401|403|unauthorized|invalid|revoke|wrong/.test(e)) return "err.verifyKey";
+  if (/network|timeout|timed out|unreachable|connect|dns|offline|proxy/.test(e)) {
+    return "err.verifyNet";
+  }
+  return "err.verifyFailed";
 }
 
 /**
@@ -202,13 +255,23 @@ export async function runVerify(input: VerifyInput): Promise<VerifyOutcome> {
     }
     if (r.ok) {
       // 弱判定拒绝：无文本/空白文本
-      return { ok: false, errorKey: "s6.errWeak", latencyMs };
+      return { ok: false, errorKey: "err.verifyWeak", latencyMs };
     }
-    return { ok: false, errorKey: humanVerifyError(r.error), detail: r.error, latencyMs };
-  } catch (err) {
     return {
       ok: false,
-      errorKey: humanVerifyError(err instanceof Error ? err.message : String(err)),
+      errorKey: humanVerifyError(r.error, r.errorCode),
+      detail: r.error,
+      errorCode: r.errorCode ?? extractErrorCode(r.error),
+      latencyMs,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = errorCodeOrNull(err);
+    return {
+      ok: false,
+      errorKey: humanVerifyError(code ? `${code}: ${msg}` : msg, code ?? undefined),
+      detail: msg,
+      errorCode: code ?? undefined,
       latencyMs: Date.now() - started,
     };
   }

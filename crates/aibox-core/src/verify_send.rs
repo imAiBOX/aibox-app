@@ -29,6 +29,13 @@ pub struct VerifyResult {
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// 机器可读错误码（`VERIFY_NET_FAIL` / `VERIFY_HTTP_401` …）。
+    ///
+    /// **为什么与 `error` 并存**：`error` 是「CODE: 人话英文」的展示串，
+    /// 前端要判断「是网络问题还是 key 无效」只能靠正则嗅字符串（易漏、且 401 之外的码会掉进通用文案）。
+    /// 这里给出独立 code 字段，前端就能精确映射到本地化人话。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
 }
 
 /// 构造好的请求。
@@ -216,13 +223,7 @@ pub fn verify_send(input: &VerifyInput) -> VerifyResult {
         ..input.clone()
     }) {
         Ok(r) => r,
-        Err(e) => {
-            return VerifyResult {
-                ok: false,
-                text: None,
-                error: Some(e.to_string()),
-            }
-        }
+        Err(e) => return fail(e),
     };
 
     let agent = ureq::AgentBuilder::new()
@@ -240,41 +241,25 @@ pub fn verify_send(input: &VerifyInput) -> VerifyResult {
         Ok(r) => r,
         Err(ureq::Error::Status(status, resp)) => {
             let body = resp.into_string().unwrap_or_default();
-            let e = http_error(&provider, status, &body);
-            return VerifyResult {
-                ok: false,
-                text: None,
-                error: Some(e.to_string()),
-            };
+            return fail(http_error(&provider, status, &body));
         }
         Err(ureq::Error::Transport(t)) => {
             // transport 错误可能内嵌完整 URL（google 路由 key 在 query 里）→ 脱敏
             let (safe, _) = crate::redact::scan_and_mask(&t.to_string());
-            return VerifyResult {
-                ok: false,
-                text: None,
-                error: Some(
-                    CoreError::new(
-                        "VERIFY_NET_FAIL",
-                        format!("Could not reach {provider}: {safe}"),
-                    )
-                    .to_string(),
-                ),
-            };
+            return fail(CoreError::new(
+                "VERIFY_NET_FAIL",
+                format!("Could not reach {provider}: {safe}"),
+            ));
         }
     };
 
     let body = match response.into_string() {
         Ok(b) => b,
         Err(e) => {
-            return VerifyResult {
-                ok: false,
-                text: None,
-                error: Some(
-                    CoreError::new("VERIFY_BAD_RESPONSE", format!("Read body failed: {e}"))
-                        .to_string(),
-                ),
-            }
+            return fail(CoreError::new(
+                "VERIFY_BAD_RESPONSE",
+                format!("Read body failed: {e}"),
+            ));
         }
     };
 
@@ -283,12 +268,19 @@ pub fn verify_send(input: &VerifyInput) -> VerifyResult {
             ok: true,
             text: Some(text),
             error: None,
+            error_code: None,
         },
-        Err(e) => VerifyResult {
-            ok: false,
-            text: None,
-            error: Some(e.to_string()),
-        },
+        Err(e) => fail(e),
+    }
+}
+
+/// 失败结果构造（`error` 展示串 + `error_code` 机器码同源）。
+fn fail(e: CoreError) -> VerifyResult {
+    VerifyResult {
+        ok: false,
+        text: None,
+        error: Some(e.to_string()),
+        error_code: Some(e.code),
     }
 }
 
@@ -303,6 +295,26 @@ mod tests {
             model: None,
             base_url: None,
         }
+    }
+
+    #[test]
+    fn failure_carries_machine_code() {
+        // 前端要区分「网络不通」与「key 无效」，靠的是 error_code 而不是正则嗅 error 串
+        let r = verify_send(&inp("nope-not-a-provider"));
+        assert!(!r.ok);
+        assert_eq!(r.error_code.as_deref(), Some("VERIFY_UNSUPPORTED_PROVIDER"));
+        assert!(r.error.as_deref().unwrap_or("").contains("VERIFY_UNSUPPORTED_PROVIDER"));
+
+        // 无 key → 建请求阶段就失败（不发网络）
+        let no_key = VerifyInput {
+            provider: "openrouter".into(),
+            api_key: None,
+            model: None,
+            base_url: None,
+        };
+        let r = verify_send(&no_key);
+        assert!(!r.ok);
+        assert_eq!(r.error_code.as_deref(), Some("VERIFY_NO_KEY"));
     }
 
     #[test]

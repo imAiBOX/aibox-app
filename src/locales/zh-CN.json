@@ -39,7 +39,8 @@
     "verify": "发送测试",
     "reVerify": "再测一次",
     "again": "再装一个",
-    "docs": "看教程"
+    "docs": "看教程",
+    "cancelDone": "安装已取消。已下载的文件留在缓存里，下次安装直接用。"
   },
   "s1": {
     "title": "选择应用",
@@ -81,10 +82,14 @@
     "legendSkip": "无需",
     "confirmTitle": "确认",
     "route": "路线",
-    "channel": "通道",
+    "channel": "下载服务器",
     "disk": "占磁盘",
     "est": "预计",
-    "confirmNote": "点「开始安装」才会真正动手。"
+    "confirmNote": "点「开始安装」才会真正动手。",
+    "routeDirect": "官方安装包",
+    "routeProxy": "加速安装",
+    "routeNsis": "Windows 安装程序",
+    "routeNpm": "Node.js 方式安装"
   },
   "s4": {
     "title": "安装中",
@@ -100,7 +105,11 @@
     "logEmpty": "还没有日志。",
     "logNote": "日志只读，key 已脱敏。",
     "switchedSlow": "当前下载线路较慢，已自动切换到加速线路（{{from}} → {{to}}）",
-    "switchedFallback": "当前下载线路不可用，已自动切换到备用线路（{{from}} → {{to}}）"
+    "switchedFallback": "当前下载线路不可用，已自动切换到备用线路（{{from}} → {{to}}）",
+    "channelDirect": "官方直连",
+    "channelMirror": "国内镜像",
+    "channelProxy": "加速通道",
+    "channelCustom": "自定义源"
   },
   "s5": {
     "title": "连接模型",
@@ -135,12 +144,11 @@
     "keyLabel": "API key",
     "keyOk": "格式看起来没错",
     "c4Title": "选个模型",
-    "modelsEmpty": "没拉到模型清单，先用内置默认。",
+    "modelsEmpty": "没拉到模型清单，也没有内置默认。点「返回」换一条路线。",
     "writeTitle": "写入配置",
     "writeNote": "会先备份原文件再合并写入，你已有的设置都保留。",
     "write": "写入",
     "writing": "写入中…",
-    "writeFail": "写入没成功，原文件没动过，重试一次。",
     "backupOk": "已备份原文件",
     "backupLabel": "备份文件",
     "written": "配置写好了。下一步：发一条真实测试消息。",
@@ -159,14 +167,11 @@
     "pending": "等回复…",
     "retry": "再试一次",
     "success": "它真的能用。",
-    "failGeneric": "模型没回话，检查 key 后再试。",
-    "errKey": "服务商说这个 key 无效（401），去他们后台核对一下。",
-    "errNet": "网络没通，请求根本没发出去。检查网络后再试。",
-    "errWeak": "有响应但没有正文，这不算通过——我们要真收到模型回的文字。"
+    "techDetail": "技术细节"
   },
   "s7": {
     "title": "装好了。它真的能用。",
-    "subtitle": "下面这些已经在你电脑上了。",
+    "subtitlePartial": "装好的在下面；标 ⊘ 的那几项没装上。",
     "listTitle": "已装清单",
     "listEmpty": "暂无记录。",
     "nextTitle": "下一步",
@@ -174,7 +179,13 @@
     "nextCta": "打开教程",
     "again": "再装一个",
     "feedback": "反馈",
-    "share": "分享"
+    "share": "分享",
+    "titlePartial": "装好了，但有 {{count}} 项没装上。",
+    "subtitleCount": "下面这 {{count}} 个已经在你电脑上了。",
+    "skippedLabel": "没装上",
+    "configSkippedTitle": "模型还没配置",
+    "configSkippedDesc": "应用本身已经装好了。模型的 API key 你可以之后在 AiBOX 里补上，或者照着教程手动配。",
+    "shareText": "我用 AiBOX.im 装好了一个 AI 应用"
   },
   "ss": {
     "title": "Windows 提示「未知发布者」？",
@@ -210,8 +221,8 @@
     "switchSource": "换个下载源",
     "skip": "跳过这项",
     "export": "导出诊断",
-    "close": "关闭",
-    "cancelled": "你取消了安装，系统没有改动。",
+    "close": "不重试，返回",
+    "cancelled": "安装已取消。已经下载的文件留在缓存里，下次安装会直接用上；已经装好的部分不会被删除。",
     "registry": "应用列表拉不到，检查网络后重试。",
     "registryMismatch": "应用目录的几个来源内容对不上，为安全起见已停止加载。这不是你的网络问题，请稍后重试。",
     "registryIntegrity": "应用目录完整性校验没通过，为安全起见已停止加载。请稍后重试。",
@@ -222,7 +233,18 @@
     "execFailed": "安装程序无法运行或返回错误。请导出诊断后重试。",
     "probeFailed": "已安装，但版本核对未通过。可重试或跳过此组件。",
     "downloadFailed": "下载没有完成。请检查网络后重试。",
-    "generic": "出了点问题。可以重试，或导出诊断。"
+    "generic": "出了点问题。可以重试，或导出诊断。",
+    "configParse": "这个应用原来的配置文件读不懂，AiBOX 没有动它。文件可能坏了——修好或删掉那个文件再试。",
+    "configIo": "写入时遇到系统问题（权限不足 / 磁盘满 / 路径不可写）。原文件没有改动。",
+    "configNoValues": "没有可写入的内容。请先填一个 API key 或选一个模型。",
+    "configFailed": "配置写入失败。原文件没有改动，可以重试一次。",
+    "verifyKey": "服务商说这个 key 无效（401）。去他们后台核对一下 key。",
+    "verifyNet": "请求根本没发出去——网络没通。检查网络后再试。",
+    "verifyWeak": "有响应但没有正文，这不算通过——我们要真收到模型回的文字。",
+    "verifyNoKey": "还没有 API key。回到上一步把 key 填上，再测一次。",
+    "verifyUnsupported": "这条路线不能在这里测。换一家服务商，或照教程手动配置。",
+    "verifyBadResponse": "服务商的回复不是预期的格式。再试一次，或换一家服务商。",
+    "verifyFailed": "测试请求没能完成。可以重试，或换一条线路。"
   },
   "resume": {
     "title": "继续上次安装？",
@@ -239,10 +261,6 @@
       "global": "国际"
     },
     "regionHint": "自动会帮你选更快的路。",
-    "proxyTitle": "使用系统代理",
-    "proxyAddr": "代理地址",
-    "customTitle": "自定义下载前缀",
-    "customPrefix": "下载前缀",
     "doctorTitle": "立即体检",
     "doctorDesc": "测一下 DNS、代理和下载源。",
     "doctorRun": "体检一下",
@@ -257,14 +275,17 @@
     },
     "fixHint": {
       "R1": "自动修复：后台自动处理，无需操作",
-      "R2": "建议修复：确认后我们帮你处理",
+      "R2": "建议修复：需要你手动处理（见上面建议）",
       "R3": "高级修复：需要你明确授权"
     },
     "detailToggle": "详情",
     "diagTitle": "导出诊断",
     "diagDesc": "把日志、体检报告和计划打包成 zip（不含 key）。",
     "diagSymptom": "从网络设置页导出。",
-    "tab": "网络"
+    "tab": "网络",
+    "fixBadge.R1": "自动修复",
+    "fixBadge.R2": "需手动",
+    "fixBadge.R3": "需授权"
   },
   "e1": {
     "title": "网络好像有问题",
@@ -272,7 +293,7 @@
     "close": "关闭",
     "retry": "重试",
     "r2Tag": "建议修复",
-    "r2Advice": "可能走了代理或被网络过滤。去 设置 → 网络 把地区切成「国际」，或打开代理开关，然后重试。",
+    "r2Advice": "可能走了代理或被网络过滤。去 设置 → 网络 把地区切成「国际」，再重试。",
     "r2AdviceCn": "已走国内镜像通道；若持续失败，检查网络或稍后重试。",
     "adviceHashMismatch": "下载源返回了异常内容，已中止安装。点「换个下载源」换一个通道再试。",
     "failHint": "部分下载源暂时不可达，安装器会继续尝试其他镜像。",
@@ -389,7 +410,6 @@
     "upgrade": "升级",
     "uninstall": "卸载",
     "reinstall": "重装",
-    "noMaint": "该应用暂无维护数据。",
     "riskTitle": "继续之前请确认",
     "riskDefault": "卸载会删除该应用的文件，你的数据也会被删除。",
     "riskPaths": "这些文件夹装着你的数据和配置：",
@@ -405,9 +425,21 @@
     "goInstall": "重新安装",
     "close": "关闭",
     "errTitle": "出了点问题",
-    "errRemove": "操作失败，数据未完全变更——看下面的说明后重试。",
+    "errRemove": "操作失败。你的数据可能有部分变动——看下面的说明后重试。",
     "errNoManifest": "该应用在 registry 里没有维护数据，AiBOX 不会删除任何东西。",
     "retry": "重试",
-    "doneFailed": "有 {{count}} 项没能删除——请检查权限后重试"
+    "doneFailed": "有 {{count}} 项没能删除——请检查权限后重试",
+    "errPermission": "没有权限删除这个文件夹。用「以管理员身份运行」再试一次。",
+    "errInUse": "有文件正被别的程序占用。先关掉那个应用，再试一次。",
+    "reload": "重新加载",
+    "techDetail": "技术细节",
+    "noUpdateHint": "已是最新",
+    "noMaintHint": "这个应用不支持卸载",
+    "errProtected": "这个文件在系统保护区里，AiBOX 不会删它。",
+    "errOutOfScope": "要删的路径超出了 AiBOX 允许的范围，已停止。",
+    "errSymlinkEscape": "那个路径指向了别处，为安全起见已停止。",
+    "errBackupFailed": "备份没做完，所以什么都没删。清理磁盘空间或检查权限后再试。",
+    "errDeleteFailed": "删除时遇到系统问题（权限不足 / 文件正被占用），没有删掉任何东西。",
+    "errIo": "本地文件操作失败（权限不足 / 路径不可写）。"
   }
 }

@@ -438,7 +438,7 @@ export const api = {
   configWrite: (input: ConfigWriteInput) =>
     invoke<ConfigWriteResult>("config_write", input),
   verifySend: (input: VerifyInput) =>
-    invoke<{ ok: boolean; text?: string; error?: string }>("verify_send", input),
+    invoke<{ ok: boolean; text?: string; error?: string; errorCode?: string }>("verify_send", input),
   diagExport: () => invoke<string>("diag_export"),
   /** 写入最后计划到 ~/.aibox/cache/last-plan.json（诊断包收录） */
   savePlan: (plan: unknown) => invoke<string>("save_plan", { plan }),

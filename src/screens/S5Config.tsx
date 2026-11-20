@@ -128,7 +128,11 @@ export default function S5Config({
     if (out.ok) {
       dispatch({ type: "WRITE_DONE", ok: true, backupPath: out.backupPath });
     } else {
-      dispatch({ type: "WRITE_FAIL", errorKey: out.errorKey ?? "s5.writeFail" });
+      dispatch({
+        type: "WRITE_FAIL",
+        errorKey: out.errorKey ?? "err.configFailed",
+        ...(out.errorCode ? { errorCode: out.errorCode } : {}),
+      });
     }
   }, [appId, w.providerId, w.writing, w.key, w.model]);
 
@@ -389,9 +393,12 @@ export default function S5Config({
                 <p className="mt-2 text-xs">{t("s5.writeNote")}</p>
               </div>
               {w.errorKey && (
-                <p className="rounded-[6px] border border-aibox-danger px-3 py-2 text-sm text-aibox-danger">
-                  {t(w.errorKey)}
-                </p>
+                <div className="rounded-[6px] border border-aibox-danger px-3 py-2 text-sm text-aibox-danger">
+                  <p>{t(w.errorKey)}</p>
+                  {w.errorCode && (
+                    <p className="mt-1 font-mono text-[11px] opacity-80">{w.errorCode}</p>
+                  )}
+                </div>
               )}
               <div className="mt-1 flex justify-between">
                 <BackBtn onClick={() => dispatch({ type: "BACK" })} />

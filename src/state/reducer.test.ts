@@ -232,6 +232,40 @@ describe("任意态 → ERROR → 恢复", () => {
     const e2 = reducer(e1, { type: "ERROR", code: "B", messageKey: "err.b" });
     expect(e2.error?.from).toBe("ERROR");
   });
+
+  it("ERROR →(DISMISS)→ 回到 IDLE（**不重跑**安装）", () => {
+    // 旧版「关闭」走 RETRY/EXPORT_DIAG → recover() → 回到 EXECUTE →
+    // useEffect 重新 startExecute() → 用户点「关闭」反而把安装又跑起来了。
+    for (const st of ALL) {
+      const err = reducer(at(st), { type: "ERROR", code: "X", messageKey: "err.x" });
+      const after = reducer(err, { type: "DISMISS" });
+      expect(after.status).toBe("IDLE");
+      expect(after.error).toBeNull();
+      expect(after.tasks).toEqual([]);
+    }
+  });
+
+  it("DISMISS 在非 ERROR 态非法（幂等）", () => {
+    expect(reducer(at("EXECUTE"), { type: "DISMISS" }).status).toBe("EXECUTE");
+  });
+});
+
+describe("CONFIG_WRITTEN：跳过模型配置 → 直接 DONE（不进 VERIFY 死胡同）", () => {
+  it("pathId='none' → DONE + configSkipped 标记", () => {
+    let s = flowTo("CONFIG");
+    s = reducer(s, { type: "CONFIG_WRITTEN", pathId: "none" });
+    expect(s.status).toBe("DONE");
+    expect(s.configSkipped).toBe(true);
+    expect(s.configPathId).toBeNull();
+    expect(s.verifyOk).toBe(false);
+  });
+
+  it("正常路径 → VERIFY（不受影响）", () => {
+    let s = flowTo("CONFIG");
+    s = reducer(s, { type: "CONFIG_WRITTEN", pathId: "openrouter" });
+    expect(s.status).toBe("VERIFY");
+    expect(s.configSkipped).toBe(false);
+  });
 });
 
 describe("断点续装（IDLE 检测未完成会话）", () => {

@@ -13,13 +13,33 @@ export default function S7Done({
 }) {
   const { t } = useTranslation();
   const installed = state.tasks.filter((tk) => tk.status === "done");
+  /** 跳过的组件（之前会静默消失 → 用户以为全装上了） */
+  const skipped = state.tasks.filter((tk) => tk.status === "skipped");
+  /** 标题按「有没有没装上的」分开说，不无脑报喜 */
+  const title = skipped.length > 0 ? t("s7.titlePartial", { count: skipped.length }) : t("s7.title");
+  const subtitle =
+    skipped.length > 0
+      ? t("s7.subtitlePartial")
+      : t("s7.subtitleCount", { count: installed.length });
 
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h1 className="font-display text-2xl font-bold text-aibox-ok">{t("s7.title")}</h1>
-        <p className="text-sm text-aibox-text2">{t("s7.subtitle")}</p>
+        <h1 className="font-display text-2xl font-bold text-aibox-ok">{title}</h1>
+        <p className="text-sm text-aibox-text2">{subtitle}</p>
       </div>
+
+      {/* 跳过模型配置 → 如实告知（应用装好了，但模型还没接上） */}
+      {state.configSkipped && (
+        <section className="rounded-[6px] border border-aibox-info/60 bg-aibox-info/10 px-4 py-3">
+          <h2 className="font-display text-sm font-semibold text-aibox-info">
+            {t("s7.configSkippedTitle")}
+          </h2>
+          <p className="mt-1 text-sm leading-relaxed text-aibox-text2">
+            {t("s7.configSkippedDesc")}
+          </p>
+        </section>
+      )}
 
       {/* 已装清单 */}
       <section className="rounded-[6px] border border-aibox-line bg-aibox-raised p-4">
@@ -36,7 +56,18 @@ export default function S7Done({
               <span className="text-aibox-text2">{tk.version}</span>
             </li>
           ))}
-          {installed.length === 0 && (
+          {/* 没装上的也要列出来（否则用户以为全装上了） */}
+          {skipped.map((tk) => (
+            <li key={tk.id} className="flex items-center justify-between font-mono text-xs">
+              <span className="text-aibox-text2">
+                <span>⊘ </span>
+                {tk.name}
+                <span className="ml-2 text-[10px] text-aibox-danger">{t("s7.skippedLabel")}</span>
+              </span>
+              <span className="text-aibox-text2">{tk.version}</span>
+            </li>
+          ))}
+          {installed.length === 0 && skipped.length === 0 && (
             <li className="font-mono text-xs text-aibox-text2">{t("s7.listEmpty")}</li>
           )}
         </ul>
@@ -79,8 +110,7 @@ export default function S7Done({
         <button
           type="button"
           onClick={() => {
-            const text = "I installed an AI with AiBOX.im";
-            void navigator.clipboard?.writeText(text);
+            void navigator.clipboard?.writeText(t("s7.shareText"));
           }}
           className="font-mono text-xs text-aibox-text2 underline hover:text-aibox-green"
         >

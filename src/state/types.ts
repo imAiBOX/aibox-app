@@ -133,6 +133,8 @@ export interface MachineState {
   /** CONFIG 已选 provider 路径 id（S5 C1） */
   configPathId: string | null;
   verifyOk: boolean;
+  /** 用户在 C5 点了「跳过配置」→ 模型 key 没配（完成页要如实说明） */
+  configSkipped: boolean;
 }
 
 /** 事件契约（签名即文档） */
@@ -145,12 +147,13 @@ export type Event =
   | { type: "TASK_PHASE"; taskId: string; phase: TaskPhase } // EXECUTE 内推进
   | { type: "TASK_DONE"; taskId: string } // EXECUTE 内任务完成（→持久化快照）
   | { type: "ALL_DONE" } // EXECUTE → CONFIG
-  | { type: "CONFIG_WRITTEN"; pathId: string } // CONFIG → VERIFY
+  | { type: "CONFIG_WRITTEN"; pathId: string } // CONFIG → VERIFY（pathId="none" → DONE，跳过模型配置）
   | { type: "VERIFY_OK" } // VERIFY → DONE
   | { type: "ERROR"; code: string; messageKey: string; taskId?: string } // 任意态 → ERROR
   | { type: "RETRY" } // ERROR → 出错原态
   | { type: "SKIP" } // ERROR → 出错原态（跳过失败任务）
   | { type: "EXPORT_DIAG" } // ERROR → 出错原态（导出为副作用）
+  | { type: "DISMISS" } // ERROR → IDLE（**放弃并返回**，不重跑任何东西）
   | { type: "CONFIG_SELECT"; pathId: string } // CONFIG 内选路径（不转移状态）
   | { type: "BACK" } // 主流程回退一步（仅 IDLE/SCAN/PLAN 可回）
   | { type: "DETECT_SESSION"; snapshot: SessionSnapshot } // IDLE 检测未完成会话
@@ -170,5 +173,6 @@ export function createInitialState(): MachineState {
     resume: { available: false, snapshot: null, prompt: false },
     configPathId: null,
     verifyOk: false,
+    configSkipped: false,
   };
 }

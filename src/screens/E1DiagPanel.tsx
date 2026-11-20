@@ -119,8 +119,11 @@ export default function E1DiagPanel({
                 <span className="font-mono text-[11px] text-aibox-text2">{r.item}</span>
                 <span className="min-w-0 flex-1 text-xs text-aibox-text1">{r.summary}</span>
                 {r.fixes.includes("R2") && (
-                  <span className="rounded-[3px] border border-aibox-info/60 px-1.5 py-0.5 font-mono text-[10px] text-aibox-info">
-                    R2
+                  <span
+                    title={t("net.fixHint.R2")}
+                    className="rounded-[3px] border border-aibox-info/60 px-1.5 py-0.5 font-mono text-[10px] text-aibox-info"
+                  >
+                    {t("net.fixBadge.R2")}
                   </span>
                 )}
               </li>

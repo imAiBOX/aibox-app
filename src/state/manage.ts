@@ -279,3 +279,38 @@ export function manageReduce(state: ManageState, event: ManageEvent): ManageStat
     }
   }
 }
+
+/**
+ * 错误码 → 人话 i18n key（**不把 Rust 英文原文当说明给用户**）。
+ *
+ * 旧版把异常 message（英文 "failed to remove file …: permission denied (os error 5)"）
+ * 直接截 64 字符当「说明」显示，却又在文案里写「看下面的说明」——小白完全看不懂。
+ * 这里按机器码分流；实在认不出的再按关键字嗅（权限 / 文件被占用）。
+ */
+export function manageErrorKey(code: string, human: string): string {
+  const byCode: Record<string, string> = {
+    MANAGE_NO_MANIFEST: "s8.errNoManifest",
+    MANAGE_PROTECTED: "s8.errProtected",
+    MANAGE_OUT_OF_SCOPE: "s8.errOutOfScope",
+    MANAGE_SYMLINK_ESCAPE: "s8.errSymlinkEscape",
+    MANAGE_BACKUP_FAILED: "s8.errBackupFailed",
+    MANAGE_BACKUP_INCOMPLETE: "s8.errBackupFailed",
+    MANAGE_DELETE_FAILED: "s8.errDeleteFailed",
+    IO_ERROR: "s8.errIo",
+  };
+  const direct = byCode[code];
+  if (direct) return direct;
+  const h = human.toLowerCase();
+  if (/permission denied|access is denied|os error 5/.test(h)) return "s8.errPermission";
+  if (/being used by another process|cannot access|os error 32/.test(h)) return "s8.errInUse";
+  return "s8.errRemove";
+}
+
+/** 这些错误重试也没用（按定义不可能成功）→ 不给「重试」按钮 */
+export function isRetryableManageError(code: string): boolean {
+  return (
+    code !== "MANAGE_NO_MANIFEST" &&
+    code !== "MANAGE_OUT_OF_SCOPE" &&
+    code !== "MANAGE_SYMLINK_ESCAPE"
+  );
+}

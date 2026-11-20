@@ -38,6 +38,7 @@ import { useUpdateBanner, OFFICIAL_DOWNLOAD_URL } from "./hooks/useUpdateBanner"
 import { useUpdateChecks } from "./hooks/useUpdateChecks";
 import { usePrefetch } from "./hooks/usePrefetch";
 import { buildTrayLabels } from "./state/tray";
+import { logDrawer } from "./state/logDrawer";
 import { APP_UPDATE_TTL_MS } from "./state/appUpdates";
 import { useSessionResume } from "./hooks/useSessionResume";
 import E1DiagPanel from "./screens/E1DiagPanel";
@@ -63,6 +64,10 @@ export default function App() {
   const [creds, setCreds] = useState<ConfigCreds | null>(null);
   const [verifyResult, setVerifyResult] = useState<{ text: string; ms: number } | null>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+  /** 验证失败的原始报文（折叠进「技术细节」，不直接糊在中文提示后面） */
+  const [verifyDetail, setVerifyDetail] = useState<string | null>(null);
+  /** 验证失败的机器码（小字，便于用户反馈时给出准确定位） */
+  const [verifyCode, setVerifyCode] = useState<string | null>(null);
   const [verifyPending, setVerifyPending] = useState(false);
   /** 托盘「退出」在安装进行中 → 确认弹层（防误杀） */
   const [quitConfirm, setQuitConfirm] = useState(false);
@@ -79,8 +84,6 @@ export default function App() {
   const recordedRef = useRef<string | null>(null);
   // E1 内嵌诊断面板（同一任务连败 2 次触发；纯 reducer 可测）
   const [e1, rawE1] = useReducer(e1Reduce, createE1State());
-  /** 导出成功后关闭 → 用 EXPORT_DIAG 语义恢复（与 RETRY 同转移，保留事件契约） */
-  const exportedRef = useRef(false);
   const banner = useUpdateBanner();
   const checks = useUpdateChecks();
   // 空闲预下载：已装应用有新版 + 常驻 IDLE → 后台静默预下主安装包（升级秒装闭环）
@@ -358,6 +361,8 @@ export default function App() {
   const sendVerify = useCallback(() => {
     setVerifyPending(true);
     setVerifyError(null);
+    setVerifyDetail(null);
+    setVerifyCode(null);
     const started = Date.now();
     // 真实请求：C5 已写入的配置即被真实使用；弱判定（无文本）由 runVerify 拒绝
     runVerify({
@@ -371,13 +376,17 @@ export default function App() {
           setVerifyResult({ text: r.text, ms: r.latencyMs ?? Date.now() - started });
           dispatch({ type: "VERIFY_OK" });
         } else {
-          const human = r.errorKey ? t(r.errorKey) : t("s6.failGeneric");
-          setVerifyError(r.detail ? `${human}（${r.detail}）` : human);
+          const human = r.errorKey ? t(r.errorKey) : t("err.verifyFailed");
+          setVerifyError(human);
+          setVerifyDetail(r.detail ?? null);
+          setVerifyCode(r.errorCode ?? null);
         }
       })
       .catch(() => {
         setVerifyPending(false);
-        setVerifyError(t("s6.failGeneric"));
+        setVerifyError(t("err.verifyFailed"));
+        setVerifyDetail(null);
+        setVerifyCode(null);
       });
   }, [creds, state.configPathId, t]);
 
@@ -410,12 +419,18 @@ export default function App() {
           {
             labelKey: "btn.cancel",
             danger: true,
-            onClick: () =>
-              dispatch({ type: "ERROR", code: "USER_CANCELLED", messageKey: "err.cancelled" }),
+            onClick: () => {
+              // 取消 = **真取消**：停掉在途下载 + 回应用列表（不重跑）。
+              // 旧版取消只发一个 ERROR，点「关闭」又会 recover() → EXECUTE → 安装重新跑起来。
+              execHandle.current?.stop();
+              logDrawer.close();
+              channelToast.show(t("btn.cancelDone"));
+              dispatch({ type: "DISMISS" });
+            },
           },
           {
             labelKey: "btn.viewLog",
-            onClick: () => setOverlay("settings"),
+            onClick: () => logDrawer.open(),
           },
         ];
       case "CONFIG":
@@ -536,6 +551,8 @@ export default function App() {
             pending={verifyPending}
             latencyMs={verifyResult?.ms ?? null}
             error={verifyError}
+            errorCode={verifyCode}
+            errorDetail={verifyDetail}
             onRetry={sendVerify}
           />
         ) : (
@@ -614,11 +631,14 @@ export default function App() {
             }}
             onSkip={() => dispatch({ type: "SKIP" })}
             onExported={() => {
-              exportedRef.current = true;
+              // 导出完成（副作用已发生）；关闭按钮走 DISMISS，不重跑安装
             }}
             onDismiss={() => {
-              dispatch({ type: exportedRef.current ? "EXPORT_DIAG" : "RETRY" });
-              exportedRef.current = false;
+              // 「关闭」= **放弃这次安装并返回应用列表**。
+              // 旧版这里 dispatch RETRY/EXPORT_DIAG → recover() → 回到 EXECUTE →
+              // useEffect 重新 startExecute() → 用户点「关闭」反而把安装又跑起来了。
+              logDrawer.close();
+              dispatch({ type: "DISMISS" });
             }}
           />
         )}

@@ -153,9 +153,21 @@ export function reduce(state: MachineState, event: Event): MachineState {
         : state;
 
     case "CONFIG_WRITTEN":
-      return state.status === "CONFIG"
-        ? { ...state, status: "VERIFY", configPathId: event.pathId, error: null }
-        : state;
+      // 「跳过配置」（pathId = "none"）→ **不进 VERIFY**：
+      // 用户根本没配 key，VERIFY 会拿 provider="none" 去请求 → 必失败且是死胡同。
+      // 安装已完成 → 直接到 DONE，完成页如实说明「模型还没配置」。
+      if (state.status !== "CONFIG") return state;
+      if (event.pathId === "none") {
+        return {
+          ...state,
+          status: "DONE",
+          configPathId: null,
+          configSkipped: true,
+          verifyOk: false,
+          error: null,
+        };
+      }
+      return { ...state, status: "VERIFY", configPathId: event.pathId, error: null };
 
     case "VERIFY_OK":
       return state.status === "VERIFY"
@@ -185,6 +197,14 @@ export function reduce(state: MachineState, event: Event): MachineState {
     case "EXPORT_DIAG":
       // 导出是副作用（调用方执行），状态机只负责恢复出错原态
       return recover(state);
+
+    case "DISMISS":
+      // 放弃并返回：回 IDLE，**不重跑任何东西**。
+      // 旧版「关闭」走 RETRY/EXPORT_DIAG → recover() → 回到出错原态（EXECUTE）→
+      // useEffect 重新 startExecute() → 用户点「关闭」反而把安装又跑起来了。
+      return state.status === "ERROR"
+        ? { ...createInitialState(), scan: state.scan }
+        : state;
 
     case "CONFIG_SELECT":
       // CONFIG 态内选 provider 路径（自转移，不写入）

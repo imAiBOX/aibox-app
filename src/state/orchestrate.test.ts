@@ -316,6 +316,28 @@ describe("messageKeyForCode", () => {
     expect(messageKeyForCode("WEIRD_CODE")).toBe("err.generic");
   });
 
+  it("配置写入类错误：按原因分流（用户要知道原文件有没有被动过）", () => {
+    expect(messageKeyForCode("CONFIG_PARSE")).toBe("err.configParse");
+    expect(messageKeyForCode("CONFIG_NO_VALUES")).toBe("err.configNoValues");
+    expect(messageKeyForCode("CONFIG_SERIALIZE")).toBe("err.configFailed");
+    expect(messageKeyForCode("CONFIG_BAD_PROVIDER")).toBe("err.configFailed");
+    expect(messageKeyForCode("CONFIG_NO_APP")).toBe("err.configFailed");
+    expect(messageKeyForCode("IO_ERROR")).toBe("err.configIo");
+  });
+
+  it("模型测试类错误：精确码优先于 VERIFY_ 前缀", () => {
+    expect(messageKeyForCode("VERIFY_HTTP_401")).toBe("err.verifyKey");
+    expect(messageKeyForCode("VERIFY_HTTP_403")).toBe("err.verifyKey");
+    expect(messageKeyForCode("VERIFY_NET_FAIL")).toBe("err.verifyNet");
+    expect(messageKeyForCode("VERIFY_EMPTY_TEXT")).toBe("err.verifyWeak");
+    expect(messageKeyForCode("VERIFY_NO_KEY")).toBe("err.verifyNoKey");
+    expect(messageKeyForCode("VERIFY_UNSUPPORTED_PROVIDER")).toBe("err.verifyUnsupported");
+    expect(messageKeyForCode("VERIFY_BAD_RESPONSE")).toBe("err.verifyBadResponse");
+    expect(messageKeyForCode("VERIFY_HTTP_500")).toBe("err.verifyFailed");
+    // 下载期的 SHA 校验仍走下载类文案（VERIFY_ 前缀被两个流程共用）
+    expect(messageKeyForCode("VERIFY_FILE_MISSING")).toBe("err.downloadFailed");
+  });
+
   it("registry 拒绝类错误与「网络不通」分开说（防篡改类不该让用户查网络）", () => {
     expect(messageKeyForCode("REGISTRY_MISMATCH")).toBe("err.registryMismatch");
     expect(messageKeyForCode("REGISTRY_INTEGRITY")).toBe("err.registryIntegrity");

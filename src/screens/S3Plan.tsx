@@ -8,6 +8,19 @@ import { useTranslation } from "react-i18next";
 import type { Plan, PlanNode } from "../state";
 import type { Status } from "../state";
 
+/** registry 路线代号 → 人话（direct-install / proxy-install / nsis-hub / npm-prefix） */
+const ROUTE_KEYS: Record<string, string> = {
+  "direct-install": "s3.routeDirect",
+  "proxy-install": "s3.routeProxy",
+  "nsis-hub": "s3.routeNsis",
+  "npm-prefix": "s3.routeNpm",
+};
+
+/** 路线代号 → 人话 key；未知代号回 null（显示原值，不编造） */
+export function routeLabelKey(route: string): string | null {
+  return ROUTE_KEYS[route.trim().toLowerCase()] ?? null;
+}
+
 function nodeClass(kind: PlanNode["kind"]): string {
   switch (kind) {
     case "target":
@@ -86,11 +99,13 @@ export default function S3Plan({
           <dl className="mb-3 grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-xs sm:grid-cols-4">
             <div>
               <dt className="text-aibox-text2">{t("s3.route")}</dt>
-              <dd className="text-aibox-text1">{plan.route}</dd>
+              <dd className="text-aibox-text1">
+                {routeLabelKey(plan.route) ? t(routeLabelKey(plan.route)!) : plan.route}
+              </dd>
             </div>
             <div>
               <dt className="text-aibox-text2">{t("s3.channel")}</dt>
-              <dd className="text-aibox-text1">{plan.channel}</dd>
+              <dd className="text-aibox-text1 break-all">{plan.channel}</dd>
             </div>
             <div>
               <dt className="text-aibox-text2">{t("s3.disk")}</dt>

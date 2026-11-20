@@ -445,15 +445,28 @@ export function mockConfigWrite(input: ConfigWriteInput): ConfigWriteResult {
   };
 }
 
-export function mockVerifySend(input: VerifyInput): { ok: boolean; text?: string; error?: string } {
+export function mockVerifySend(input: VerifyInput): {
+  ok: boolean;
+  text?: string;
+  error?: string;
+  errorCode?: string;
+} {
   void input;
   if (scenario === "verify_fail") {
     // 模型侧拒绝：key 无效（非弱判定——有明确 error）
-    return { ok: false, error: "provider rejected key (401 unauthorized)" };
+    return {
+      ok: false,
+      error: "VERIFY_HTTP_401: provider rejected key (401 unauthorized)",
+      errorCode: "VERIFY_HTTP_401",
+    };
   }
   if (scenario === "verify_net") {
     // 网络挂：请求根本没发出去
-    return { ok: false, error: "network unreachable: connection timed out" };
+    return {
+      ok: false,
+      error: "VERIFY_NET_FAIL: network unreachable: connection timed out",
+      errorCode: "VERIFY_NET_FAIL",
+    };
   }
   if (scenario === "verify_weak") {
     // 弱判定：ok 但无文本 → TS 侧 runVerify 必须拒绝

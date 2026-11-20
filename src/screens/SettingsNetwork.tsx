@@ -1,14 +1,17 @@
 /**
- * 设置-网络页 E2：地区选择（net_region_set 真接线）/
- * PROXY 开关 + CUSTOM 前缀（本地 settings 持久化）/
+ * 设置-网络页 E2：地区选择（net_region_set 真接线，**唯一有效的下载网络开关**）/
  * 「立即体检」→ netdoctor_run → 体检卡列表（三色方块 + 按语言 summary + R 徽章 + detail 展开）
  * + 导出诊断（DiagExport 共用控件）。
+ *
+ * **已下线**：原「使用系统代理」开关 +「自定义下载前缀」。
+ * 这两个开关只写进前端本地 settings，**下载层根本没人读**（通道来自 registry 的 channels），
+ * 开了和没开完全一样。而 E1 的失败建议却让用户「去打开代理开关」——把用户引向无效操作。
+ * 真要接上代理/自定义源，需后端新增命令并让下载层消费设置；在那之前不摆这个开关。
  */
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type DiagReport } from "../net/client";
 import { DOT_CLASS, mapDiagRows, worstStatus } from "../net/diagmap";
-import { DEFAULT_NET_SETTINGS, netSettingsStore, type NetLocalSettings } from "../state/settings";
 import DiagExport from "./DiagExport";
 
 /** detail 是 JSON 字符串（Rust 侧 stringify 下发）→ 美化展示；非 JSON 原样返回 */
@@ -25,30 +28,16 @@ type Region = "auto" | "cn" | "global";
 export default function SettingsNetwork() {
   const { t, i18n } = useTranslation();
   const [region, setRegion] = useState<Region>("auto");
-  const [settings, setSettings] = useState<NetLocalSettings>(DEFAULT_NET_SETTINGS);
   const [report, setReport] = useState<DiagReport | null>(null);
   const [doctorBusy, setDoctorBusy] = useState(false);
   const [doctorErr, setDoctorErr] = useState<string | null>(null);
-  const store = useState(() => netSettingsStore())[0];
 
   useEffect(() => {
     void api
       .netRegion()
       .then((r) => setRegion(r.source as Region))
       .catch(() => /* mock/Tauri 未就绪 → 保持默认 */ undefined);
-    void store.load().then(setSettings);
-  }, [store]);
-
-  const patch = useCallback(
-    (p: Partial<NetLocalSettings>) => {
-      setSettings((s) => {
-        const next = { ...s, ...p };
-        void store.save(next);
-        return next;
-      });
-    },
-    [store],
-  );
+  }, []);
 
   const saveRegion = (v: Region) => {
     setRegion(v);
@@ -95,72 +84,6 @@ export default function SettingsNetwork() {
         <p className="mt-2 font-mono text-[11px] text-aibox-text2">{t("net.regionHint")}</p>
       </section>
 
-      {/* PROXY 开关（本地 settings 持久化） */}
-      <section className="rounded-[6px] border border-aibox-line bg-aibox-raised p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-sm font-semibold text-aibox-cream">{t("net.proxyTitle")}</h2>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.proxyOn}
-            onClick={() => patch({ proxyOn: !settings.proxyOn })}
-            className={[
-              "h-6 w-11 rounded-full border transition-colors",
-              settings.proxyOn ? "border-aibox-green bg-aibox-green/30" : "border-aibox-line bg-aibox-bg",
-            ].join(" ")}
-          >
-            <span
-              className={[
-                "block h-4 w-4 rounded-full transition-transform",
-                settings.proxyOn ? "translate-x-6 bg-aibox-green" : "translate-x-1 bg-aibox-text2",
-              ].join(" ")}
-            />
-          </button>
-        </div>
-        {settings.proxyOn && (
-          <input
-            type="text"
-            value={settings.proxyAddr}
-            onChange={(e) => patch({ proxyAddr: e.target.value })}
-            className="mt-3 w-full rounded-[4px] border border-aibox-line bg-aibox-bg px-3 py-2 font-mono text-sm text-aibox-text1 outline-none focus:border-aibox-green"
-            aria-label={t("net.proxyAddr")}
-          />
-        )}
-      </section>
-
-      {/* CUSTOM 前缀（本地 settings 持久化） */}
-      <section className="rounded-[6px] border border-aibox-line bg-aibox-raised p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-sm font-semibold text-aibox-cream">{t("net.customTitle")}</h2>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.customOn}
-            onClick={() => patch({ customOn: !settings.customOn })}
-            className={[
-              "h-6 w-11 rounded-full border transition-colors",
-              settings.customOn ? "border-aibox-green bg-aibox-green/30" : "border-aibox-line bg-aibox-bg",
-            ].join(" ")}
-          >
-            <span
-              className={[
-                "block h-4 w-4 rounded-full transition-transform",
-                settings.customOn ? "translate-x-6 bg-aibox-green" : "translate-x-1 bg-aibox-text2",
-              ].join(" ")}
-            />
-          </button>
-        </div>
-        {settings.customOn && (
-          <input
-            type="text"
-            value={settings.customPrefix}
-            onChange={(e) => patch({ customPrefix: e.target.value })}
-            className="mt-3 w-full rounded-[4px] border border-aibox-line bg-aibox-bg px-3 py-2 font-mono text-sm text-aibox-text1 outline-none focus:border-aibox-green"
-            aria-label={t("net.customPrefix")}
-          />
-        )}
-      </section>
-
       {/* 立即体检（E2：netdoctor_run 真报告） */}
       <section className="rounded-[6px] border border-aibox-line bg-aibox-raised p-4">
         <div className="flex items-center justify-between gap-3">
@@ -203,7 +126,7 @@ export default function SettingsNetwork() {
                       title={t(`net.fixHint.${f}`)}
                       className="rounded-[3px] border border-aibox-info/60 px-1.5 py-0.5 font-mono text-[10px] text-aibox-info"
                     >
-                      {f}
+                      {t(`net.fixBadge.${f}`)}
                     </span>
                   ))}
                 </div>

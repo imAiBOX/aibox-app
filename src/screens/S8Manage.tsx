@@ -5,16 +5,19 @@
  * - 卸载 / 重装的删除部分 = manage_remove（backupFirst 硬规则在 Rust 侧强制；UI 负责风险卡守卫）
  * - 路径清单只来自 registry maintenance（buildRemovePaths 硬规则④）
  */
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type AppManifest, type AppUpdateRow, type ManifestEntry } from "../net/client";
 import {
   buildRemovePaths,
   canConfirmRisk,
   createInitialManageState,
+  isRetryableManageError,
+  manageErrorKey,
   manageReduce,
   type MaintenanceInfo,
 } from "../state/manage";
+import { errorCodeOf } from "../state/orchestrate";
 
 interface Props {
   onClose: () => void;
@@ -28,12 +31,23 @@ interface Row {
   update?: AppUpdateRow;
 }
 
+/** 本次破坏性操作的参数（供「重试」原样重发，不重新组路径） */
+interface RemoveAttempt {
+  appId: string;
+  residualPaths: string[];
+  dataPaths: string[];
+  steps: string[];
+  backup: boolean;
+}
+
 export default function S8Manage({ onClose, onGotoInstall }: Props) {
   const { t } = useTranslation();
   const [m, dispatch] = useReducer(manageReduce, undefined, createInitialManageState);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
+  /** 本次删除尝试的参数（重试时原样重发） */
+  const attemptRef = useRef<RemoveAttempt | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -73,6 +87,33 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
     });
   };
 
+  const runRemove = async (attempt: RemoveAttempt) => {
+    setBusy(true);
+    try {
+      const res = await api.manageRemove({
+        appId: attempt.appId,
+        residualPaths: attempt.residualPaths,
+        dataPaths: attempt.dataPaths,
+        steps: attempt.steps,
+        backup: attempt.backup,
+      });
+      dispatch({
+        type: "M_REMOVE_DONE",
+        ...(res.backupDir ? { backupDir: res.backupDir } : {}),
+        removed: res.removed,
+        skipped: res.skipped,
+      });
+    } catch (e) {
+      // 机器码优先（Rust CommandError.code）；英文原文只当「技术细节」，不当人话
+      const code = errorCodeOf(e, "MANAGE_DELETE_FAILED");
+      const human = e instanceof Error ? e.message : String(e);
+      dispatch({ type: "M_ERROR", code, messageKey: manageErrorKey(code, human) });
+    } finally {
+      setBusy(false);
+      void reload();
+    }
+  };
+
   const confirmRisk = async () => {
     if (!m.risk || !canConfirmRisk(m.risk) || busy) return;
     const row = rows?.find((r) => r.entry.appId === m.risk!.appId);
@@ -82,29 +123,24 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
       dispatch({ type: "M_ERROR", code: "MANAGE_NO_MANIFEST", messageKey: "s8.errNoManifest" });
       return;
     }
-    setBusy(true);
     dispatch({ type: "M_RISK_CONFIRM" });
-    try {
-      const res = await api.manageRemove({
-        appId: m.risk.appId,
-        residualPaths: paths.residualPaths,
-        dataPaths: paths.dataPaths,
-        steps: paths.steps,
-        backup: m.backup,
-      });
-      dispatch({
-        type: "M_REMOVE_DONE",
-        ...(res.backupDir ? { backupDir: res.backupDir } : {}),
-        removed: res.removed,
-        skipped: res.skipped,
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      dispatch({ type: "M_ERROR", code: msg.slice(0, 64), messageKey: "s8.errRemove" });
-    } finally {
-      setBusy(false);
-      void reload();
-    }
+    const attempt: RemoveAttempt = {
+      appId: m.risk.appId,
+      residualPaths: paths.residualPaths,
+      dataPaths: paths.dataPaths,
+      steps: paths.steps,
+      backup: m.backup,
+    };
+    attemptRef.current = attempt;
+    await runRemove(attempt);
+  };
+
+  /** 「重试」：真正重发一次删除（旧版只回列表，没重做） */
+  const retryRemove = async () => {
+    const a = attemptRef.current;
+    if (!a || busy) return;
+    dispatch({ type: "M_RETRY" });
+    await runRemove(a);
   };
 
   // ---------- DONE / ERROR 全屏态 ----------
@@ -169,12 +205,20 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
         </header>
         <div className="panel text-sm text-aibox-text1">
           <p>{t(m.error?.messageKey ?? "s8.errRemove")}</p>
-          {m.error?.code && <p className="mt-2 font-mono text-xs text-aibox-text2">{m.error.code}</p>}
+          {m.error?.code && (
+            <details className="mt-2 font-mono text-[11px] text-aibox-text2">
+              <summary className="cursor-pointer">{t("s8.techDetail")}</summary>
+              <p className="mt-1 break-all">{m.error.code}</p>
+            </details>
+          )}
         </div>
         <div className="flex gap-3">
-          <button type="button" className="btn-cta" onClick={() => dispatch({ type: "M_RETRY" })}>
-            {t("s8.retry")}
-          </button>
+          {/* 重试只在“重试真能生效”时给：MANAGE_NO_MANIFEST 这类按定义不会成功 */}
+          {m.error && isRetryableManageError(m.error.code) && attemptRef.current && (
+            <button type="button" className="btn-cta" onClick={() => void retryRemove()} disabled={busy}>
+              {busy ? t("s8.working") : t("s8.retry")}
+            </button>
+          )}
           <button type="button" className="rounded-[4px] border border-aibox-line px-4 py-2 text-sm text-aibox-cream hover:border-aibox-green" onClick={() => dispatch({ type: "M_CLOSE" })}>
             {t("s8.close")}
           </button>
@@ -256,7 +300,18 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
       </header>
       <p className="text-sm text-aibox-text2">{t("s8.lede")}</p>
 
-      {loadErr && <div className="panel text-sm text-aibox-danger">{t("s8.loadErr")}</div>}
+      {loadErr && (
+        <div className="panel flex items-center justify-between gap-3 text-sm text-aibox-danger">
+          <span>{t("s8.loadErr")}</span>
+          <button
+            type="button"
+            onClick={() => void reload()}
+            className="shrink-0 rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-xs text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
+          >
+            {t("s8.reload")}
+          </button>
+        </div>
+      )}
       {rows && rows.length === 0 && !loadErr && (
         <div className="border border-dashed border-aibox-line p-6 text-sm text-aibox-text2" style={{ borderRadius: 4 }}>
           {t("s8.empty")}
@@ -286,33 +341,42 @@ export default function S8Manage({ onClose, onGotoInstall }: Props) {
                 >
                   {t("s8.checkUpdate")}
                 </button>
-                <button
-                  type="button"
-                  disabled={!update?.hasUpdate}
-                  title={update?.hasUpdate ? undefined : t("s8.noUpdate")}
-                  onClick={() => { dispatch({ type: "M_CLOSE" }); onGotoInstall(entry.appId); }}
-                  className="rounded-[4px] bg-aibox-green px-3 py-1.5 font-mono text-xs font-semibold text-aibox-bg disabled:opacity-40"
-                >
-                  {t("s8.upgrade")}
-                </button>
-                <button
-                  type="button"
-                  disabled={!hasMaint}
-                  title={hasMaint ? undefined : t("s8.noMaint")}
-                  onClick={() => openRisk("REMOVE", entry.appId)}
-                  className="rounded-[4px] border border-aibox-danger/70 px-3 py-1.5 font-mono text-xs text-aibox-danger hover:border-aibox-danger disabled:opacity-40"
-                >
-                  {t("s8.uninstall")}
-                </button>
-                <button
-                  type="button"
-                  disabled={!hasMaint}
-                  title={hasMaint ? undefined : t("s8.noMaint")}
-                  onClick={() => openRisk("REINSTALL", entry.appId)}
-                  className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-xs text-aibox-text2 hover:border-aibox-green hover:text-aibox-green disabled:opacity-40"
-                >
-                  {t("s8.reinstall")}
-                </button>
+                {/* 禁用按钮不会派发鼠标事件 → title 悬浮提示在 Chrome/Firefox 里根本不出现，
+                    所以禁用原因必须写成**可见小字**，否则小白只看到一个灰按钮。 */}
+                <span className="flex flex-col items-end gap-1">
+                  <span className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={!update?.hasUpdate}
+                      onClick={() => { dispatch({ type: "M_CLOSE" }); onGotoInstall(entry.appId); }}
+                      className="rounded-[4px] bg-aibox-green px-3 py-1.5 font-mono text-xs font-semibold text-aibox-bg disabled:opacity-40"
+                    >
+                      {t("s8.upgrade")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!hasMaint}
+                      onClick={() => openRisk("REMOVE", entry.appId)}
+                      className="rounded-[4px] border border-aibox-danger/70 px-3 py-1.5 font-mono text-xs text-aibox-danger hover:border-aibox-danger disabled:opacity-40"
+                    >
+                      {t("s8.uninstall")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!hasMaint}
+                      onClick={() => openRisk("REINSTALL", entry.appId)}
+                      className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-xs text-aibox-text2 hover:border-aibox-green hover:text-aibox-green disabled:opacity-40"
+                    >
+                      {t("s8.reinstall")}
+                    </button>
+                  </span>
+                  {!update?.hasUpdate && (
+                    <span className="font-mono text-[10px] text-aibox-text2">{t("s8.noUpdateHint")}</span>
+                  )}
+                  {!hasMaint && (
+                    <span className="font-mono text-[10px] text-aibox-text2">{t("s8.noMaintHint")}</span>
+                  )}
+                </span>
               </div>
             </li>
           );

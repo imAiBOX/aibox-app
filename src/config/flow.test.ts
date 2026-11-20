@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createWizard,
+  extractErrorCode,
   humanVerifyError,
   reduceWizard,
   runConfigWrite,
@@ -115,9 +116,10 @@ describe("C1→C2→C3→C4→C5 流转", () => {
     w = reduceWizard(w, { type: "SET_MODEL", model: "m1" });
     w = reduceWizard(w, { type: "NEXT" });
     w = reduceWizard(w, { type: "WRITE_START" });
-    w = reduceWizard(w, { type: "WRITE_FAIL", errorKey: "s5.writeFail" });
+    w = reduceWizard(w, { type: "WRITE_FAIL", errorKey: "err.configFailed", errorCode: "CONFIG_FAILED" });
     expect(w.writeResult).toBeNull();
-    expect(w.errorKey).toBe("s5.writeFail");
+    expect(w.errorKey).toBe("err.configFailed");
+    expect(w.errorCode).toBe("CONFIG_FAILED");
     w = reduceWizard(w, { type: "BACK" });
     expect(w.step).toBe("C4");
   });
@@ -126,7 +128,7 @@ describe("C1→C2→C3→C4→C5 流转", () => {
     setMockScenario("config_write_fail");
     const out = await runConfigWrite({ appId: "openclaw", provider: "openrouter" });
     expect(out.ok).toBe(false);
-    expect(out.errorKey).toBe("s5.writeFail");
+    expect(out.errorKey).toBe("err.configFailed");
   });
 });
 
@@ -191,7 +193,7 @@ describe("VERIFY 流转与弱判定拒绝", () => {
     setMockScenario("verify_weak");
     const r = await runVerify({ provider: "openrouter", apiKey: GOOD_KEY });
     expect(r.ok).toBe(false);
-    expect(r.errorKey).toBe("s6.errWeak");
+    expect(r.errorKey).toBe("err.verifyWeak");
     expect(r.text).toBeUndefined();
   });
 
@@ -199,18 +201,38 @@ describe("VERIFY 流转与弱判定拒绝", () => {
     setMockScenario("verify_fail");
     const rej = await runVerify({ provider: "openrouter", apiKey: "sk-test-bad" });
     expect(rej.ok).toBe(false);
-    expect(rej.errorKey).toBe("s6.errKey");
+    expect(rej.errorKey).toBe("err.verifyKey");
+    expect(rej.errorCode).toBe("VERIFY_HTTP_401");
     expect(rej.detail).toContain("401");
 
     setMockScenario("verify_net");
     const net = await runVerify({ provider: "openrouter", apiKey: GOOD_KEY });
     expect(net.ok).toBe(false);
-    expect(net.errorKey).toBe("s6.errNet");
+    expect(net.errorKey).toBe("err.verifyNet");
+    expect(net.errorCode).toBe("VERIFY_NET_FAIL");
     expect(net.detail).toContain("timed out");
   });
 
-  it("humanVerifyError：未知错误回落 failGeneric", () => {
-    expect(humanVerifyError("something odd")).toBe("s6.failGeneric");
-    expect(humanVerifyError(undefined)).toBe("s6.failGeneric");
+  it("humanVerifyError：未知错误回落 verifyFailed", () => {
+    expect(humanVerifyError("something odd")).toBe("err.verifyFailed");
+    expect(humanVerifyError(undefined)).toBe("err.verifyFailed");
+  });
+
+  it("humanVerifyError：按机器码分流（不再靠正则嗅字符串）", () => {
+    // VERIFY_NET_FAIL 里没有 "network" 字样，旧版会误判成「通用失败」
+    expect(humanVerifyError("VERIFY_NET_FAIL: could not reach")).toBe("err.verifyNet");
+    expect(humanVerifyError("VERIFY_HTTP_401: rejected")).toBe("err.verifyKey");
+    expect(humanVerifyError("VERIFY_EMPTY_TEXT: empty")).toBe("err.verifyWeak");
+    expect(humanVerifyError("VERIFY_NO_KEY: missing")).toBe("err.verifyNoKey");
+    expect(humanVerifyError("VERIFY_UNSUPPORTED_PROVIDER: none")).toBe("err.verifyUnsupported");
+    expect(humanVerifyError("VERIFY_BAD_RESPONSE: not json")).toBe("err.verifyBadResponse");
+    // 显式 code 优先于串
+    expect(humanVerifyError("whatever", "VERIFY_HTTP_403")).toBe("err.verifyKey");
+  });
+
+  it("extractErrorCode：从 'CODE: 人话' 形态取机器码", () => {
+    expect(extractErrorCode("VERIFY_NET_FAIL: could not reach openrouter")).toBe("VERIFY_NET_FAIL");
+    expect(extractErrorCode("plain english without code")).toBeUndefined();
+    expect(extractErrorCode(undefined)).toBeUndefined();
   });
 });
