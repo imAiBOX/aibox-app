@@ -365,29 +365,28 @@ export default function App() {
     if (!notifyPrefsLoaded || !notifyPrefs.minimizeAfterInstall) return;
     if (afterInstallRef.current) return;
     afterInstallRef.current = true;
+    let cancelled = false;
     const cancel = () => {
-      afterInstallRef.current = false;
+      cancelled = true;
+      window.clearTimeout(id);
       window.removeEventListener("pointerdown", cancel);
       window.removeEventListener("keydown", cancel);
     };
     const id = window.setTimeout(() => {
-      cancel();
       void (async () => {
         try {
           const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          await getCurrentWindow().hide();
+          if (!cancelled) await getCurrentWindow().hide();
         } catch {
           /* 非 Tauri */
+        } finally {
+          cancel();
         }
       })();
     }, 10_000);
     window.addEventListener("pointerdown", cancel);
     window.addEventListener("keydown", cancel);
-    return () => {
-      window.clearTimeout(id);
-      window.removeEventListener("pointerdown", cancel);
-      window.removeEventListener("keydown", cancel);
-    };
+    return cancel;
   }, [state.status, notifyPrefs.minimizeAfterInstall, notifyPrefsLoaded]);
 
   /**

@@ -76,6 +76,7 @@ impl Default for TrayUi {
 }
 
 /// 运行期持有的托盘句柄（更新文案用）。
+#[derive(Clone)]
 pub struct TrayHandles {
     pub tray: TrayIcon<Wry>,
     pub first: MenuItem<Wry>,
@@ -198,8 +199,8 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
 /// 应用前端下发的文案（tooltip + 菜单项文本 + 角标 + 待办项显隐）。
 pub fn apply_ui(ui: &TrayUi) {
-    let guard = handles();
-    let Some(h) = guard.as_ref() else {
+    let snapshot = handles().clone();
+    let Some(h) = snapshot else {
         return;
     };
     let _ = h.tray.set_tooltip(Some(ui.tooltip.as_str()));
@@ -218,15 +219,11 @@ pub fn apply_ui(ui: &TrayUi) {
         .set_text(ui.pending_updates_label.as_str());
     let _ = h.pending_new.set_text(ui.pending_new_label.as_str());
     let _ = h.pending_core.set_text(ui.pending_core_label.as_str());
-    rebuild_menu(ui);
+    rebuild_menu(&h, ui);
 }
 
-/// 按待办重建菜单（MenuItem 无 set_visible → 重建；菜单项句柄复用，只换集合）。
-fn rebuild_menu(ui: &TrayUi) {
-    let guard = handles();
-    let Some(h) = guard.as_ref() else {
-        return;
-    };
+/// 按待办重建菜单，复用已有句柄，避免在调用原生菜单 API 时持锁。
+fn rebuild_menu(h: &TrayHandles, ui: &TrayUi) {
     let app = h.tray.app_handle();
     let first: &dyn IsMenuItem<Wry> = &h.first;
     let upd: &dyn IsMenuItem<Wry> = &h.pending_updates;
