@@ -1124,3 +1124,265 @@ mod tests {
     }
 
 }
+
+/// 还原结果（`restore_backup`）。
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreOutcome {
+    /// 成功还原的条目数
+    pub restored: usize,
+    /// 还原到的原路径（人话：给用户看「哪些文件回来了」）
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub restored_paths: Vec<String>,
+    /// 被安全策略跳过（越界 / 软链 / manifest 不符）
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<String>,
+    /// 写入失败
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub failed: Vec<String>,
+}
+
+/// **从备份还原**（升级前备份 → 恢复用户数据）。
+///
+/// ## 为什么需要
+/// 升级会重跑安装程序，可能覆盖/重置应用的配置与数据。
+/// 我们在升级前已经自动备份（`backup_app_in`），但**备份不可用等于没有安全网**——
+/// 用户出问题时只能手工翻文件。本函数把安全网变成真正的「一键回退」。
+///
+/// ## 安全红线（与备份侧同款）
+/// 1. 只还原 **manifest 里登记过的条目**（不猜、不扫盘）；
+/// 2. 每个目标路径必须**仍在用户 home 内**（`resolve_within_home`，祖先软链/越界一网打尽）；
+/// 3. manifest 的 `appId` 必须与请求一致（防止拿别的应用的备份来覆盖）；
+/// 4. 目标是软链 → 跳过（不替软链改指向）；
+/// 5. 零提权、只写用户目录。
+pub fn restore_backup_in(
+    backup_dir: &Path,
+    app_id: &str,
+    home: &Path,
+) -> CoreResult<RestoreOutcome> {
+    crate::registry::validate_id(app_id)?;
+    let manifest_path = backup_dir.join("manifest.json");
+    let manifest: Value = fsops::read_json5(&manifest_path)?;
+    let schema = manifest.get("schema").and_then(|v| v.as_str()).unwrap_or("");
+    if schema != "aibox-backup/v1" {
+        return Err(CoreError::new(
+            "BACKUP_BAD_SCHEMA",
+            format!("unsupported backup schema: {schema}"),
+        ));
+    }
+    let manifest_app = manifest.get("appId").and_then(|v| v.as_str()).unwrap_or("");
+    if manifest_app != app_id {
+        return Err(CoreError::new(
+            "BACKUP_APP_MISMATCH",
+            format!("backup belongs to {manifest_app}, not {app_id}"),
+        ));
+    }
+    let zip_path = backup_dir.join("data.zip");
+    let file = fs::File::open(&zip_path).map_err(|e| io_err("open backup zip", e))?;
+    let mut zip = zip::ZipArchive::new(file)
+        .map_err(|e| CoreError::new("BACKUP_ZIP", format!("open backup zip: {e}")))?;
+
+    let mut out = RestoreOutcome::default();
+    let entries = manifest
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    for e in entries {
+        let entry = e.get("entry").and_then(|v| v.as_str()).unwrap_or("");
+        let source = e.get("source").and_then(|v| v.as_str()).unwrap_or("");
+        if entry.is_empty() || source.is_empty() {
+            continue;
+        }
+        let target = PathBuf::from(source);
+        // 红线 2：目标必须在 home 内
+        let Some(parent) = target.parent() else {
+            out.skipped.push(source.to_string());
+            continue;
+        };
+        if fs::symlink_metadata(&target)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            // 红线 4：目标是软链 → 跳过
+            out.skipped.push(source.to_string());
+            continue;
+        }
+        // **红线 2（补强）**：目标必须仍在 home 内。
+        // 父目录存在 → 用 resolve_within_home（解析软链后的真实路径，越界即拒）；
+        // 父目录不存在 → 退到 create_dirs_within 的逐级前缀检查。
+        if parent.exists() {
+            if resolve_within_home(parent, home).is_none() {
+                out.skipped.push(source.to_string());
+                continue;
+            }
+        }
+        // 逐级创建父目录（每级都必须在 home 内）
+        if let Err(e) = create_dirs_within(parent, home) {
+            out.failed.push(format!("{source} (mkdir: {e})"));
+            continue;
+        }
+        let Ok(mut zf) = zip.by_name(entry) else {
+            out.failed.push(format!("{source} (missing in zip: {entry})"));
+            continue;
+        };
+        match fs::File::create(&target) {
+            Ok(mut dst) => match std::io::copy(&mut zf, &mut dst) {
+                Ok(_) => {
+                    out.restored += 1;
+                    out.restored_paths.push(source.to_string());
+                }
+                Err(e) => out.failed.push(format!("{source} (write: {e})")),
+            },
+            Err(e) => out.failed.push(format!("{source} (create: {e})")),
+        }
+    }
+    Ok(out)
+}
+
+/// 逐级创建目录；每一级都必须仍在 home 内（越界即拒）。
+fn create_dirs_within(dir: &Path, home: &Path) -> Result<(), CoreError> {
+    let mut cur = dir.to_path_buf();
+    let mut chain: Vec<PathBuf> = Vec::new();
+    while cur.as_os_str().len() > 0 {
+        chain.push(cur.clone());
+        if !cur.pop() {
+            break;
+        }
+        if cur.as_os_str().is_empty() {
+            break;
+        }
+    }
+    for p in chain.into_iter().rev() {
+        if p == home {
+            continue;
+        }
+        if p.exists() {
+            continue;
+        }
+        // 越界检查：创建后必须仍在 home 内（对不存在的路径用前缀比较）
+        let home_s = home.to_string_lossy().into_owned();
+        let p_s = p.to_string_lossy().into_owned();
+        if !p_s.starts_with(&home_s) {
+            return Err(CoreError::new(
+                "BACKUP_OUT_OF_HOME",
+                format!("refuse to create outside home: {p_s}"),
+            ));
+        }
+        fs::create_dir_all(&p).map_err(|e| io_err(format!("create {}", p.display()), e))?;
+    }
+    Ok(())
+}
+
+/// 从备份目录还原（`~/.aibox/backup/<ts>/<appId>`）。
+pub fn restore_backup(backup_dir: &str, app_id: &str) -> CoreResult<RestoreOutcome> {
+    let dir = PathBuf::from(backup_dir);
+    let home = paths::home_dir();
+    restore_backup_in(&dir, app_id, &home)
+}
+
+#[cfg(test)]
+mod restore_tests {
+    use super::*;
+
+    fn make_backup(dir: &Path, home: &Path, app_id: &str, files: &[(&str, &str)]) -> PathBuf {
+        fs::create_dir_all(dir).unwrap();
+        // 被备份的文件
+        let mut entries = Vec::new();
+        let mut names = Vec::new();
+        for (rel, content) in files {
+            let src = home.join(rel);
+            if let Some(p) = src.parent() {
+                fs::create_dir_all(p).unwrap();
+            }
+            fs::write(&src, content).unwrap();
+            entries.push((rel.to_string(), src.to_string_lossy().to_string()));
+            names.push(rel.to_string());
+        }
+        let manifest = json!({
+            "schema": "aibox-backup/v1",
+            "appId": app_id,
+            "createdAtMs": 1u64,
+            "sources": [],
+            "entries": entries.iter().map(|(entry, source)| json!({"entry": entry, "source": source})).collect::<Vec<Value>>(),
+        });
+        fs::write(
+            dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let file = fs::File::create(dir.join("data.zip")).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (rel, content) in files.iter() {
+            zip.start_file(*rel, opts).unwrap();
+            std::io::Write::write_all(&mut zip, content.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+        dir.to_path_buf()
+    }
+
+    #[test]
+    fn restore_brings_back_files() {
+        let tmp = std::env::temp_dir().join(format!("aibox-restore-{}", std::process::id()));
+        let home = tmp.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let bdir = tmp.join("backup");
+        make_backup(&bdir, &home, "demo", &[("cfg/app.json", "OLD")]);
+        // 用户升级后改了文件
+        fs::write(home.join("cfg/app.json"), "NEW").unwrap();
+
+        let out = restore_backup_in(&bdir, "demo", &home).unwrap();
+        assert_eq!(out.restored, 1);
+        assert_eq!(fs::read_to_string(home.join("cfg/app.json")).unwrap(), "OLD");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn restore_rejects_other_apps_backup() {
+        let tmp = std::env::temp_dir().join(format!("aibox-restore2-{}", std::process::id()));
+        let home = tmp.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let bdir = tmp.join("backup");
+        make_backup(&bdir, &home, "demo", &[("cfg/app.json", "OLD")]);
+        let e = restore_backup_in(&bdir, "other", &home).unwrap_err();
+        assert_eq!(e.code, "BACKUP_APP_MISMATCH");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn restore_refuses_out_of_home_targets() {
+        let tmp = std::env::temp_dir().join(format!("aibox-restore3-{}", std::process::id()));
+        let home = tmp.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let bdir = tmp.join("backup");
+        // manifest 里塞一个 home 外的目标
+        fs::create_dir_all(&bdir).unwrap();
+        let outside = tmp.join("outside/target.txt");
+        fs::create_dir_all(outside.parent().unwrap()).unwrap();
+        fs::write(&outside, "X").unwrap();
+        fs::write(
+            bdir.join("manifest.json"),
+            serde_json::to_string_pretty(&json!({
+                "schema": "aibox-backup/v1",
+                "appId": "demo",
+                "entries": [{"entry": "f0", "source": outside.to_string_lossy()}],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let file = fs::File::create(bdir.join("data.zip")).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.start_file("f0", opts).unwrap();
+        std::io::Write::write_all(&mut zip, b"X").unwrap();
+        zip.finish().unwrap();
+
+        let out = restore_backup_in(&bdir, "demo", &home).unwrap();
+        // 越界目标 → 跳过，不写
+        assert_eq!(out.restored, 0);
+        assert!(!out.skipped.is_empty() || !out.failed.is_empty());
+        let _ = fs::remove_dir_all(&tmp);
+    }
+}

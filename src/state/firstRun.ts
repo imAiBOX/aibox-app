@@ -26,3 +26,8 @@ export function markFirstRunSeen(): void {
     /* 隐私模式 → 下次再看（可接受） */
   }
 }
+
+/** 是否**第一次**启动（还没看过引导）→ 首屏不打扰（不弹更新条）。 */
+export function isFirstLaunch(): boolean {
+  return !hasSeenFirstRun();
+}

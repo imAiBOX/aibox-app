@@ -85,6 +85,7 @@ fn main() {
             // MANAGE 维护模式
             commands::manage_backup,
             commands::manage_remove,
+            commands::manage_restore,
             commands::manage_manifest_list,
             commands::tray_sync,
             commands::app_quit,

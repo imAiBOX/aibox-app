@@ -148,8 +148,26 @@ export function validateKey(
 }
 
 /** registry recommendedModels 缺席时的兜底（mock 兜底同源：名字=id） */
+/**
+ * 模型 id → 人话名（小白不该看到 `anthropic/claude-sonnet-4` 这种裸 id）。
+ *
+ * 规则：去掉 `provider/` 前缀 → kebab/点号/下划线转空格 → 首字母大写。
+ * 例：`anthropic/claude-sonnet-4` → `Claude Sonnet 4`；`gpt-5.1` → `Gpt 5.1`。
+ */
+export function modelDisplayName(id: string): string {
+  const tail = id.includes("/") ? id.slice(id.lastIndexOf("/") + 1) : id;
+  const words = tail
+    // 只把 - 和 _ 当分隔符；**保留 .**（版本号里的点：gpt-5.1 → GPT 5.1）
+    .replace(/[-_]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (w.length <= 4 && w === w.toLowerCase() ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)));
+  return words.length > 0 ? words.join(" ") : id;
+}
+
 export function fallbackModels(p: ProviderPath): ModelOption[] {
-  return p.modelIds.map((id) => ({ id, name: id }));
+  return p.modelIds.map((id) => ({ id, name: modelDisplayName(id) }));
 }
 
 /** 从 manifest.modelProviders 取该 provider 的 registry 元数据（可空） */

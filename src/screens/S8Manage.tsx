@@ -29,7 +29,7 @@ interface Props {
   focus?: "upgrades" | null;
   /** 批量升级：一次把全部可升级的应用排进队列（逐个自动升） */
   onUpgradeAll?: (appIds: string[]) => void;
-  /** 最近一次「升级前备份」记录（展示位置 + 可打开；用户可自行恢复） */
+  /** 最近一次「升级前备份」记录（展示位置 + 可打开 + 可一键还原） */
   upgradeBackup?: { appId: string; path: string; at: number } | null;
 }
 
@@ -60,6 +60,10 @@ export default function S8Manage({
   const [rows, setRows] = useState<Row[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
+  /** 还原确认（破坏性操作 → 必须显式确认） */
+  const [restoreConfirm, setRestoreConfirm] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreNote, setRestoreNote] = useState<string | null>(null);
   /** 本次删除尝试的参数（重试时原样重发） */
   const attemptRef = useRef<RemoveAttempt | null>(null);
 
@@ -429,21 +433,71 @@ export default function S8Manage({
       </header>
       <p className="text-sm text-aibox-text2">{t("s8.lede")}</p>
 
-      {/* 最近一次升级前的备份在哪（用户要回滚时能找到） */}
+      {/* 最近一次升级前的备份在哪（用户要回滚时能找到）→ 可一键还原 */}
       {upgradeBackup && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-aibox-line bg-aibox-raised px-4 py-3">
           <span className="min-w-0 flex-1 text-xs leading-relaxed text-aibox-text2">
             {t("s8.backupLast", { appId: upgradeBackup.appId, path: upgradeBackup.path })}
           </span>
-          <button
-            type="button"
-            onClick={() => void api.revealDir(upgradeBackup.path).catch(() => undefined)}
-            className="shrink-0 rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-[10px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
-          >
-            {t("s7.openFolder")}
-          </button>
+          <span className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => void api.revealDir(upgradeBackup.path).catch(() => undefined)}
+              className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-[10px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
+            >
+              {t("s7.openFolder")}
+            </button>
+            <button
+              type="button"
+              disabled={restoring}
+              onClick={() => setRestoreConfirm(true)}
+              data-testid="s8-restore"
+              className="rounded-[4px] border border-aibox-green px-3 py-1.5 font-mono text-[10px] text-aibox-green hover:bg-aibox-green/10 disabled:opacity-40"
+            >
+              {restoring ? t("s8.restoring") : t("s8.restore")}
+            </button>
+          </span>
         </div>
       )}
+
+      {/* 还原确认（破坏性：会覆盖升级后的新文件） */}
+      {restoreConfirm && upgradeBackup && (
+        <div className="rounded-[6px] border border-aibox-danger/60 bg-aibox-danger/10 p-4">
+          <p className="text-sm leading-relaxed text-aibox-text1">{t("s8.restoreConfirm")}</p>
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setRestoreConfirm(false)}
+              className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-xs text-aibox-text2"
+            >
+              {t("btn.cancel")}
+            </button>
+            <button
+              type="button"
+              disabled={restoring}
+              onClick={() => {
+                setRestoreConfirm(false);
+                setRestoring(true);
+                void api
+                  .manageRestore(upgradeBackup.path, upgradeBackup.appId)
+                  .then((r) => {
+                    setRestoreNote(
+                      r.restored > 0
+                        ? t("s8.restoreDone", { count: r.restored })
+                        : t("s8.restoreNone"),
+                    );
+                  })
+                  .catch(() => setRestoreNote(t("s8.restoreFailed")))
+                  .finally(() => setRestoring(false));
+              }}
+              className="rounded-[4px] border border-aibox-danger px-3 py-1.5 font-mono text-xs text-aibox-danger"
+            >
+              {t("s8.restoreConfirmBtn")}
+            </button>
+          </div>
+        </div>
+      )}
+      {restoreNote && <p className="text-xs leading-relaxed text-aibox-text2">{restoreNote}</p>}
 
       {/* 聚焦模式（托盘待办点进来）：可升级的排到最前 + 一键「升级下一个」——
           托盘说「3 个应用可升级」，用户进来却要自己在列表里找 → 差评 */}

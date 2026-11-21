@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useReducer } from "react";
 import { api, type UpdateInfo } from "../net/client";
+import { isFirstLaunch } from "../state/firstRun";
 
 /**
  * 官网下载页（跳官网，不用 releases 直链）。
@@ -79,7 +80,10 @@ export function createBannerState(): BannerState {
   return { info: null, dismissed: false };
 }
 
-export function bannerVisible(s: BannerState): boolean {
+export function bannerVisible(s: BannerState, firstLaunch = false): boolean {
+  // **首次启动不弹本体更新条**：刚下载安装的用户第一眼看到「发现新版本」会懵
+  // （「我不是刚装的吗？是不是装错了？」）→ 第一次只留在托盘菜单里，不占首屏。
+  if (firstLaunch) return false;
   return Boolean(s.info?.hasUpdate) && !s.dismissed;
 }
 
@@ -115,7 +119,7 @@ export function useUpdateBanner(): UpdateBannerState {
   );
 
   return {
-    visible: bannerVisible(state),
+    visible: bannerVisible(state, isFirstLaunch()),
     version: state.info?.version,
     url: OFFICIAL_DOWNLOAD_URL,
     info: state.info,

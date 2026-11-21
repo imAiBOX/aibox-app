@@ -42,6 +42,7 @@ function harness(overrides: {
   api?: Partial<ExecuteApi>;
   scenario?: string;
   stallMs?: number;
+  phaseTimeouts?: Partial<{ verify: number; install: number; probe: number }>;
 }): Harness {
   const listeners = new Set<(e: AiboxEvent) => void>();
   const events: Event[] = [];
@@ -68,6 +69,7 @@ function harness(overrides: {
       snapshots.push(s);
     },
     now: () => Date.now(),
+    ...(overrides.phaseTimeouts ? { phaseTimeouts: overrides.phaseTimeouts } : {}),
     ...(overrides.stallMs !== undefined ? { stallMs: overrides.stallMs } : {}),
   };
   const emit = (e: AiboxEvent) => {
@@ -503,5 +505,59 @@ describe("安装上报（track_install 时机与幂等）", () => {
       tasks: [task("a", "done"), task("b", "skipped")],
     }).promise;
     expect(h2.api.trackInstall).not.toHaveBeenCalled(); // 全处置 = 无安装动作
+  });
+});
+
+describe("阶段看门狗（verify / install / probe 不再无限静默）", () => {
+  // 下载成功事件（推进流程到后续阶段）
+  const okStart = (h: Harness) =>
+    vi.fn(async (t: { destName: string; id: string }) => {
+      setTimeout(() => h.emit(ok(`download ok: 1 bytes via x (${t.destName})`)), 0);
+      return t.id;
+    });
+
+  it("校验永远不返回 → VERIFY_STALLED（不是干等）", async () => {
+    const h = harness({
+      api: { verifySha256: () => new Promise<boolean>(() => {}) },
+      phaseTimeouts: { verify: 10 },
+    });
+    h.api.downloadStart = okStart(h);
+    // 下载先成功（走 mock 事件）→ 让流程推进到 verify 段
+    const p = startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
+    await p;
+    const err = h.events.find((e) => e.type === "ERROR") as { code?: string } | undefined;
+    expect(err?.code).toBe("VERIFY_STALLED");
+  });
+
+  it("安装永远不返回 → INSTALL_STALLED", async () => {
+    const h = harness({
+      api: { execInstall: () => new Promise<{ code: number; out: string }>(() => {}) },
+      phaseTimeouts: { verify: 1000, install: 10 },
+    });
+    h.api.downloadStart = okStart(h);
+    const p = startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
+    await p;
+    const err = h.events.find((e) => e.type === "ERROR") as { code?: string } | undefined;
+    expect(err?.code).toBe("INSTALL_STALLED");
+  });
+
+  it("探测永远不返回 → PROBE_STALLED", async () => {
+    const h = harness({
+      api: { probeRun: () => new Promise<{ version: string }>(() => {}) },
+      phaseTimeouts: { verify: 1000, install: 1000, probe: 10 },
+    });
+    h.api.downloadStart = okStart(h);
+    const p = startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
+    await p;
+    const err = h.events.find((e) => e.type === "ERROR") as { code?: string } | undefined;
+    expect(err?.code).toBe("PROBE_STALLED");
+  });
+
+  it("正常路径不受影响（超时只是兜底）", async () => {
+    const h = harness({ phaseTimeouts: { verify: 1000, install: 1000, probe: 1000 } });
+    h.api.downloadStart = okStart(h);
+    const p = startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
+    await p;
+    expect(h.events.some((e) => e.type === "ERROR")).toBe(false);
   });
 });

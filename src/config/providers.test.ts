@@ -11,6 +11,7 @@ import {
   priceHintKey,
   providerById,
   validateKey,
+  modelDisplayName,
 } from "./providers";
 
 const openrouter = providerById("openrouter")!;
@@ -117,5 +118,24 @@ describe("辅助纯函数", () => {
     expect(PROVIDERS.filter((p) => p.status === "full")).toHaveLength(3);
     expect(PROVIDERS.filter((p) => p.status === "todo")).toHaveLength(3);
     expect(PROVIDERS.filter((p) => p.recommended).map((p) => p.id)).toEqual(["openrouter"]);
+  });
+});
+
+describe("modelDisplayName（裸模型 id → 人话名）", () => {
+  it("去 provider 前缀 + kebab 转 Title Case", () => {
+    expect(modelDisplayName("anthropic/claude-sonnet-4")).toBe("Claude Sonnet 4");
+    expect(modelDisplayName("gpt-5.1")).toBe("GPT 5.1");
+    expect(modelDisplayName("google/gemini-2.5-flash")).toBe("Gemini 2.5 Flash");
+  });
+  it("空/异常输入原样返回", () => {
+    expect(modelDisplayName("")).toBe("");
+    expect(modelDisplayName("...")).toBe("...");
+  });
+  it("fallbackModels 用人话名而不是裸 id", () => {
+    const p = providerById("openrouter");
+    expect(p).toBeTruthy();
+    const models = fallbackModels(p!);
+    expect(models[0].name).not.toBe(models[0].id);
+    expect(models[0].name).toContain("Claude");
   });
 });

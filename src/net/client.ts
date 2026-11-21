@@ -507,6 +507,12 @@ export const api = {
   manageBackup: (appId: string, dataPaths: string[]) =>
     invoke<ManageBackupResult>("manage_backup", { appId, dataPaths }),
   /** MANAGE：卸载（backupFirst 自动备份 → 白名单删除；backup=false 仅风险卡二次确认后传） */
+  /** 从备份还原（破坏性：会覆盖升级后的新文件；界面需显式确认） */
+  manageRestore: (backupDir: string, appId: string) =>
+    invoke<{ restored: number; restoredPaths?: string[]; skipped?: string[]; failed?: string[] }>(
+      "manage_restore",
+      { backupDir, appId },
+    ),
   manageRemove: (input: {
     appId: string;
     residualPaths: string[];

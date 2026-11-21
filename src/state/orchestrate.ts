@@ -51,6 +51,10 @@ const EXACT_CODES: Record<string, string> = {
   VERIFY_NO_KEY: "err.verifyNoKey",
   VERIFY_UNSUPPORTED_PROVIDER: "err.verifyUnsupported",
   VERIFY_BAD_RESPONSE: "err.verifyBadResponse",
+  // 阶段超时（界面不该无限静默）
+  VERIFY_STALLED: "err.verifyStalled",
+  INSTALL_STALLED: "err.installStalled",
+  PROBE_STALLED: "err.probeStalled",
 };
 
 /**
@@ -71,6 +75,37 @@ const PREFIX_CODES: Array<[prefix: string, key: string]> = [
   ["DOWNLOAD_", "err.downloadFailed"],
   ["NET_", "err.downloadFailed"],
 ];
+
+/**
+ * 阶段超时上限（毫秒）。
+ *
+ * **为什么需要**：下载阶段有停滞看门狗（无事件 180s），但 verify / install / probe
+ * 三段**没有** —— Rust 侧 exec 超时是 15 分钟，这段时间界面完全静止，
+ * 用户只会以为「卡死了」然后去点取消，把好端端的安装搅黄。
+ */
+export const PHASE_TIMEOUTS = {
+  verify: 180_000,
+  install: 16 * 60_000,
+  probe: 60_000,
+} as const;
+
+/** 超时哨兵（区别于「校验失败」——两者要给用户不同的话）。 */
+const TIMED_OUT = Symbol("timed-out");
+
+/** 给 promise 加超时（超时 → 返回 TIMED_OUT 哨兵）。 */
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 export function messageKeyForCode(code: string): string {
   const exact = EXACT_CODES[code];
@@ -103,6 +138,7 @@ const DL_FAILED = /^download failed \[([A-Z0-9_]+)\]/;
 const DL_CANCELLED = /^download cancelled/;
 const DL_PANIC = /^download panicked/;
 
+
 export interface ExecuteApi {
   downloadStart(task: DownloadTask): Promise<string>;
   downloadCancel(jobId: string): Promise<void>;
@@ -129,6 +165,8 @@ export interface ExecuteDeps {
   stallMs?: number;
   /** 「换个下载源」：消费一次性跳过通道列表（取后清空；缺省 = 无跳过） */
   takeSkipChannels?: () => string[];
+  /** 阶段超时（ms；缺省用 PHASE_TIMEOUTS；测试可注入小值） */
+  phaseTimeouts?: Partial<{ verify: number; install: number; probe: number }>;
 }
 
 export interface ExecuteContext {
@@ -291,10 +329,16 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     let verified: boolean;
     try {
       const dlPath = downloadPath(spec.download.destName, spec.download.sha256);
-      verified =
+      const verifyP =
         spec.download.hashMode === "content" && deps.api.verifyGzInnerSha256
-          ? await deps.api.verifyGzInnerSha256(dlPath, spec.download.sha256)
-          : await deps.api.verifySha256(dlPath, spec.download.sha256);
+          ? deps.api.verifyGzInnerSha256(dlPath, spec.download.sha256)
+          : deps.api.verifySha256(dlPath, spec.download.sha256);
+      const verifyR = await withTimeout(
+        verifyP,
+        deps.phaseTimeouts?.verify ?? PHASE_TIMEOUTS.verify,
+      );
+      if (verifyR === TIMED_OUT) return fail("VERIFY_STALLED", task.id);
+      verified = verifyR;
     } catch (e) {
       return fail(errCode(e, "VERIFY_FAILED"), task.id, errorHumanOf(e));
     }
@@ -304,11 +348,22 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     if (state.stopped) return "stopped";
     deps.dispatch({ type: "TASK_PHASE", taskId: task.id, phase: "install" });
     let exit: { code: number; out: string };
+    let installTimedOut = false;
     try {
-      exit = await deps.api.execInstall(spec.exec);
+      const r = await withTimeout(
+        deps.api.execInstall(spec.exec),
+        deps.phaseTimeouts?.install ?? PHASE_TIMEOUTS.install,
+      );
+      if (r === TIMED_OUT) {
+        installTimedOut = true;
+        exit = { code: -1, out: "" };
+      } else {
+        exit = r;
+      }
     } catch (e) {
       return fail(errCode(e, "EXEC_SPAWN_FAILED"), task.id, errorHumanOf(e));
     }
+    if (installTimedOut) return fail("INSTALL_STALLED", task.id);
     if (exit.code !== 0) return fail(`EXEC_EXIT_${exit.code}`, task.id);
 
     // 4) probe（拿到真实版本号才算装上；无 probe 定义则通过）
@@ -316,7 +371,11 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     deps.dispatch({ type: "TASK_PHASE", taskId: task.id, phase: "probe" });
     if (spec.probe) {
       try {
-        await deps.api.probeRun(spec.probe);
+        const r = await withTimeout(
+          deps.api.probeRun(spec.probe),
+          deps.phaseTimeouts?.probe ?? PHASE_TIMEOUTS.probe,
+        );
+        if (r === TIMED_OUT) return fail("PROBE_STALLED", task.id);
       } catch (e) {
         return fail(errCode(e, "PROBE_MISMATCH"), task.id, errorHumanOf(e));
       }

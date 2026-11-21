@@ -810,6 +810,16 @@ pub async fn manage_backup(app_id: String, data_paths: Vec<String>) -> Cmd<Backu
     blocking(move || manage::backup_app(&app_id, &data_paths, &manage::default_backup_root())).await
 }
 
+/// **从备份还原**（升级前备份 → 恢复用户数据）。
+///
+/// 破坏性操作（会覆盖升级后的新文件）→ 界面必须显式确认后再调。
+/// 安全红线在 `manage::restore_backup_in` 内（只还原 manifest 登记的条目、
+/// 目标必须仍在 home 内、appId 必须匹配、软链目标跳过）。
+#[tauri::command]
+pub async fn manage_restore(backup_dir: String, app_id: String) -> Cmd<manage::RestoreOutcome> {
+    blocking(move || manage::restore_backup(&backup_dir, &app_id)).await
+}
+
 /// 卸载：backupFirst 自动备份 → 白名单内（residualPaths ∪ dataPaths）删除 →
 /// 成功后注销 install-manifest。失败收集不中断；零提权；steps 只写日志不执行。
 #[tauri::command]

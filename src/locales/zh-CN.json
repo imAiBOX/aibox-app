@@ -274,7 +274,10 @@
     "verifyUnsupported": "这条路线不能在这里测。换一家服务商，或照教程手动配置。",
     "verifyBadResponse": "服务商的回复不是预期的格式。再试一次，或换一家服务商。",
     "verifyFailed": "测试请求没能完成。可以重试，或换一条线路。",
-    "configUnsupported": "AiBOX 还不会写这个应用的配置文件（它不是 JSON 格式的配置）。你的原文件**没有被动过** —— 照着教程手动配一下，一分钟就好。"
+    "configUnsupported": "AiBOX 还不会写这个应用的配置文件（它不是 JSON 格式的配置）。你的原文件**没有被动过** —— 照着教程手动配一下，一分钟就好。",
+    "verifyStalled": "校验这一步太久了（超过 3 分钟），已经停下。可能是网络太慢，重试一次。",
+    "installStalled": "安装这一步超过 15 分钟还没结束，已经停下。常见原因：安装程序在等一个系统弹窗（比如权限提示）。请看看屏幕上是不是有别的窗口挡着，然后重试。",
+    "probeStalled": "确认安装结果这一步太久了，已经停下。重试一次，或打开日志看详情。"
   },
   "resume": {
     "title": "继续上次安装？",
@@ -492,7 +495,14 @@
     "upgradeNext": "升级第一个",
     "upgradeAll": "全部升级",
     "backupDone": "升级前已把你的数据备份到 {{path}}",
-    "backupLast": "上次升级 {{appId}} 前，已把你的数据备份到 {{path}} —— 需要恢复时去那里找。"
+    "backupLast": "上次升级 {{appId}} 前，已把你的数据备份到 {{path}} —— 需要恢复时去那里找。",
+    "restore": "从备份还原",
+    "restoring": "还原中…",
+    "restoreConfirm": "把上次升级前备份的文件还原回来吗？会用旧版本覆盖现在的文件。",
+    "restoreConfirmBtn": "确认还原",
+    "restoreDone": "已还原 {{count}} 个文件。",
+    "restoreNone": "没有还原任何文件。",
+    "restoreFailed": "还原失败。"
   },
   "notify": {
     "tab": "通知",
