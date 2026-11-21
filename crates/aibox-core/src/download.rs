@@ -102,16 +102,13 @@ pub struct DownloadSpec {
 /// 按校验方式核对文件摘要。
 ///
 /// - `hash_mode = "content"` → 校验 **gzip 内层内容** 的 sha256（源码归档用；外层 gzip 会漂移）
-/// - 其它（含 None）→ 校验文件字节的 sha256
+/// - `bytes` / None → 校验文件字节的 sha256；未知模式拒绝。
 pub fn verify_digest(path: &Path, expected: &str, hash_mode: Option<&str>) -> bool {
-    match hash_mode {
-        Some(m) if m.eq_ignore_ascii_case("content") => {
-            crate::content_digest::gz_inner_sha256(path)
-                .map(|a| a.eq_ignore_ascii_case(expected.trim()))
-                .unwrap_or(false)
-        }
-        _ => crate::verify::verify_sha256(path, expected).unwrap_or(false),
-    }
+    aibox_net::digest::DigestMode::parse(hash_mode)
+        .ok()
+        .and_then(|mode| mode.digest(path).ok())
+        .map(|actual| actual.eq_ignore_ascii_case(expected.trim()))
+        .unwrap_or(false)
 }
 
 /// 解析 `skipChannels`（TS 传通道类型名，大小写不敏感）。
@@ -147,17 +144,27 @@ pub fn download_to_cache(
     spec: &DownloadSpec,
     progress: &mut dyn FnMut(DownloadProgress),
 ) -> CoreResult<DownloadReceipt> {
+    download_to_cache_in(&paths::downloads_dir(), spec, progress, true)
+}
+
+fn download_to_cache_in(
+    dir: &Path,
+    spec: &DownloadSpec,
+    progress: &mut dyn FnMut(DownloadProgress),
+    detect_proxy: bool,
+) -> CoreResult<DownloadReceipt> {
     if spec.sha256.trim().len() != 64 || !spec.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(CoreError::new(
             "DOWNLOAD_BAD_SHA256",
             "Expected a 64-hex-char SHA-256 for this download",
         ));
     }
-    let dir = paths::downloads_dir();
+    let mode = aibox_net::digest::DigestMode::parse(spec.hash_mode.as_deref())
+        .map_err(|e| CoreError::new("DOWNLOAD_BAD_HASH_MODE", e))?;
     let _ = dest_for(&spec.dest_name)?; // 名称合法性（防穿越）+ 目录确保存在
     let sha = spec.sha256.trim().to_ascii_lowercase();
     // 1) 缓存命中（含旧 destName → sha 迁移）→ 零网络直接过
-    if let Some(hit) = resolve_cached(&dir, &spec.dest_name, &sha, spec.hash_mode.as_deref())? {
+    if let Some(hit) = resolve_cached(dir, &spec.dest_name, &sha, spec.hash_mode.as_deref())? {
         let bytes = std::fs::metadata(&hit).map(|m| m.len()).unwrap_or(0);
         let (channel, url) = spec
             .channels
@@ -181,13 +188,14 @@ pub fn download_to_cache(
         ));
     }
     let mut opts = DownloadOptions::default();
-    opts.expected_size = spec.size_bytes;
+    opts.digest_mode = mode;
+    opts.expected_size = mode.expected_size(spec.size_bytes);
     // **系统代理**：用户在设置里开着「使用系统代理」→ 自动跟随（Windows 读 WinINET 注册表）。
     // 探测一次并缓存（代理很少变；每次下载都探会白等几秒）。
-    if crate::region::use_system_proxy() {
+    if detect_proxy && crate::region::use_system_proxy() {
         opts.proxy = system_proxy_cached();
     }
-    let dest = paths::downloads_dir().join(content_name(&spec.dest_name, &sha));
+    let dest = dir.join(content_name(&spec.dest_name, &sha));
     let receipt = download_fallback(&channels, &dest, &sha, &opts, progress)?;
     Ok(receipt)
 }
@@ -261,12 +269,16 @@ pub fn resolve_cached(
 
 /// 下载失败后的清毒：内容寻址文件存在但校验不过 → 删除（best-effort，幂等）。
 pub fn purge_invalid(dir: &Path, dest_name: &str, sha256: &str) {
+    purge_invalid_with_mode(dir, dest_name, sha256, None);
+}
+
+pub fn purge_invalid_with_mode(dir: &Path, dest_name: &str, sha256: &str, hash_mode: Option<&str>) {
     let sha = sha256.trim().to_ascii_lowercase();
     if sha.len() != 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
         return;
     }
     let content = dir.join(content_name(dest_name, &sha));
-    if content.is_file() && crate::verify::verify_sha256(&content, &sha) != Ok(true) {
+    if content.is_file() && !verify_digest(&content, &sha, hash_mode) {
         let _ = std::fs::remove_file(&content);
     }
 }
@@ -274,6 +286,159 @@ pub fn purge_invalid(dir: &Path, dest_name: &str, sha256: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn gzip(payload: &[u8], name: &str) -> Vec<u8> {
+        use std::io::Write;
+        let mut encoder = flate2::GzBuilder::new()
+            .filename(name)
+            .write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(payload).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn fixture_url(body: Vec<u8>) -> String {
+        fixture_transport(body, 0)
+    }
+
+    fn fixture_transport(body: Vec<u8>, get_length_delta: usize) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/fixture.gz", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(4) {
+                let mut stream = stream.unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                    .unwrap();
+                let mut req = Vec::new();
+                let mut byte = [0];
+                while !req.ends_with(b"\r\n\r\n") {
+                    if stream.read(&mut byte).unwrap_or(0) == 0 {
+                        break;
+                    }
+                    req.push(byte[0]);
+                }
+                let declared = body.len()
+                    + if req.starts_with(b"HEAD") {
+                        0
+                    } else {
+                        get_length_delta
+                    };
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    declared
+                )
+                .unwrap();
+                if !req.starts_with(b"HEAD") {
+                    let _ = stream.write_all(&body);
+                }
+            }
+        });
+        url
+    }
+
+    #[test]
+    fn content_digest_download_cache_and_rejection_end_to_end() {
+        let dir = tmp_dir("content-e2e");
+        let payload = b"same archive tar bytes".repeat(100);
+        let sha = aibox_net::sha256_hex(&payload);
+        let a = gzip(&payload, "a");
+        let b = gzip(&payload, "a much longer gzip filename");
+        assert_ne!(a.len(), b.len());
+        let mut spec = DownloadSpec {
+            channels: vec![ChannelUrl::new(
+                aibox_net::ChannelType::Direct,
+                fixture_url(b.clone()),
+            )],
+            sha256: sha.clone(),
+            hash_mode: Some("content".into()),
+            dest_name: "fixture.tar.gz".into(),
+            size_bytes: Some(a.len() as u64),
+            skip_channels: vec![],
+            app_id: None,
+        };
+        let receipt = download_to_cache_in(&dir, &spec, &mut |_| {}, false).unwrap();
+        assert_eq!(receipt.sha256, sha);
+        assert_eq!(receipt.bytes, b.len() as u64);
+        let dest = dir.join(content_name(&spec.dest_name, &sha));
+        assert_eq!(std::fs::read(&dest).unwrap(), b);
+        purge_invalid_with_mode(&dir, &spec.dest_name, &sha, Some("content"));
+        assert!(dest.exists());
+        spec.channels[0].url = "http://127.0.0.1:1/unreachable".into();
+        assert_eq!(
+            download_to_cache_in(&dir, &spec, &mut |_| {}, false)
+                .unwrap()
+                .get_requests,
+            0
+        );
+
+        // Even a valid inner digest cannot bypass inconsistent transport length.
+        std::fs::remove_file(&dest).unwrap();
+        spec.channels[0].url = fixture_transport(b.clone(), 5);
+        assert!(download_to_cache_in(&dir, &spec, &mut |_| {}, false).is_err());
+        assert!(!dest.exists());
+
+        // Bytes mode still verifies compressed bytes, never the inner digest.
+        spec.hash_mode = None;
+        spec.size_bytes = Some(b.len() as u64);
+        spec.channels[0].url = fixture_url(b.clone());
+        assert_eq!(
+            download_to_cache_in(&dir, &spec, &mut |_| {}, false)
+                .unwrap_err()
+                .code,
+            "NET_HASH_MISMATCH"
+        );
+        assert!(!dest.exists());
+
+        spec.hash_mode = Some("content".into());
+        // Hashing just the first member would accept this malicious append.
+        let mut appended = b.clone();
+        appended.extend(gzip(b"extra untrusted content", "extra"));
+        spec.channels[0].url = fixture_url(appended.clone());
+        assert_eq!(
+            download_to_cache_in(&dir, &spec, &mut |_| {}, false)
+                .unwrap_err()
+                .code,
+            "NET_HASH_MISMATCH"
+        );
+        assert!(!dest.exists());
+        let mut all = payload.clone();
+        all.extend_from_slice(b"extra untrusted content");
+        spec.sha256 = aibox_net::sha256_hex(&all);
+        spec.channels[0].url = fixture_url(appended);
+        assert!(download_to_cache_in(&dir, &spec, &mut |_| {}, false).is_ok());
+
+        for (i, body) in [
+            [b.clone(), b"junk".to_vec()].concat(),
+            b[..b.len() - 3].to_vec(),
+            {
+                let mut bad = b.clone();
+                let n = bad.len();
+                bad[n - 8] ^= 1;
+                bad
+            },
+            b"<html>gateway error</html>".to_vec(),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            spec.sha256 = format!("{:064x}", i + 1);
+            spec.channels[0].url = fixture_url(body);
+            assert!(download_to_cache_in(&dir, &spec, &mut |_| {}, false).is_err());
+            assert!(!dir
+                .join(content_name(&spec.dest_name, &spec.sha256))
+                .exists());
+        }
+        spec.hash_mode = Some("unknown".into());
+        assert_eq!(
+            download_to_cache_in(&dir, &spec, &mut |_| {}, false)
+                .unwrap_err()
+                .code,
+            "DOWNLOAD_BAD_HASH_MODE"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn parse_channels_case_insensitive() {

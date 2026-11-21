@@ -13,3 +13,4 @@ serde_json = "1"
 ureq = { version = "2", default-features = false, features = ["tls", "socks-proxy"] }
 # 纯 Rust SHA-256（S1 全通道哈希零豁免；无系统 C 库，已在 lock 中随依赖链存在）
 sha2 = "0.10"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

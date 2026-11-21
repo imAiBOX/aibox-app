@@ -300,6 +300,8 @@ pub struct DownloadOptions {
     pub proxy: Option<ProxyConfig>,
     /// 期望总字节数（registry 包级 `sizeBytes`；`None` = 不知道 → 大小维度保守处理）
     pub expected_size: Option<u64>,
+    /// Shared policy; content mode ignores stale compressed size, never transport length.
+    pub digest_mode: crate::digest::DigestMode,
     /// 慢速通道熔断阈值：单段实测平均速度下限（字节/秒）。
     ///
     /// - `None` = 关闭熔断（保持旧行为：只在通道失败时降级）；
@@ -318,6 +320,7 @@ impl Default for DownloadOptions {
             timeout: DEFAULT_TIMEOUT,
             proxy: None,
             expected_size: None,
+            digest_mode: crate::digest::DigestMode::Bytes,
             min_segment_bps: Some(DEFAULT_MIN_SEGMENT_BPS),
         }
     }
@@ -572,7 +575,7 @@ pub fn download_fallback(
                 threshold,
                 detail,
             }) => {
-                // 熔断命中：保留 .part（本通道已下到的字节）→ 安全阀可原通道续传
+                // 熔断命中：仅保留 .part 中已验证传输结束的段 → 安全阀可原通道续传
                 failures.push(ChannelFailure {
                     channel: ch.channel,
                     url: ch.url.clone(),
@@ -682,16 +685,32 @@ fn attempt_channel(
 ) -> Result<DownloadReceipt, ChannelError> {
     let done = download_one(agent, ch, part, opts, progress)?;
     // 产物三分判定（S1）：故障页/截断 → 通道故障降级；真篡改 → 中止
-    let actual = sha256_file(part).map_err(|e| {
-        ChannelError::Fatal(DownloadError::Io {
-            context: format!("读取下载产物 {}", part.display()),
-            source: e,
-        })
-    })?;
+    let actual = match opts.digest_mode.digest(part) {
+        Ok(actual) => actual,
+        Err(e)
+            if opts.digest_mode == crate::digest::DigestMode::Content
+                && matches!(e.kind(), std::io::ErrorKind::InvalidData
+                    | std::io::ErrorKind::InvalidInput | std::io::ErrorKind::UnexpectedEof) =>
+        {
+            let _ = fs::remove_file(part);
+            return Err(ChannelError::Channel(format!("invalid gzip content: {e}")));
+        }
+        Err(e) => {
+            return Err(ChannelError::Fatal(DownloadError::Io {
+                context: format!("读取下载产物 {}", part.display()),
+                source: e,
+            }))
+        }
+    };
     let size = fs::metadata(part).map(|m| m.len()).unwrap_or(done.total);
     let head = read_file_head(part, 512).map_err(ChannelError::Fatal)?;
     let sha_matches = actual.eq_ignore_ascii_case(expected_sha256);
-    match classify_product(&head, size, opts.expected_size, sha_matches) {
+    match classify_product(
+        &head,
+        size,
+        opts.digest_mode.expected_size(opts.expected_size),
+        sha_matches,
+    ) {
         ProductVerdict::HashOk => {
             if dest.exists() {
                 fs::remove_file(dest).map_err(|e| {
@@ -829,7 +848,10 @@ struct DownState<'a> {
     agent: &'a ureq::Agent,
     ch: &'a ChannelUrl,
     file: &'a mut File,
+    /// 已提交偏移；本次响应验完长度和 EOF 前不能推进。
     written: u64,
+    /// 进度高水位，重下未验证段时不回退当前通道的显示进度。
+    reported: u64,
     /// None=未知是否支持 Range；首次响应决定
     range_mode: Option<bool>,
     total: u64,
@@ -845,7 +867,33 @@ struct DownState<'a> {
 impl DownState<'_> {
     /// 执行一次 HTTP 尝试（HEAD 已完成，总长已知）。
     fn attempt(&mut self, seg_end: u64) -> Result<AttemptResult, DownloadError> {
-        let use_range = self.range_mode != Some(false);
+        let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.receive(seg_end)
+        })) {
+            Ok(result) => result,
+            Err(payload) => {
+                // 调用方用进度回调 panic 取消。先回退未验证字节，再原样传播取消。
+                let _ = self.file.set_len(self.written);
+                std::panic::resume_unwind(payload);
+            }
+        };
+        if matches!(
+            result,
+            Ok(AttemptResult::Failed(_) | AttemptResult::TooSlow { .. }) | Err(_)
+        ) {
+            // 短体、超长、读错误或熔断均不能将未经完整验证的响应留给下一次续传。
+            self.file
+                .set_len(self.written)
+                .map_err(|source| DownloadError::Io {
+                    context: "回退断点文件".into(),
+                    source,
+                })?;
+        }
+        result
+    }
+
+    fn receive(&mut self, seg_end: u64) -> Result<AttemptResult, DownloadError> {
+        let use_range = self.total > 0 && self.range_mode != Some(false);
         let mut request = self.agent.get(self.ch.url.as_str());
         if use_range {
             request = request.set("Range", &format!("bytes={}-{}", self.written, seg_end));
@@ -861,6 +909,14 @@ impl DownState<'_> {
 
         let want: u64 = match resp.status() {
             206 => {
+                if !use_range
+                    || response_content_range(&resp) != Some((self.written, seg_end, self.total))
+                {
+                    return Ok(AttemptResult::Failed(format!(
+                        "content-range mismatch: expected bytes {}-{seg_end}/{} for a Range request",
+                        self.written, self.total
+                    )));
+                }
                 self.range_mode = Some(true);
                 seg_end + 1
             }
@@ -868,12 +924,10 @@ impl DownState<'_> {
                 // 服务器不支持/忽略 Range → 整包单流；已有断点只能放弃
                 self.range_mode = Some(false);
                 if self.written > 0 {
-                    self.file
-                        .set_len(0)
-                        .map_err(|e| DownloadError::Io {
-                            context: "重置断点文件".into(),
-                            source: e,
-                        })?;
+                    self.file.set_len(0).map_err(|e| DownloadError::Io {
+                        context: "重置断点文件".into(),
+                        source: e,
+                    })?;
                     self.written = 0;
                     return Ok(AttemptResult::Restart);
                 }
@@ -883,9 +937,18 @@ impl DownState<'_> {
         };
 
         let start_written = self.written;
+        let mut written = start_written;
         let declared_cl: Option<u64> = resp
             .header("content-length")
             .and_then(|v| v.trim().parse::<u64>().ok());
+        let span = want - start_written;
+        if let Some(cl) = declared_cl {
+            if cl != span {
+                return Ok(AttemptResult::Failed(format!(
+                    "content-length mismatch: declared {cl}, expected {span} from transport total"
+                )));
+            }
+        }
         let mut reader = resp.into_reader();
         let mut buf = [0u8; 64 * 1024];
         self.file
@@ -899,7 +962,7 @@ impl DownState<'_> {
         // 慢速熔断：窗口测速（响应头已到 → 只量 body 传输速率，不含握手开销）
         let mut win_start = Instant::now();
         let mut win_bytes: u64 = 0;
-        while self.written < want {
+        while written < want {
             let n = match reader.read(&mut buf) {
                 Ok(0) => {
                     eof_early = true;
@@ -911,39 +974,45 @@ impl DownState<'_> {
                     break;
                 }
             };
-            let take = (n as u64).min(want - self.written) as usize;
+            if n as u64 > want - written {
+                return Ok(AttemptResult::Failed(
+                    "body exceeds transport length".into(),
+                ));
+            }
             self.file
-                .write_all(&buf[..take])
+                .write_all(&buf[..n])
                 .map_err(|e| DownloadError::Io {
                     context: "写入下载产物".into(),
                     source: e,
                 })?;
-            self.written += take as u64;
-            let segment = if self.range_mode == Some(false) {
-                0
-            } else {
-                (self.written / self.segment_size) as usize
-            };
-            (self.progress)(DownloadProgress {
-                channel: self.ch.channel,
-                downloaded: self.written,
-                total: self.total,
-                segment,
-                segments: if self.range_mode == Some(false) {
-                    1
+            written += n as u64;
+            if written > self.reported {
+                self.reported = written;
+                let segment = if self.range_mode == Some(false) {
+                    0
                 } else {
-                    self.total_segments
-                },
-                resumed: self.resumed_from > 0,
-                // 换源原因由 `download_fallback` 的外层闭包注入（这里不感知）
-                switch_reason: None,
-            });
+                    (written / self.segment_size) as usize
+                };
+                (self.progress)(DownloadProgress {
+                    channel: self.ch.channel,
+                    downloaded: written,
+                    total: self.total,
+                    segment,
+                    segments: if self.range_mode == Some(false) {
+                        1
+                    } else {
+                        self.total_segments
+                    },
+                    resumed: self.resumed_from > 0,
+                    // 换源原因由 `download_fallback` 的外层闭包注入（这里不感知）
+                    switch_reason: None,
+                });
+            }
             // 慢速熔断（流中窗口）：实测速率低于阈值 → 立即放弃该通道
             if let Some(guard) = self.speed_guard {
                 // 只对足够大的段判定（小于 1 MiB 的段测速噪音大）
-                let span = want.saturating_sub(start_written);
                 if span >= guard.segment_min_bytes {
-                    win_bytes += take as u64;
+                    win_bytes += n as u64;
                     let win_elapsed = win_start.elapsed();
                     if win_elapsed >= guard.window && win_bytes >= guard.window_min_bytes {
                         if segment_speed_too_slow(
@@ -972,7 +1041,7 @@ impl DownState<'_> {
         }
         // 段 Content-Length 完整性校验：声明长度 ≠ 实际读到 → 该段重试（既有重试机制）
         if eof_early || read_error.is_some() {
-            let got = self.written - start_written;
+            let got = written - start_written;
             if let Some(cl) = declared_cl {
                 if got != cl {
                     let extra = read_error
@@ -988,14 +1057,53 @@ impl DownState<'_> {
         if let Some(err) = read_error {
             return Ok(AttemptResult::Failed(format!("body read failed: {err}")));
         }
-        if self.written < want {
+        if written < want {
             return Ok(AttemptResult::Failed(format!(
                 "short body: got {}/{} bytes",
-                self.written, want
+                written - start_written,
+                span
             )));
         }
+        // 继续读到 EOF，验证响应边界（例如 chunked 结束帧），再提交偏移。
+        match reader.read(&mut buf[..1]) {
+            Ok(0) => {}
+            Ok(_) => {
+                return Ok(AttemptResult::Failed(
+                    "body exceeds transport length".into(),
+                ))
+            }
+            Err(e) => {
+                return Ok(AttemptResult::Failed(format!(
+                    "body read failed at EOF: {e}"
+                )))
+            }
+        }
+        self.written = written;
         Ok(AttemptResult::SegmentDone)
     }
+}
+
+/// 只接受单个确定总长的 `Content-Range: bytes START-END/TOTAL`。
+fn response_content_range(resp: &ureq::Response) -> Option<(u64, u64, u64)> {
+    let values = resp.all("content-range");
+    let [value] = values.as_slice() else {
+        return None;
+    };
+    let (unit, range) = value.trim().split_once(' ')?;
+    if !unit.eq_ignore_ascii_case("bytes") {
+        return None;
+    }
+    let (bounds, total) = range.split_once('/')?;
+    let (start, end) = bounds.split_once('-')?;
+    let decimal = |s: &str| {
+        if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) {
+            s.parse::<u64>().ok()
+        } else {
+            None
+        }
+    };
+    let (start, end, total) = (decimal(start)?, decimal(end)?, decimal(total)?);
+    (start <= end && end < total).then_some((start, end, total))
 }
 
 fn build_agent(opts: &DownloadOptions) -> Result<ureq::Agent, DownloadError> {
@@ -1024,24 +1132,45 @@ fn download_one(
     let segment_size = opts.segment_size.max(1);
     let total = head_total(agent, &ch.url).map_err(ChannelError::Channel)?;
 
-    // 断点续传：已有 .part 且未超总长 → 从断点继续；陈旧（超长）→ 重下
-    let mut start = fs::metadata(part).map(|m| m.len()).unwrap_or(0);
-    if start > total {
-        let _ = fs::remove_file(part);
-        start = 0;
+    if opts.digest_mode == crate::digest::DigestMode::Content
+        && total > crate::digest::MAX_GZIP_BYTES
+    {
+        return Err(ChannelError::Channel("gzip input limit exceeded".into()));
     }
-    let resumed_from = start;
 
     let mut file = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .write(true)
         .read(true)
         .open(part)
-        .map_err(|e| ChannelError::Fatal(DownloadError::Io {
-            context: format!("打开断点文件 {}", part.display()),
-            source: e,
-        }))?;
+        .map_err(|e| {
+            ChannelError::Fatal(DownloadError::Io {
+                context: format!("打开断点文件 {}", part.display()),
+                source: e,
+            })
+        })?;
 
+    let mut start = file
+        .metadata()
+        .map_err(|source| {
+            ChannelError::Fatal(DownloadError::Io {
+                context: "读取断点文件长度".into(),
+                source,
+            })
+        })?
+        .len();
+    // 长度达到总长的 .part 可能是在 EOF 校验前中断留下的，必须重下。
+    if start > 0 && start >= total {
+        file.set_len(0).map_err(|source| {
+            ChannelError::Fatal(DownloadError::Io {
+                context: "重置断点文件".into(),
+                source,
+            })
+        })?;
+        start = 0;
+    }
+    let resumed_from = start;
     let total_segments = total.div_ceil(segment_size).max(1) as usize;
     let speed_guard = slow_guard_for(total, opts.min_segment_bps);
     let mut state = DownState {
@@ -1049,6 +1178,7 @@ fn download_one(
         ch,
         file: &mut file,
         written: start,
+        reported: start,
         range_mode: None,
         total,
         segment_size,
@@ -1065,7 +1195,7 @@ fn download_one(
     let mut seg_bytes: u64 = 0;
     let mut seg_elapsed = Duration::ZERO;
 
-    while state.written < total {
+    loop {
         let seg_idx = state.written / segment_size;
         if current_segment != Some(seg_idx) {
             current_segment = Some(seg_idx);
@@ -1073,11 +1203,16 @@ fn download_one(
             seg_bytes = 0;
             seg_elapsed = Duration::ZERO;
         }
-        let seg_end = (state.written + segment_size).min(total) - 1;
+        let seg_end = state
+            .written
+            .saturating_add(segment_size)
+            .min(total)
+            .saturating_sub(1);
         let before = state.written;
         let attempt_started = Instant::now();
         state.gets += 1;
         match state.attempt(seg_end).map_err(ChannelError::Fatal)? {
+            AttemptResult::SegmentDone if state.written == total => break,
             AttemptResult::SegmentDone => {}
             AttemptResult::Restart => {
                 // 已回退 written=0；range_mode=Some(false)，下轮整包单流
@@ -1105,7 +1240,7 @@ fn download_one(
                     )));
                 }
                 retries_left -= 1;
-                // 继续当前段：.part 已有部分字节 → 下一请求从断点续（Range）
+                // 当前段未提交；下一请求从同一已验证偏移重试。
             }
         }
         // 段级测速判定（跨尝试累计；样本不足 1 MiB 则跳过，避免误伤）
@@ -1141,17 +1276,15 @@ fn download_one(
 
 /// HEAD 取总长度；HEAD 不可用时回退 `GET Range: bytes=0-0` 解析 Content-Range。
 fn head_total(agent: &ureq::Agent, url: &str) -> Result<u64, String> {
-    let head = agent
-        .head(url)
-        .set("Range", "bytes=0-0")
-        .set("Connection", "close")
-        .call();
+    let head = agent.head(url).set("Connection", "close").call();
     if let Ok(resp) = head {
-        if let Some(cl) = resp
-            .header("content-length")
-            .and_then(|v| v.trim().parse::<u64>().ok())
-        {
-            return Ok(cl);
+        if resp.status() == 200 {
+            if let Some(cl) = resp
+                .header("content-length")
+                .and_then(|v| v.trim().parse::<u64>().ok())
+            {
+                return Ok(cl);
+            }
         }
     }
     // 回退：GET 首字节，解析 `Content-Range: bytes 0-0/TOTAL`
@@ -1164,21 +1297,17 @@ fn head_total(agent: &ureq::Agent, url: &str) -> Result<u64, String> {
             ureq::Error::Status(code, _) => format!("HTTP {code}"),
             ureq::Error::Transport(t) => t.to_string(),
         })?;
-    if let Some(cr) = resp.header("content-range") {
-        if let Some(total) = cr
-            .rsplit_once('/')
-            .and_then(|(_, t)| t.trim().parse::<u64>().ok())
-        {
-            return Ok(total);
-        }
+    match resp.status() {
+        206 => match response_content_range(&resp) {
+            Some((0, 0, total)) => Ok(total),
+            _ => Err("content-range mismatch: expected bytes 0-0/TOTAL".into()),
+        },
+        200 => resp
+            .header("content-length")
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .ok_or_else(|| "no Content-Length from server".into()),
+        other => Err(format!("unexpected HTTP {other}")),
     }
-    if let Some(cl) = resp
-        .header("content-length")
-        .and_then(|v| v.trim().parse::<u64>().ok())
-    {
-        return Ok(cl);
-    }
-    Err("no Content-Length/Content-Range from server".into())
 }
 
 #[cfg(test)]
@@ -1216,6 +1345,7 @@ mod tests {
             timeout: Duration::from_secs(5),
             proxy: None,
             expected_size: None,
+            digest_mode: crate::digest::DigestMode::Bytes,
             min_segment_bps: Some(DEFAULT_MIN_SEGMENT_BPS),
         }
     }
@@ -1229,6 +1359,37 @@ mod tests {
 
     fn no_progress() -> impl FnMut(DownloadProgress) {
         |_| {}
+    }
+
+    /// 按顺序返回指定响应，保留请求行与 Range 供断言。
+    fn scripted_server(responses: Vec<Vec<u8>>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::BufRead;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/file", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            responses
+                .into_iter()
+                .map(|response| {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    let mut reader = std::io::BufReader::new(&mut stream);
+                    let mut request = String::new();
+                    loop {
+                        let mut line = String::new();
+                        assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+                        if line == "\r\n" {
+                            break;
+                        }
+                        request.push_str(&line);
+                    }
+                    stream.write_all(&response).unwrap();
+                    request.to_ascii_lowercase()
+                })
+                .collect()
+        });
+        (url, server)
     }
 
     /// 两个「端口无人监听」地址（连接必败）。
@@ -1353,9 +1514,9 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// 完整 .part（上次已下完但没校验）→ 直接校验落盘，零 GET。
+    /// 文件达到总长不能证明上次响应已结束。
     #[test]
-    fn download_complete_part_skips_network_get() {
+    fn download_complete_part_revalidates_transport() {
         let dir = tmp_dir("partdone");
         let body = deterministic_body(2048, 3);
         let server = TestHttpServer::serve(body.clone());
@@ -1371,8 +1532,129 @@ mod tests {
             &mut no_progress(),
         )
         .unwrap();
-        assert_eq!(receipt.get_requests, 0, "已完成的 .part 不再发 GET");
-        assert_eq!(receipt.resumed_from, 2048);
+        assert_eq!(receipt.get_requests, 2);
+        assert_eq!(receipt.resumed_from, 0);
+        assert_eq!(server.get_range_starts(), vec![Some(0), Some(1024)]);
+        assert_eq!(fs::read(&dest).unwrap(), body);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn partial_response_requires_exact_content_range() {
+        let dir = tmp_dir("strict-range");
+        let body = b"abcdefgh";
+        for invalid in [
+            "",
+            "Content-Range: bytes 0-3/8\r\n", // wrong start/end, same span
+            "Content-Range: bytes 4-6/8\r\n", // wrong end
+            "Content-Range: bytes 4-7/9\r\n", // wrong total
+            "Content-Range: bytes 4-7/*\r\n",
+            "Content-Range: other 4-7/8\r\n",
+            "Content-Range: bytes 4-7/8\r\nContent-Range: bytes 0-3/8\r\n",
+        ] {
+            let (url, server) = scripted_server(vec![
+                b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n".to_vec(),
+                format!("HTTP/1.1 206 Partial Content\r\n{invalid}Content-Length: 4\r\nConnection: close\r\n\r\nefgh").into_bytes(),
+            ]);
+            let dest = dir.join("file");
+            fs::write(part_path(&dest), &body[..4]).unwrap();
+            let error = download_fallback(
+                &[ChannelUrl::new(ChannelType::Direct, url)],
+                &dest,
+                &sha256_hex(body),
+                &DownloadOptions {
+                    segment_retries: 0,
+                    ..opts(4)
+                },
+                &mut no_progress(),
+            )
+            .unwrap_err();
+            assert!(
+                error.channel_report()[0]
+                    .1
+                    .contains("content-range mismatch"),
+                "{invalid:?}: {error}"
+            );
+            assert!(!dest.exists());
+            assert!(server.join().unwrap()[1].contains("range: bytes=4-7\r\n"));
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn incomplete_response_truncates_to_verified_offset() {
+        let dir = tmp_dir("rollback");
+        let ch_response = b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-7/8\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\nefgh\r\n";
+        let (url, server) = scripted_server(vec![ch_response.to_vec()]);
+        let part = dir.join("file.part");
+        fs::write(&part, b"abcd").unwrap();
+        let mut file = OpenOptions::new().write(true).open(&part).unwrap();
+        let mut seen = 0;
+        let mut state = DownState {
+            agent: &build_agent(&opts(4)).unwrap(),
+            ch: &ChannelUrl::new(ChannelType::Direct, url),
+            file: &mut file,
+            written: 4,
+            reported: 4,
+            range_mode: Some(true),
+            total: 8,
+            segment_size: 4,
+            resumed_from: 0,
+            total_segments: 2,
+            gets: 0,
+            speed_guard: None,
+            progress: &mut |p| seen = p.downloaded,
+        };
+        assert!(
+            matches!(state.attempt(7).unwrap(), AttemptResult::Failed(reason)
+            if reason.contains("body read failed at EOF"))
+        );
+        assert_eq!(state.written, 4);
+        assert_eq!(seen, 8, "响应已读满预期字节，缺少结束帧");
+        assert_eq!(fs::read(&part).unwrap(), b"abcd");
+        server.join().unwrap();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn progress_panic_rolls_back_to_verified_offset_before_resume() {
+        let dir = tmp_dir("progress-panic");
+        // 超过单次读取缓冲区，保证取消时第二段只写入了一部分。
+        let segment_size = 128 * 1024;
+        let body = deterministic_body(3 * segment_size, 7);
+        let server = TestHttpServer::serve(body.clone());
+        let dest = dir.join("file.bin");
+        let part = part_path(&dest);
+        let channels = [ChannelUrl::new(ChannelType::Direct, server.url("/f.bin"))];
+        let expected = sha256_hex(&body);
+        let segment_size = segment_size as u64;
+        let options = opts(segment_size);
+
+        let panic = std::panic::catch_unwind(|| {
+            download_fallback(&channels, &dest, &expected, &options, &mut |p| {
+                if p.downloaded > segment_size {
+                    assert!(p.downloaded < 2 * segment_size);
+                    assert_eq!(fs::metadata(&part).unwrap().len(), p.downloaded);
+                    std::panic::panic_any("cancel download");
+                }
+            })
+        })
+        .expect_err("取消 panic 应传给调用方");
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"cancel download"));
+        assert_eq!(fs::metadata(&part).unwrap().len(), segment_size);
+
+        let receipt = download_fallback(&channels, &dest, &expected, &options, &mut no_progress())
+            .expect("应能从已验证偏移续传");
+        assert_eq!(receipt.resumed_from, segment_size);
+        assert_eq!(
+            server.get_range_starts(),
+            vec![
+                Some(0),
+                Some(segment_size),
+                Some(segment_size),
+                Some(2 * segment_size)
+            ]
+        );
         assert_eq!(fs::read(&dest).unwrap(), body);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1422,7 +1704,7 @@ mod tests {
         let dir = tmp_dir("retryok");
         let body = deterministic_body(3000, 13);
         let server = TestHttpServer::serve(body.clone());
-        // 第 1 个 GET 半截体 → 第 2 个 GET（从断点续）成功
+        // 第 1 个 GET 半截体 → 第 2 个 GET 重下同一段。
         server.inject_truncate_get(1, 300);
         let dest = dir.join("file.bin");
         let expected = sha256_hex(&body);
@@ -1438,11 +1720,7 @@ mod tests {
 
         assert_eq!(receipt.channel, ChannelType::Direct, "同通道重试成功，不降级");
         let starts = server.get_range_starts();
-        // 段0 两次尝试（0 → 断点300），段1、段2 各一次
-        assert_eq!(starts.len(), 4, "失败1次 + 重试1次 + 其余2段: {starts:?}");
-        assert_eq!(starts[0], Some(0));
-        assert_eq!(starts[1], Some(300), "重试从断点续");
-        assert!(starts[1].unwrap() > 0 && starts[1].unwrap() < 1024, "{starts:?}");
+        assert_eq!(starts, vec![Some(0), Some(0), Some(1024), Some(2048)]);
         assert_eq!(fs::read(&dest).unwrap(), body);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1575,7 +1853,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// 空文件（total=0）：零 GET、空哈希向量。
+    /// 空文件（total=0）：无 Range GET 验证空体，检查空哈希向量。
     #[test]
     fn empty_file_download() {
         let dir = tmp_dir("empty");
@@ -1591,7 +1869,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(receipt.bytes, 0);
-        assert_eq!(receipt.get_requests, 0);
+        assert_eq!(receipt.get_requests, 1);
+        assert_eq!(server.get_range_starts(), vec![None]);
         assert_eq!(fs::read(&dest).unwrap(), Vec::<u8>::new());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -2218,13 +2497,65 @@ mod tests {
         assert_eq!(receipt.bytes, total as u64);
         assert_eq!(receipt.sha256, expected, "S1 校验仍必须生效");
         assert_eq!(fs::read(&dest).unwrap().len(), total);
-        // 1 次熔断尝试 + 安全阀不限速重试（5 段：段0 续传 + 段1..4）= 6 次 GET；不循环
+        assert_eq!(receipt.resumed_from, 0, "未验完的首段须重下");
+        // 1 次熔断尝试 + 安全阀不限速重试 5 段 = 6 次 GET；不循环
         assert_eq!(
             slow_gets.load(Ordering::SeqCst),
             6,
             "安全阀只触发一次（熔断 1 次 + 不限速重试 5 段）"
         );
         assert!(elapsed < Duration::from_secs(60), "实际 {elapsed:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn slow_valve_retries_final_segment_and_requires_eof() {
+        let dir = tmp_dir("valve-eof");
+        let dest = dir.join("file");
+        let total = SLOW_SKIP_TOTAL_BYTES;
+        let span = SLOW_SEGMENT_MIN_SAMPLE_BYTES;
+        let start = total - span;
+        let body = vec![0xA5; total as usize];
+        fs::write(part_path(&dest), &body[..start as usize]).unwrap();
+        let head =
+            format!("HTTP/1.1 200 OK\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n");
+        let mut truncated = format!(
+            "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{}/{total}\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{span:x}\r\n",
+            total - 1
+        ).into_bytes();
+        truncated.extend_from_slice(&body[start as usize..]);
+        truncated.extend_from_slice(b"\r\n"); // 未发送终止块
+        let (url, server) = scripted_server(vec![
+            head.as_bytes().to_vec(),
+            truncated.clone(),
+            head.into_bytes(),
+            truncated,
+        ]);
+        let mut delayed = false;
+        let error = download_fallback(
+            &[ChannelUrl::new(ChannelType::Direct, url)],
+            &dest,
+            &sha256_hex(&body),
+            &DownloadOptions {
+                segment_retries: 0,
+                min_segment_bps: Some(u64::MAX),
+                ..opts(span)
+            },
+            &mut |p| {
+                if p.downloaded == total && !delayed {
+                    delayed = true;
+                    std::thread::sleep(SLOW_WINDOW);
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(delayed);
+        let valve = error.slow_valve().expect("最后一段读满时熔断，须走安全阀");
+        assert!(valve.reason.contains("body read failed at EOF"), "{error}");
+        assert!(!dest.exists());
+        let requests = server.join().unwrap();
+        let range = format!("range: bytes={start}-{}\r\n", total - 1);
+        assert!(requests[1].contains(&range) && requests[3].contains(&range));
         let _ = fs::remove_dir_all(&dir);
     }
 

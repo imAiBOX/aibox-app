@@ -271,7 +271,12 @@ pub fn run_at(
             channel: receipt.channel.as_str().to_string(),
         }),
         Ok(Err(e)) => {
-            download::purge_invalid(&paths::downloads_dir(), &plan.dest_name, &plan.sha256);
+            download::purge_invalid_with_mode(
+                &paths::downloads_dir(),
+                &plan.dest_name,
+                &plan.sha256,
+                plan.hash_mode.as_deref(),
+            );
             Err(e)
         }
         Err(payload) => {
@@ -283,7 +288,12 @@ pub fn run_at(
             if cancelled {
                 Err(CoreError::new("PREFETCH_CANCELLED", "prefetch cancelled"))
             } else {
-                download::purge_invalid(&paths::downloads_dir(), &plan.dest_name, &plan.sha256);
+                download::purge_invalid_with_mode(
+                    &paths::downloads_dir(),
+                    &plan.dest_name,
+                    &plan.sha256,
+                    plan.hash_mode.as_deref(),
+                );
                 Err(CoreError::new("PREFETCH_PANIC", "prefetch download panicked"))
             }
         }

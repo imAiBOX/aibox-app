@@ -30,6 +30,8 @@ pub use doh::{
     doh_should_enable, parse_doh_response, DohError, DohFetcher, DohResolver, DOH_ENDPOINTS,
     DOH_TTL_SECS,
 };
+pub mod digest;
+
 pub use download::{
     all_failures_too_slow, classify_product, download_fallback, looks_like_fault_page,
     observed_bps, segment_speed_too_slow, sha256_file, sha256_hex, slow_guard_enabled,

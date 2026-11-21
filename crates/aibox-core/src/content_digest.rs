@@ -12,30 +12,16 @@
 //!
 //! 完整性保证不打折（覆盖整个归档内容），只是不再被 gzip 包装的随机性咬。
 
-use std::io::Read;
 use std::path::Path;
 
-use crate::err::{io_err, CoreError, CoreResult};
+use crate::err::{CoreError, CoreResult};
 
 /// gzip 文件**解压后**内容的 sha256（十六进制，小写）。
 ///
 /// 稳定来源：同一份源码包无论被打包多少次，内层 tar 字节完全一致。
 pub fn gz_inner_sha256(path: &Path) -> CoreResult<String> {
-    let file = std::fs::File::open(path).map_err(|e| io_err(format!("open {}", path.display()), e))?;
-    let mut decoder = flate2::read::GzDecoder::new(file);
-    let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
-    // 分块读，避免大文件进内存
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = decoder
-            .read(&mut buf)
-            .map_err(|e| CoreError::new("GZIP_DECODE_FAILED", format!("gzip decode failed: {e}")))?;
-        if n == 0 {
-            break;
-        }
-        sha2::Digest::update(&mut hasher, &buf[..n]);
-    }
-    Ok(format!("{:x}", sha2::Digest::finalize(hasher)))
+    aibox_net::digest::gzip_content_sha256(path)
+        .map_err(|e| CoreError::new("GZIP_DECODE_FAILED", format!("gzip decode failed: {e}")))
 }
 
 #[cfg(test)]

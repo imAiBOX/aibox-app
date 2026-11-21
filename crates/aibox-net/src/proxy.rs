@@ -1,14 +1,14 @@
 //! 代理感知（ProxyAwareness）——**只读检测，绝不修改任何系统设置**。
 //!
 //! - 环境变量 `HTTP_PROXY` / `HTTPS_PROXY`（大小写变体）解析；
-//! - 活/死代理判定：TCP 连通 + `CONNECT` 转发成功 → 活；端口无响应/转发失败 → 死；
+//! - 活/死代理判定：TCP 连通 + HTTP/SOCKS CONNECT 转发成功 → 活；端口无响应/转发失败 → 死；
 //! - 决策函数：死代理静默忽略、直连兜底（R1 级自愈），活代理则探测与下载经代理走；
 //! - WinINET/WinHTTP 注册表读取：cfg(windows) 条件编译 + TODO（Linux CI 优先编译通过）。
 
 use std::fmt;
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
-use std::time::Duration;
+use std::net::{IpAddr, TcpStream, ToSocketAddrs};
+use std::time::{Duration, Instant};
 
 /// 代理来源。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +34,7 @@ impl fmt::Display for ProxySource {
     }
 }
 
-/// 检测到的代理配置（HTTP 代理；socks 系 ureq 需额外 feature，暂不支持）。
+/// 检测到的代理配置（HTTP / 无认证 SOCKS4、SOCKS4a、SOCKS5）。
 #[derive(Clone, PartialEq, Eq)]
 pub struct ProxyConfig {
     pub host: String,
@@ -67,9 +67,15 @@ impl fmt::Debug for ProxyConfig {
     }
 }
 
+const UNSUPPORTED_SOCKS_AUTH: &str = "SOCKS proxy credentials are not supported";
+
+fn is_socks_scheme(scheme: &str) -> bool {
+    matches!(scheme, "socks" | "socks4" | "socks4a" | "socks5")
+}
+
 impl ProxyConfig {
     /// 解析代理 URL：`http://user:pass@host:port`、`host:port`、`user:host` 等。
-    /// socks5:// 等不支持的协议与坏值 → None（静默跳过，不报错扰民）。
+    /// 不支持的协议、带凭据的 SOCKS 代理与坏值 → None（静默跳过）。
     pub fn parse(raw: &str, source: ProxySource) -> Option<ProxyConfig> {
         let s = raw.trim().trim_end_matches('/');
         if s.is_empty() {
@@ -88,6 +94,9 @@ impl ProxyConfig {
             Some((c, h)) => (Some(c), h),
             None => (None, rest),
         };
+        if is_socks_scheme(scheme) && creds.is_some() {
+            return None;
+        }
         let (username, password) = match creds {
             Some(c) => match c.split_once(':') {
                 Some((u, p)) => (Some(u.to_string()), Some(p.to_string())),
@@ -121,9 +130,22 @@ impl ProxyConfig {
         format!("{}:{}", self.host, self.port)
     }
 
-    /// 转成 ureq 代理（凭据只进这里，不进日志）。
+    // ureq 的 SOCKS4/4a 始终发送空 USERID，带凭据的 SOCKS5 仍允许免认证。
+    // 探测和下载统一只支持无认证 SOCKS，不让调用方误以为配置的凭据会生效。
+    fn has_unsupported_socks_auth(&self) -> bool {
+        is_socks_scheme(self.scheme())
+            && (self.username.is_some() || self.password.is_some() || self.host.contains('@'))
+    }
+
+    /// 转成 ureq 代理（凭据不进日志）。
     pub fn to_ureq(&self) -> Result<ureq::Proxy, String> {
+        if self.has_unsupported_socks_auth() {
+            return Err(UNSUPPORTED_SOCKS_AUTH.into());
+        }
         let scheme = self.scheme();
+        if scheme != "http" && !is_socks_scheme(scheme) {
+            return Err("unsupported proxy protocol".into());
+        }
         let target = match (&self.username, &self.password) {
             (Some(u), Some(p)) => format!("{scheme}://{u}:{p}@{}", self.authority()),
             (Some(u), None) => format!("{scheme}://{u}@{}", self.authority()),
@@ -172,18 +194,31 @@ pub fn detect_env_proxies() -> Vec<ProxyConfig> {
 /// 代理存活判定。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyLiveness {
-    /// TCP 连通 + CONNECT 返回 2xx
+    /// TCP 连通 + HTTP CONNECT 返回 2xx 或 SOCKS CONNECT 成功
     Alive,
     /// 失败原因（人话/日志用；绝不含凭据）
     Dead(String),
 }
 
-/// 活/死判定：TCP 连通 → `CONNECT <target>` 转发 → 2xx = 活。
+/// 活/死判定：TCP 连通 → 按协议完成 HTTP CONNECT 或 SOCKS CONNECT。
 ///
-/// - 连接失败/超时/非 2xx/EOF → 死（原因入 [`ProxyLiveness::Dead`]）。
+/// - 连接失败/超时/转发或认证拒绝/EOF → 死（原因入 [`ProxyLiveness::Dead`]）。
+/// - SOCKS TCP 握手共享截止时间；系统 DNS 解析无法通过 std 设置超时。
 /// - `connect_target` 形如 `example.com:443`。
 pub fn check_proxy(proxy: &ProxyConfig, connect_target: &str, timeout: Duration) -> ProxyLiveness {
-    let addrs = match proxy.authority().to_socket_addrs() {
+    if proxy.has_unsupported_socks_auth() {
+        return ProxyLiveness::Dead(UNSUPPORTED_SOCKS_AUTH.into());
+    }
+    let scheme = proxy.scheme();
+    if scheme != "http" && !is_socks_scheme(scheme) {
+        return ProxyLiveness::Dead("unsupported proxy protocol".into());
+    }
+    let deadline = Instant::now().checked_add(timeout);
+    if timeout.is_zero() || deadline.is_none() {
+        return ProxyLiveness::Dead("invalid proxy timeout".into());
+    }
+    let deadline = deadline.unwrap();
+    let addrs = match (proxy.host.as_str(), proxy.port).to_socket_addrs() {
         Ok(a) => a.collect::<Vec<_>>(),
         Err(e) => return ProxyLiveness::Dead(format!("resolve failed: {e}")),
     };
@@ -191,7 +226,11 @@ pub fn check_proxy(proxy: &ProxyConfig, connect_target: &str, timeout: Duration)
         Some(a) => *a,
         None => return ProxyLiveness::Dead("resolve returned no address".into()),
     };
-    let mut stream = match TcpStream::connect_timeout(&addr, timeout) {
+    let remaining = match deadline.checked_duration_since(Instant::now()) {
+        Some(t) if !t.is_zero() => t,
+        _ => return ProxyLiveness::Dead("proxy timeout".into()),
+    };
+    let mut stream = match TcpStream::connect_timeout(&addr, remaining) {
         Ok(s) => s,
         Err(e) => return ProxyLiveness::Dead(format!("connect failed: {e}")),
     };
@@ -199,6 +238,12 @@ pub fn check_proxy(proxy: &ProxyConfig, connect_target: &str, timeout: Duration)
         || stream.set_write_timeout(Some(timeout)).is_err()
     {
         return ProxyLiveness::Dead("set timeout failed".into());
+    }
+    if is_socks_scheme(scheme) {
+        return match check_socks(&mut stream, proxy, connect_target, deadline) {
+            Ok(()) => ProxyLiveness::Alive,
+            Err(reason) => ProxyLiveness::Dead(reason.into()),
+        };
     }
     let mut request = format!("CONNECT {connect_target} HTTP/1.1\r\nHost: {connect_target}\r\n");
     if let Some(u) = &proxy.username {
@@ -209,7 +254,10 @@ pub fn check_proxy(proxy: &ProxyConfig, connect_target: &str, timeout: Duration)
         ));
     }
     request.push_str("\r\n");
-    if let Err(e) = stream.write_all(request.as_bytes()).and_then(|_| stream.flush()) {
+    if let Err(e) = stream
+        .write_all(request.as_bytes())
+        .and_then(|_| stream.flush())
+    {
         return ProxyLiveness::Dead(format!("write failed: {e}"));
     }
     let mut buf = Vec::with_capacity(512);
@@ -226,8 +274,9 @@ pub fn check_proxy(proxy: &ProxyConfig, connect_target: &str, timeout: Duration)
                     break; // 状态行已到
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
-                || e.kind() == std::io::ErrorKind::TimedOut =>
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
             {
                 return ProxyLiveness::Dead("timeout waiting CONNECT response".into());
             }
@@ -241,6 +290,149 @@ pub fn check_proxy(proxy: &ProxyConfig, connect_target: &str, timeout: Duration)
         Some(code) => ProxyLiveness::Dead(format!("CONNECT HTTP {code}")),
         None => ProxyLiveness::Dead("empty CONNECT response".into()),
     }
+}
+
+// SOCKS 的每一次读写都使用同一个截止时间，避免对端逐字节滴流拖长探测。
+// std 的系统 DNS 解析没有超时接口；代理主机与 SOCKS4 目标解析不在此保证内。
+struct SocksIo<'a> {
+    stream: &'a mut TcpStream,
+    deadline: Instant,
+}
+
+impl SocksIo<'_> {
+    fn remaining(&self) -> Result<Duration, &'static str> {
+        self.deadline
+            .checked_duration_since(Instant::now())
+            .filter(|t| !t.is_zero())
+            .ok_or("SOCKS handshake timeout")
+    }
+
+    fn write(&mut self, mut bytes: &[u8]) -> Result<(), &'static str> {
+        while !bytes.is_empty() {
+            self.stream
+                .set_write_timeout(Some(self.remaining()?))
+                .map_err(|_| "SOCKS set timeout failed")?;
+            match self.stream.write(bytes) {
+                Ok(0) => return Err("SOCKS connection closed"),
+                Ok(n) => bytes = &bytes[n..],
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => return Err("SOCKS write failed or timed out"),
+            }
+        }
+        Ok(())
+    }
+
+    fn read(&mut self, mut bytes: &mut [u8]) -> Result<(), &'static str> {
+        while !bytes.is_empty() {
+            self.stream
+                .set_read_timeout(Some(self.remaining()?))
+                .map_err(|_| "SOCKS set timeout failed")?;
+            match self.stream.read(bytes) {
+                Ok(0) => return Err("SOCKS connection closed"),
+                Ok(n) => bytes = &mut bytes[n..],
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => return Err("SOCKS read failed or timed out"),
+            }
+        }
+        Ok(())
+    }
+}
+
+fn check_socks(
+    stream: &mut TcpStream,
+    proxy: &ProxyConfig,
+    target: &str,
+    deadline: Instant,
+) -> Result<(), &'static str> {
+    let (host, port) = target.rsplit_once(':').ok_or("invalid SOCKS target")?;
+    let host = host
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host);
+    let port: u16 = port.parse().map_err(|_| "invalid SOCKS target port")?;
+    if host.is_empty() || host.as_bytes().contains(&0) || port == 0 {
+        return Err("invalid SOCKS target");
+    }
+    let mut io = SocksIo { stream, deadline };
+    if matches!(proxy.scheme(), "socks5" | "socks") {
+        io.write(&[5, 1, 0])?;
+        let mut reply = [0; 2];
+        io.read(&mut reply)?;
+        if reply != [5, 0] {
+            return Err("SOCKS5 unauthenticated method rejected");
+        }
+        let mut request = vec![5, 1, 0];
+        match host.parse::<IpAddr>() {
+            Ok(IpAddr::V4(ip)) => {
+                request.push(1);
+                request.extend_from_slice(&ip.octets());
+            }
+            Ok(IpAddr::V6(ip)) => {
+                request.push(4);
+                request.extend_from_slice(&ip.octets());
+            }
+            Err(_) => {
+                if host.len() > 255 {
+                    return Err("SOCKS5 target too long");
+                }
+                request.extend_from_slice(&[3, host.len() as u8]);
+                request.extend_from_slice(host.as_bytes());
+            }
+        }
+        request.extend_from_slice(&port.to_be_bytes());
+        io.write(&request)?;
+        let mut header = [0; 4];
+        io.read(&mut header)?;
+        if header[0] != 5 || header[1] != 0 || header[2] != 0 {
+            return Err("SOCKS5 CONNECT rejected or malformed");
+        }
+        let address_len = match header[3] {
+            1 => 4,
+            4 => 16,
+            3 => {
+                let mut len = [0];
+                io.read(&mut len)?;
+                if len[0] == 0 {
+                    return Err("SOCKS5 malformed bound address");
+                }
+                len[0] as usize
+            }
+            _ => return Err("SOCKS5 malformed address type"),
+        };
+        let mut bound = vec![0; address_len + 2];
+        io.read(&mut bound)?;
+    } else {
+        let ip = host.parse::<IpAddr>();
+        let remote_dns = proxy.scheme() == "socks4a" && ip.is_err();
+        let address = match ip {
+            Ok(IpAddr::V4(ip)) => ip.octets(),
+            Ok(IpAddr::V6(_)) => return Err("SOCKS4 does not support IPv6"),
+            Err(_) if remote_dns => [0, 0, 0, 1],
+            Err(_) => (host, port)
+                .to_socket_addrs()
+                .map_err(|_| "SOCKS4 target resolution failed")?
+                .find_map(|a| match a.ip() {
+                    IpAddr::V4(ip) => Some(ip.octets()),
+                    _ => None,
+                })
+                .ok_or("SOCKS4 target has no IPv4 address")?,
+        };
+        let mut request = vec![4, 1];
+        request.extend_from_slice(&port.to_be_bytes());
+        request.extend_from_slice(&address);
+        request.push(0); // 空 USERID，与 ureq 一致。
+        if remote_dns {
+            request.extend_from_slice(host.as_bytes());
+            request.push(0);
+        }
+        io.write(&request)?;
+        let mut reply = [0; 8];
+        io.read(&mut reply)?;
+        if reply[0] != 0 || reply[1] != 90 {
+            return Err("SOCKS4 CONNECT rejected or malformed");
+        }
+    }
+    Ok(())
 }
 
 /// 决策函数（R1 自愈）：按候选顺序取第一个**活**代理；
@@ -345,8 +537,8 @@ mod tests {
 
     #[test]
     fn debug_output_never_leaks_credentials() {
-        let p = ProxyConfig::parse("http://alice:hunter2@10.0.0.1:8080", ProxySource::EnvHttp)
-            .unwrap();
+        let p =
+            ProxyConfig::parse("http://alice:hunter2@10.0.0.1:8080", ProxySource::EnvHttp).unwrap();
         let dbg = format!("{p:?}");
         assert!(!dbg.contains("hunter2"), "密码绝不能出现在 Debug: {dbg}");
         assert!(dbg.contains("***"));
@@ -398,11 +590,12 @@ mod tests {
                     let _ = stream.read(&mut buf);
                     match mode.as_str() {
                         "alive" => {
-                            let _ = stream
-                                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n");
+                            let _ =
+                                stream.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n");
                         }
                         "refuse_http" => {
-                            let _ = stream.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
+                            let _ = stream
+                                .write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
                         }
                         _ => {} // "hang"：不回包 → 客户端超时
                     }
@@ -457,10 +650,7 @@ mod tests {
         // 前死活 → 选活的
         let chosen = decide_proxy(
             &list,
-            &[
-                ProxyLiveness::Dead("refused".into()),
-                ProxyLiveness::Alive,
-            ],
+            &[ProxyLiveness::Dead("refused".into()), ProxyLiveness::Alive],
         );
         assert_eq!(chosen, Some(&alive));
 
@@ -485,10 +675,315 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod socks_tests {
     use super::*;
+
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpListener;
+    use std::thread;
+
+    fn fake_socks(
+        scheme: &str,
+        handler: impl FnOnce(TcpStream) + Send + 'static,
+    ) -> (ProxyConfig, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            handler(stream);
+        });
+        let config =
+            ProxyConfig::parse(&format!("{scheme}://{addr}"), ProxySource::EnvHttp).unwrap();
+        (config, server)
+    }
+
+    fn expect_bytes(stream: &mut TcpStream, expected: &[u8]) {
+        let mut actual = vec![0; expected.len()];
+        stream.read_exact(&mut actual).unwrap();
+        // 不在失败诊断中打印可能包含凭据的协议字节。
+        assert!(actual == expected, "unexpected protocol bytes");
+    }
+
+    fn read_http_request(stream: &mut TcpStream) -> Vec<u8> {
+        let mut reader = BufReader::new(stream);
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            assert_ne!(reader.read_until(b'\n', &mut request).unwrap(), 0);
+        }
+        request
+    }
+
+    #[test]
+    fn ureq_http_get_is_forwarded_through_no_auth_socks5() {
+        const HOST: &str = "aibox-socks-test.invalid";
+        const BODY: &str = "download via socks5";
+        let origin = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin_addr = origin.local_addr().unwrap();
+        let http = thread::spawn(move || {
+            let (mut stream, _) = origin.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let request = read_http_request(&mut stream);
+            assert!(request.starts_with(b"GET /artifact HTTP/1.1\r\n"));
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{BODY}",
+                BODY.len()
+            )
+            .unwrap();
+        });
+        let (proxy, server) = fake_socks("socks5", move |mut client| {
+            expect_bytes(&mut client, &[5, 1, 0]);
+            client.write_all(&[5, 0]).unwrap();
+            let mut connect = vec![5, 1, 0, 3, HOST.len() as u8];
+            connect.extend_from_slice(HOST.as_bytes());
+            connect.extend_from_slice(&origin_addr.port().to_be_bytes());
+            expect_bytes(&mut client, &connect);
+            // 仅代理桩知道如何把 .invalid 名称映射到本地 HTTP 源站。
+            let mut upstream =
+                TcpStream::connect_timeout(&origin_addr, Duration::from_secs(2)).unwrap();
+            upstream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            upstream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            client.write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 0]).unwrap();
+            upstream.write_all(&read_http_request(&mut client)).unwrap();
+            std::io::copy(&mut upstream, &mut client).unwrap();
+        });
+
+        let agent = ureq::AgentBuilder::new()
+            .try_proxy_from_env(false)
+            .proxy(proxy.to_ureq().unwrap())
+            .timeout(Duration::from_secs(2))
+            .build();
+        let response = agent
+            .get(&format!("http://{HOST}:{}/artifact", origin_addr.port()))
+            .call()
+            .unwrap();
+        assert_eq!(response.into_string().unwrap(), BODY);
+        server.join().unwrap();
+        http.join().unwrap();
+    }
+
+    #[test]
+    fn socks5_no_auth_connect_and_complete_bound_address() {
+        for reply in [
+            vec![5, 0, 0, 1, 127, 0, 0, 1, 0, 80],
+            vec![5, 0, 0, 3, 3, b'f', b'o', b'o', 0, 80],
+            [vec![5, 0, 0, 4], vec![0; 18]].concat(),
+        ] {
+            let (p, server) = fake_socks("socks5", move |mut s| {
+                expect_bytes(&mut s, &[5, 1, 0]);
+                s.write_all(&[5, 0]).unwrap();
+                expect_bytes(&mut s, b"\x05\x01\x00\x03\x0bexample.com\x01\xbb");
+                s.write_all(&reply).unwrap();
+            });
+            assert_eq!(
+                check_proxy(&p, "example.com:443", Duration::from_secs(2)),
+                ProxyLiveness::Alive
+            );
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn socks5_no_auth_ip_targets() {
+        for (target, address) in [
+            ("127.0.0.1:443", vec![1, 127, 0, 0, 1]),
+            ("[::1]:443", [vec![4], vec![0; 15], vec![1]].concat()),
+        ] {
+            let (p, server) = fake_socks("socks5", move |mut s| {
+                expect_bytes(&mut s, &[5, 1, 0]);
+                s.write_all(&[5, 0]).unwrap();
+                let request = [vec![5, 1, 0], address, vec![1, 187]].concat();
+                expect_bytes(&mut s, &request);
+                s.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).unwrap();
+            });
+            assert_eq!(
+                check_proxy(&p, target, Duration::from_secs(2)),
+                ProxyLiveness::Alive
+            );
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn socks5_rejected_method_connect_and_malformed_replies() {
+        for mode in [
+            "method",
+            "requires_auth",
+            "refused",
+            "version",
+            "address",
+            "truncated",
+        ] {
+            let (p, server) = fake_socks("socks5", move |mut s| {
+                expect_bytes(&mut s, &[5, 1, 0]);
+                if matches!(mode, "method" | "requires_auth") {
+                    s.write_all(&[5, if mode == "method" { 255 } else { 2 }])
+                        .unwrap();
+                    let mut byte = [0];
+                    assert_eq!(s.read(&mut byte).unwrap(), 0, "must not proceed");
+                    return;
+                }
+                s.write_all(&[5, 0]).unwrap();
+                expect_bytes(&mut s, b"\x05\x01\x00\x03\x0bexample.com\x01\xbb");
+                let reply: &[u8] = match mode {
+                    "refused" => &[5, 5, 0, 1],
+                    "version" => &[4, 0, 0, 1],
+                    "address" => &[5, 0, 0, 9],
+                    _ => &[5, 0, 0, 1, 127],
+                };
+                s.write_all(reply).unwrap();
+            });
+            let result = check_proxy(&p, "example.com:443", Duration::from_secs(2));
+            assert!(matches!(result, ProxyLiveness::Dead(_)));
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn socks5_stall_and_trickle_share_one_deadline() {
+        for trickle in [false, true] {
+            let (p, server) = fake_socks("socks5", move |mut s| {
+                expect_bytes(&mut s, &[5, 1, 0]);
+                if trickle {
+                    s.write_all(&[5, 0]).unwrap();
+                    expect_bytes(&mut s, b"\x05\x01\x00\x03\x0bexample.com\x01\xbb");
+                    for byte in [5, 0, 0, 1, 127, 0, 0, 1, 0, 0] {
+                        if s.write_all(&[byte]).is_err() {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(30));
+                    }
+                } else {
+                    thread::sleep(Duration::from_millis(350));
+                }
+            });
+            let start = Instant::now();
+            assert!(matches!(
+                check_proxy(&p, "example.com:443", Duration::from_millis(120)),
+                ProxyLiveness::Dead(_)
+            ));
+            assert!(start.elapsed() < Duration::from_millis(300));
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn socks4_and_4a_send_empty_user_id_and_correct_address() {
+        for (scheme, target, expected) in [
+            (
+                "socks4",
+                "127.0.0.1:443",
+                b"\x04\x01\x01\xbb\x7f\x00\x00\x01\x00".to_vec(),
+            ),
+            (
+                "socks4a",
+                "example.com:443",
+                b"\x04\x01\x01\xbb\x00\x00\x00\x01\x00example.com\x00".to_vec(),
+            ),
+        ] {
+            for accepted in [true, false] {
+                let expected = expected.clone();
+                let (p, server) = fake_socks(scheme, move |mut s| {
+                    expect_bytes(&mut s, &expected);
+                    s.write_all(&[0, if accepted { 90 } else { 91 }, 0, 0, 0, 0, 0, 0])
+                        .unwrap();
+                });
+                let result = check_proxy(&p, target, Duration::from_secs(2));
+                assert_eq!(matches!(result, ProxyLiveness::Alive), accepted);
+                server.join().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn socks_urls_with_userinfo_are_rejected() {
+        for scheme in ["socks", "socks4", "socks4a", "socks5"] {
+            for userinfo in [
+                "test-user:test-pass",
+                "test-user",
+                ":test-pass",
+                "test-user:",
+                ":",
+                "",
+            ] {
+                let url = format!("{scheme}://{userinfo}@127.0.0.1:1080");
+                assert!(ProxyConfig::parse(&url, ProxySource::EnvHttps).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn manually_constructed_socks_with_credentials_never_connects() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        for scheme in ["socks", "socks4", "socks4a", "socks5"] {
+            for (username, password, host) in [
+                (Some("test-user"), Some("test-pass"), "127.0.0.1"),
+                (Some(""), None, "127.0.0.1"),
+                (None, Some(""), "127.0.0.1"),
+                (None, None, "test-user:test-pass@127.0.0.1"),
+            ] {
+                let p = ProxyConfig {
+                    host: host.into(),
+                    port: listener.local_addr().unwrap().port(),
+                    username: username.map(str::to_owned),
+                    password: password.map(str::to_owned),
+                    source: ProxySource::EnvHttp,
+                    scheme: scheme.into(),
+                };
+                assert!(matches!(p.to_ureq(), Err(ref e) if e == UNSUPPORTED_SOCKS_AUTH));
+                assert_eq!(
+                    check_proxy(&p, "example.com:443", Duration::from_millis(100)),
+                    ProxyLiveness::Dead(UNSUPPORTED_SOCKS_AUTH.into())
+                );
+                assert!(
+                    matches!(listener.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn manually_constructed_scheme_cannot_embed_socks_credentials() {
+        let mut p = ProxyConfig::parse("socks5://127.0.0.1:1080", ProxySource::EnvHttp).unwrap();
+        p.scheme = "socks5://test-user:test-pass@127.0.0.1:1080".into();
+        assert!(matches!(p.to_ureq(), Err(ref e) if e == "unsupported proxy protocol"));
+        assert_eq!(
+            check_proxy(&p, "example.com:443", Duration::from_secs(2)),
+            ProxyLiveness::Dead("unsupported proxy protocol".into())
+        );
+    }
+
+    #[test]
+    fn socks5_invalid_target_fails_without_protocol_bytes() {
+        for target in ["missing-port", "example.com:0"] {
+            let (p, server) = fake_socks("socks5", |mut s| {
+                let mut byte = [0];
+                assert_eq!(s.read(&mut byte).unwrap(), 0);
+            });
+            assert!(matches!(
+                check_proxy(&p, target, Duration::from_secs(2)),
+                ProxyLiveness::Dead(_)
+            ));
+            server.join().unwrap();
+        }
+    }
 
     /// SOCKS 代理：以前直接丢弃（ureq 没开 socks feature）→ 现在支持 socks4/4a/5。
     #[test]
@@ -498,12 +993,17 @@ mod socks_tests {
         assert_eq!(c.host, "127.0.0.1");
         assert_eq!(c.port, 1080);
 
-        let c4 = ProxyConfig::parse("socks4://user:pw@10.0.0.1:1080", ProxySource::EnvHttps).unwrap();
-        assert_eq!(c4.scheme(), "socks4");
-        assert_eq!(c4.username.as_deref(), Some("user"));
-
-        let ca = ProxyConfig::parse("socks4a://10.0.0.2:1080", ProxySource::EnvHttps).unwrap();
-        assert_eq!(ca.scheme(), "socks4a");
+        for (prefix, scheme) in [
+            ("socks4", "socks4"),
+            ("socks4a", "socks4a"),
+            ("socks", "socks5"),
+        ] {
+            let c =
+                ProxyConfig::parse(&format!("{prefix}://127.0.0.1:1080"), ProxySource::EnvHttps)
+                    .unwrap();
+            assert_eq!(c.scheme(), scheme);
+            assert!(c.to_ureq().is_ok());
+        }
     }
 
     #[test]
