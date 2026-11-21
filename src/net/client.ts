@@ -175,6 +175,8 @@ export interface ManageBackupResult {
   backupDir: string;
   files: string[];
   skipped?: string[];
+  refused?: string[];
+  failed?: string[];
 }
 
 /** MANAGE：卸载结果（Rust manage_remove 返回） */

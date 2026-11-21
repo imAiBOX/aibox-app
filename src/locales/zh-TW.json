@@ -497,7 +497,8 @@
     "upgradeAll": "全部升級",
     "backupDone": "升級前已把你的資料備份到 {{path}}",
     "backupLast": "上次升級 {{appId}} 前，已把你的資料備份到 {{path}} —— 需要還原時去那裡找。",
-    "restoreUnavailable": "自動還原尚未開放。可開啟備份目錄手動還原資料；這不會退回軟體版本。"
+    "restoreUnavailable": "自動還原尚未開放。可開啟備份目錄手動還原資料；這不會退回軟體版本。",
+    "upgradeBackupBlocked": "{{appId}} 的備份未能完成，升級已暫停。請檢查磁碟空間及檔案權限後再試。"
   },
   "notify": {
     "tab": "通知",

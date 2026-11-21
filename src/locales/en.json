@@ -497,7 +497,8 @@
     "upgradeAll": "Upgrade all",
     "backupDone": "Before upgrading, your data was backed up to {{path}}",
     "backupLast": "Before the last upgrade of {{appId}}, your data was backed up to {{path}} — open it if you need to restore something.",
-    "restoreUnavailable": "Automatic restore is not available yet. Open the backup folder for manual recovery; this does not downgrade the app."
+    "restoreUnavailable": "Automatic restore is not available yet. Open the backup folder for manual recovery; this does not downgrade the app.",
+    "upgradeBackupBlocked": "Upgrade paused for {{appId}} because the backup could not be completed. Check disk space and file permissions, then try again."
   },
   "notify": {
     "tab": "Notifications",

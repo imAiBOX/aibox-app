@@ -497,7 +497,8 @@
     "upgradeAll": "全部升级",
     "backupDone": "升级前已把你的数据备份到 {{path}}",
     "backupLast": "上次升级 {{appId}} 前，已把你的数据备份到 {{path}} —— 需要恢复时去那里找。",
-    "restoreUnavailable": "自动还原尚未开放。可打开备份目录手动恢复数据；这不会回退软件版本。"
+    "restoreUnavailable": "自动还原尚未开放。可打开备份目录手动恢复数据；这不会回退软件版本。",
+    "upgradeBackupBlocked": "{{appId}} 的备份没能完成，升级已暂停。请检查磁盘空间和文件权限，再重试。"
   },
   "notify": {
     "tab": "通知",

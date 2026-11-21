@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { openExternal } from "./lib/openExternal";
+import { completeUpgradeBackup, createUpgradeQueue } from "./state/upgradeQueue";
 import { isMacPlatform } from "./platform";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
@@ -548,7 +549,9 @@ export default function App() {
   // 安装完成（任务全部干完 → CONFIG）→ 登记 install-manifest（已装应用更新检查的数据源）
   useEffect(() => {
     const appId = state.appId;
-    if (state.status !== "CONFIG" || !appId) return;
+    if (state.status === "IDLE") recordedRef.current = null;
+    const ready = state.status === "CONFIG" || (state.status === "DONE" && state.upgradeMode);
+    if (!ready || !appId || !state.tasks.length || state.tasks.some((task) => task.status !== "done")) return;
     if (recordedRef.current === appId) return;
     recordedRef.current = appId;
     void (async () => {
@@ -560,7 +563,7 @@ export default function App() {
           .catch(() => undefined));
       await api.installRecord(appId, version).catch(() => undefined);
     })();
-  }, [state.status, state.appId]);
+  }, [state.status, state.appId, state.upgradeMode, state.tasks]);
 
   // 断点续装写入时机：状态机关键转移（每任务完成在下方 runTask 内单独写）
   useEffect(() => {
@@ -585,25 +588,23 @@ export default function App() {
    *
    * 为什么：升级会重跑安装程序，可能覆盖/重置应用配置（key、账号、偏好）。
    * 卸载路径本来就有备份（`manage_backup`），**升级路径却一直没有** ——
-   * 升级前先备份一份，坏了还能回去。备份失败**不阻断升级**（只提示）。
+   * 升级前先备份，备份失败或不完整时暂停升级。
    */
   const backupBeforeUpgrade = useCallback(
     async (appId: string): Promise<string | null> => {
-      try {
-        const manifest = await api.registryApp(appId);
-        const dataPaths = manifest.maintenance?.dataPaths ?? [];
-        if (dataPaths.length === 0) return null;
-        const out = await api.manageBackup(appId, dataPaths);
-        return out.backupDir || null;
-      } catch {
-        return null;
-      }
+      const manifest = await api.registryApp(appId);
+      const dataPaths = manifest.maintenance?.dataPaths ?? [];
+      if (dataPaths.length === 0) return null;
+      return completeUpgradeBackup(await api.manageBackup(appId, dataPaths));
     },
     [],
   );
 
   /** 升级队列（批量升级：一次排队多个，装完一个自动接下一个） */
-  const upgradeQueueRef = useRef<string[]>([]);
+  const [upgradeQueue] = useState(createUpgradeQueue);
+  const preparingUpgrade = useRef(false);
+  const currentStatus = useRef(state.status);
+  currentStatus.current = state.status;
 
   const startInstall = useCallback((appIdOverride?: string) => {
     const appId = appIdOverride ?? selectedId;
@@ -667,13 +668,31 @@ export default function App() {
    * （见下面的 effect）。中途「取消」会清空队列（不再继续升）。
    */
   const runUpgrade = useCallback(
-    async (appId: string, queue: string[] = []) => {
-      upgradeQueueRef.current = queue;
-      // 升级前先备份数据目录（safety net；失败不阻断升级）
-      const backupDir = await backupBeforeUpgrade(appId);
+    async (appId: string, queue?: string[]) => {
+      const status = currentStatus.current;
+      if (preparingUpgrade.current || (status !== "IDLE" && status !== "DONE")) return;
+      preparingUpgrade.current = true;
+      if (queue) upgradeQueue.replace(queue);
+      let backupDir: string | null;
+      try {
+        backupDir = await backupBeforeUpgrade(appId);
+      } catch {
+        upgradeQueue.replace([]);
+        if (currentStatus.current === status) {
+          channelToast.show(t("s8.upgradeBackupBlocked", { appId }));
+          setOverlay("manage");
+        }
+        return;
+      } finally {
+        preparingUpgrade.current = false;
+      }
+      if (currentStatus.current !== status) {
+        upgradeQueue.replace([]);
+        return;
+      }
       if (backupDir) {
         // 记档 → 管理页能查到「上次升级前的备份在哪」（用户可自行恢复）
-        await notifyStoreRef.current.saveUpgradeBackup({
+        void notifyStoreRef.current.saveUpgradeBackup({
           appId,
           path: backupDir,
           at: Date.now(),
@@ -681,12 +700,13 @@ export default function App() {
         setUpgradeBackup({ appId, path: backupDir, at: Date.now() });
         channelToast.show(t("s8.backupDone", { path: backupDir }));
       }
+      recordedRef.current = null;
       setSelectedId(appId);
       dispatch({ type: "RESTART" });
       dispatch({ type: "UPGRADE_MODE" });
       startInstall(appId);
     },
-    [backupBeforeUpgrade, startInstall, t],
+    [backupBeforeUpgrade, startInstall, t, upgradeQueue],
   );
 
 
@@ -696,11 +716,12 @@ export default function App() {
 
   // 批量升级接力：本次升级完成（DONE）→ 自动开始队列里的下一个
   useEffect(() => {
-    if (state.status !== "DONE") return;
-    const next = upgradeQueueRef.current.shift();
-    if (!next) return;
-    void runUpgrade(next);
-  }, [state.status, runUpgrade]);
+    if (state.status === "DONE" && state.tasks.some((task) => task.status === "skipped")) {
+      upgradeQueue.replace([]);
+    }
+    const next = upgradeQueue.next(state.status === "DONE" && state.upgradeMode);
+    if (next) void runUpgrade(next);
+  }, [state.status, state.upgradeMode, state.tasks, runUpgrade, upgradeQueue]);
 
   const execHandle = useRef<ExecuteHandle | null>(null);
   useEffect(() => {
@@ -824,7 +845,7 @@ export default function App() {
               // 主动取消 = 放弃这次安装 → **清掉会话快照**，
               // 否则下次启动还会问「继续上次安装？」（用户上次明明主动取消了）
               void persistence.clearSession();
-              upgradeQueueRef.current = [];
+              upgradeQueue.replace([]);
               channelToast.show(t("btn.cancelDone"));
               dispatch({ type: "DISMISS" });
             },
@@ -857,7 +878,7 @@ export default function App() {
       default:
         return [];
     }
-  }, [state.status, selectedId, selectedName, startInstall, sendVerify, verifyPending]);
+  }, [state.status, selectedId, selectedName, startInstall, sendVerify, verifyPending, upgradeQueue]);
 
   const screen = screenFor(state.status);
   const isOverlay = overlay !== "none";
@@ -943,9 +964,10 @@ export default function App() {
                 dispatch({ type: "RESTART" });
                 // **一路到底**：不再把用户丢回应用列表让他自己找、自己再点一次「开始安装」，
                 // 直接进入该应用的安装计划确认页（确认后即装）。
-                void runUpgrade(id);
+                void runUpgrade(id, []);
               }}
               onUpgradeAll={(ids) => {
+                if (ids.length === 0) return;
                 setOverlay("none");
                 void runUpgrade(ids[0], ids.slice(1));
               }}
@@ -1145,7 +1167,7 @@ export default function App() {
               logDrawer.close();
               // 「不重试，返回」= 放弃 → 同样清掉会话快照与升级队列
               void persistence.clearSession();
-              upgradeQueueRef.current = [];
+              upgradeQueue.replace([]);
               dispatch({ type: "DISMISS" });
             }}
           />
