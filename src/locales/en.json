@@ -132,7 +132,8 @@
     "installUacHint": "If Windows asks “Allow this app to make changes to your device?”, choose Yes — that is the app being installed.",
     "stillWorking": "Still working (running for {{time}}). Large apps usually take 1–3 minutes. Please don’t close this window.",
     "logNoTask": "no task running",
-    "logProgress": "{{done}} done · {{skipped}} skipped"
+    "logProgress": "{{done}} done · {{skipped}} skipped",
+    "phaseSlow": "This step is taking longer than expected. The operation is still running; please wait for its result."
   },
   "s5": {
     "title": "Connect your model",
@@ -275,9 +276,9 @@
     "verifyBadResponse": "The provider's reply wasn't in the expected format. Try again, or use another provider.",
     "verifyFailed": "The test request didn't go through. Retry, or try a different route.",
     "configUnsupported": "AiBOX does not know how to write this app's config file yet (it is not a JSON config). Your file was not changed — set it up by hand with the guide, it takes a minute.",
-    "verifyStalled": "Checking the file took too long (over 3 minutes), so it was stopped. The network is probably slow — retry.",
-    "installStalled": "Installing took longer than 15 minutes, so it was stopped. The installer is probably waiting on a system prompt (for example a permission dialog). Check whether another window is covering the screen, then retry.",
-    "probeStalled": "Checking the result took too long, so it was stopped. Retry, or open the log for details."
+    "verifyStalled": "This step is taking longer than expected. The operation is still running; please wait for its result.",
+    "installStalled": "This step is taking longer than expected. The operation is still running; please wait for its result.",
+    "probeStalled": "This step is taking longer than expected. The operation is still running; please wait for its result."
   },
   "resume": {
     "title": "Continue last install?",
@@ -496,13 +497,7 @@
     "upgradeAll": "Upgrade all",
     "backupDone": "Before upgrading, your data was backed up to {{path}}",
     "backupLast": "Before the last upgrade of {{appId}}, your data was backed up to {{path}} — open it if you need to restore something.",
-    "restore": "Restore from backup",
-    "restoring": "Restoring…",
-    "restoreConfirm": "Restore the files saved before the last upgrade? This overwrites the current files with the older ones.",
-    "restoreConfirmBtn": "Restore",
-    "restoreDone": "Restored {{count}} file(s).",
-    "restoreNone": "Nothing was restored.",
-    "restoreFailed": "Restore failed."
+    "restoreUnavailable": "Automatic restore is not available yet. Open the backup folder for manual recovery; this does not downgrade the app."
   },
   "notify": {
     "tab": "Notifications",

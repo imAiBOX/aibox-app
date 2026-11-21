@@ -132,7 +132,8 @@
     "installUacHint": "如果系統彈出「是否允許此應用更改裝置」，請點「是」——那是被安裝的軟體在提問。",
     "stillWorking": "還在進行中（已經跑了 {{time}}）。大型軟體通常需要 1–3 分鐘，請不要關掉這個視窗。",
     "logNoTask": "目前沒有任務",
-    "logProgress": "已完成 {{done}} · 跳過 {{skipped}}"
+    "logProgress": "已完成 {{done}} · 跳過 {{skipped}}",
+    "phaseSlow": "這一步耗時較長，背景仍在處理。請等待結果，暫不要重複啟動安裝。"
   },
   "s5": {
     "title": "連線模型",
@@ -275,9 +276,9 @@
     "verifyBadResponse": "服務商的回覆不是預期的格式。再試一次，或換一家服務商。",
     "verifyFailed": "測試請求沒能完成。可以重試，或換一條線路。",
     "configUnsupported": "AiBOX 還不會寫這個應用的設定檔（它不是 JSON 格式的設定）。你的原檔案**沒有被動過** —— 照著教學手動配一下，一分鐘就好。",
-    "verifyStalled": "校驗這一步太久了（超過 3 分鐘），已經停下。可能是網路太慢，重試一次。",
-    "installStalled": "安裝這一步超過 15 分鐘還沒結束，已經停下。常見原因：安裝程式在等一個系統彈窗（例如權限提示）。請看看螢幕上是不是有別的視窗擋著，然後重試。",
-    "probeStalled": "確認安裝結果這一步太久了，已經停下。重試一次，或開啟日誌看詳情。"
+    "verifyStalled": "這一步耗時較長，背景仍在處理。請等待結果，暫不要重複啟動安裝。",
+    "installStalled": "這一步耗時較長，背景仍在處理。請等待結果，暫不要重複啟動安裝。",
+    "probeStalled": "這一步耗時較長，背景仍在處理。請等待結果，暫不要重複啟動安裝。"
   },
   "resume": {
     "title": "繼續上次安裝？",
@@ -496,13 +497,7 @@
     "upgradeAll": "全部升級",
     "backupDone": "升級前已把你的資料備份到 {{path}}",
     "backupLast": "上次升級 {{appId}} 前，已把你的資料備份到 {{path}} —— 需要還原時去那裡找。",
-    "restore": "從備份還原",
-    "restoring": "還原中…",
-    "restoreConfirm": "把上次升級前備份的檔案還原回來嗎？會用舊版本覆蓋現在的檔案。",
-    "restoreConfirmBtn": "確認還原",
-    "restoreDone": "已還原 {{count}} 個檔案。",
-    "restoreNone": "沒有還原任何檔案。",
-    "restoreFailed": "還原失敗。"
+    "restoreUnavailable": "自動還原尚未開放。可開啟備份目錄手動還原資料；這不會退回軟體版本。"
   },
   "notify": {
     "tab": "通知",

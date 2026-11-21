@@ -6,7 +6,7 @@
  *
  * 状态逻辑抽成纯 reducer（bannerReduce）→ 无 DOM 单测覆盖「会话内只弹一次」。
  */
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import { api, type UpdateInfo } from "../net/client";
 import { isFirstLaunch } from "../state/firstRun";
 
@@ -100,6 +100,8 @@ export interface UpdateBannerState {
 
 export function useUpdateBanner(): UpdateBannerState {
   const [state, rawDispatch] = useReducer(bannerReduce, undefined, createBannerState);
+  // 固定本次启动的首启状态：关闭引导不应突然弹出更新横幅。
+  const [firstLaunch] = useState(isFirstLaunch);
 
   const recheck = useCallback(() => {
     api
@@ -119,7 +121,7 @@ export function useUpdateBanner(): UpdateBannerState {
   );
 
   return {
-    visible: bannerVisible(state, isFirstLaunch()),
+    visible: bannerVisible(state, firstLaunch),
     version: state.info?.version,
     url: OFFICIAL_DOWNLOAD_URL,
     info: state.info,

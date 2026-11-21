@@ -70,7 +70,8 @@ export function wizardMeta(s: WizardState): ProviderMeta | undefined {
 export function wizardModels(s: WizardState): ModelOption[] {
   const p = path(s);
   if (!p) return [];
-  return wizardMeta(s)?.recommendedModels ?? fallbackModels(p);
+  const remote = wizardMeta(s)?.recommendedModels?.filter((m) => m.id.trim());
+  return remote?.length ? remote : fallbackModels(p);
 }
 
 /** C3 当前校验结果（registry keyFormat 优先，回落本地 pattern） */

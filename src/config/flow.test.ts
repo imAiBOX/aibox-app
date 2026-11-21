@@ -247,3 +247,13 @@ describe("VERIFY 流转与弱判定拒绝", () => {
     expect(extractErrorCode(undefined)).toBeUndefined();
   });
 });
+
+describe("C4 空远端模型列表", () => {
+  it("远端数组为空时仍有可选的内置模型", () => {
+    let w = createWizard();
+    w = reduceWizard(w, { type: "PICK", providerId: "openrouter" });
+    w = reduceWizard(w, { type: "SET_META", metas: { openrouter: { recommendedModels: [] } } });
+    expect(wizardModels(w).length).toBeGreaterThan(0);
+    expect(wizardModels(w)[0].name).not.toBe(wizardModels(w)[0].id);
+  });
+});

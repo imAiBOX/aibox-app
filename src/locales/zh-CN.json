@@ -132,7 +132,8 @@
     "installUacHint": "如果系统弹出「是否允许此应用更改设备」，请点「是」——那是被安装的软件在提问。",
     "stillWorking": "还在进行中（已经跑了 {{time}}）。大型软件通常需要 1–3 分钟，请不要关掉这个窗口。",
     "logNoTask": "当前没有任务",
-    "logProgress": "已完成 {{done}} · 跳过 {{skipped}}"
+    "logProgress": "已完成 {{done}} · 跳过 {{skipped}}",
+    "phaseSlow": "这一步耗时较长，后台仍在处理。请等待结果，暂不要重复启动安装。"
   },
   "s5": {
     "title": "连接模型",
@@ -275,9 +276,9 @@
     "verifyBadResponse": "服务商的回复不是预期的格式。再试一次，或换一家服务商。",
     "verifyFailed": "测试请求没能完成。可以重试，或换一条线路。",
     "configUnsupported": "AiBOX 还不会写这个应用的配置文件（它不是 JSON 格式的配置）。你的原文件**没有被动过** —— 照着教程手动配一下，一分钟就好。",
-    "verifyStalled": "校验这一步太久了（超过 3 分钟），已经停下。可能是网络太慢，重试一次。",
-    "installStalled": "安装这一步超过 15 分钟还没结束，已经停下。常见原因：安装程序在等一个系统弹窗（比如权限提示）。请看看屏幕上是不是有别的窗口挡着，然后重试。",
-    "probeStalled": "确认安装结果这一步太久了，已经停下。重试一次，或打开日志看详情。"
+    "verifyStalled": "这一步耗时较长，后台仍在处理。请等待结果，暂不要重复启动安装。",
+    "installStalled": "这一步耗时较长，后台仍在处理。请等待结果，暂不要重复启动安装。",
+    "probeStalled": "这一步耗时较长，后台仍在处理。请等待结果，暂不要重复启动安装。"
   },
   "resume": {
     "title": "继续上次安装？",
@@ -496,13 +497,7 @@
     "upgradeAll": "全部升级",
     "backupDone": "升级前已把你的数据备份到 {{path}}",
     "backupLast": "上次升级 {{appId}} 前，已把你的数据备份到 {{path}} —— 需要恢复时去那里找。",
-    "restore": "从备份还原",
-    "restoring": "还原中…",
-    "restoreConfirm": "把上次升级前备份的文件还原回来吗？会用旧版本覆盖现在的文件。",
-    "restoreConfirmBtn": "确认还原",
-    "restoreDone": "已还原 {{count}} 个文件。",
-    "restoreNone": "没有还原任何文件。",
-    "restoreFailed": "还原失败。"
+    "restoreUnavailable": "自动还原尚未开放。可打开备份目录手动恢复数据；这不会回退软件版本。"
   },
   "notify": {
     "tab": "通知",

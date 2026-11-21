@@ -679,6 +679,7 @@ export default function App() {
           path: backupDir,
           at: Date.now(),
         });
+        setUpgradeBackup({ appId, path: backupDir, at: Date.now() });
         channelToast.show(t("s8.backupDone", { path: backupDir }));
       }
       setSelectedId(appId);
@@ -711,6 +712,7 @@ export default function App() {
         api,
         dispatch,
         onEvent,
+        onPhaseSlow: () => channelToast.show(t("s4.phaseSlow")),
         sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         scenario: getMockScenario,
         saveSnapshot: (snap) => persistence.saveSnapshot(snap),

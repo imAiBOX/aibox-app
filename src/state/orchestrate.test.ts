@@ -508,56 +508,44 @@ describe("安装上报（track_install 时机与幂等）", () => {
   });
 });
 
-describe("阶段看门狗（verify / install / probe 不再无限静默）", () => {
-  // 下载成功事件（推进流程到后续阶段）
-  const okStart = (h: Harness) =>
-    vi.fn(async (t: { destName: string; id: string }) => {
+describe("阶段看门狗只提示，不取消后端或开放并发重试", () => {
+  for (const phase of ["verify", "install", "probe"] as const) {
+    it(`${phase} 慢时仅提示，直到后端结束才继续`, async () => {
+      let finish!: (value: any) => void;
+      const pending = new Promise<any>((r) => { finish = r; });
+      const h = harness({ phaseTimeouts: { verify: 5, install: 5, probe: 5 } });
+      const slow = vi.fn();
+      h.deps.onPhaseSlow = slow;
+      if (phase === "verify") h.api.verifySha256 = () => pending;
+      if (phase === "install") h.api.execInstall = () => pending;
+      if (phase === "probe") h.api.probeRun = () => pending;
+      h.api.downloadStart = vi.fn(async (t) => {
+        setTimeout(() => h.emit(ok(`download ok: 1 bytes via x (${t.destName})`)), 0);
+        return t.id;
+      });
+      const handle = startExecute(h.deps, { appId: "app", tasks: [task()] });
+      await new Promise((r) => setTimeout(r, 25));
+      expect(slow).toHaveBeenCalledWith("t1", phase);
+      expect(h.events.some((e) => e.type === "ERROR" || e.type === "ALL_DONE")).toBe(false);
+      finish(phase === "verify" ? true : phase === "install" ? { code: 0, out: "" } : { version: "1.0" });
+      await handle.promise;
+      expect(h.events.some((e) => e.type === "ALL_DONE")).toBe(true);
+    });
+  }
+
+  it("取消后后台迟到的错误不得覆盖新流程", async () => {
+    let reject!: (e: unknown) => void;
+    const pending = new Promise<boolean>((_, r) => { reject = r; });
+    const h = harness({ api: { verifySha256: () => pending }, phaseTimeouts: { verify: 5 } });
+    h.api.downloadStart = vi.fn(async (t) => {
       setTimeout(() => h.emit(ok(`download ok: 1 bytes via x (${t.destName})`)), 0);
       return t.id;
     });
-
-  it("校验永远不返回 → VERIFY_STALLED（不是干等）", async () => {
-    const h = harness({
-      api: { verifySha256: () => new Promise<boolean>(() => {}) },
-      phaseTimeouts: { verify: 10 },
-    });
-    h.api.downloadStart = okStart(h);
-    // 下载先成功（走 mock 事件）→ 让流程推进到 verify 段
-    const p = startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
-    await p;
-    const err = h.events.find((e) => e.type === "ERROR") as { code?: string } | undefined;
-    expect(err?.code).toBe("VERIFY_STALLED");
-  });
-
-  it("安装永远不返回 → INSTALL_STALLED", async () => {
-    const h = harness({
-      api: { execInstall: () => new Promise<{ code: number; out: string }>(() => {}) },
-      phaseTimeouts: { verify: 1000, install: 10 },
-    });
-    h.api.downloadStart = okStart(h);
-    const p = startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
-    await p;
-    const err = h.events.find((e) => e.type === "ERROR") as { code?: string } | undefined;
-    expect(err?.code).toBe("INSTALL_STALLED");
-  });
-
-  it("探测永远不返回 → PROBE_STALLED", async () => {
-    const h = harness({
-      api: { probeRun: () => new Promise<{ version: string }>(() => {}) },
-      phaseTimeouts: { verify: 1000, install: 1000, probe: 10 },
-    });
-    h.api.downloadStart = okStart(h);
-    const p = startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
-    await p;
-    const err = h.events.find((e) => e.type === "ERROR") as { code?: string } | undefined;
-    expect(err?.code).toBe("PROBE_STALLED");
-  });
-
-  it("正常路径不受影响（超时只是兜底）", async () => {
-    const h = harness({ phaseTimeouts: { verify: 1000, install: 1000, probe: 1000 } });
-    h.api.downloadStart = okStart(h);
-    const p = startExecute(h.deps, { appId: "app", tasks: [task()] }).promise;
-    await p;
+    const slow = vi.fn(); h.deps.onPhaseSlow = slow;
+    const handle = startExecute(h.deps, { appId: "app", tasks: [task()] });
+    await new Promise((r) => setTimeout(r, 3));
+    handle.stop(); reject({ code: "VERIFY_FAILED" });
+    await handle.promise;
     expect(h.events.some((e) => e.type === "ERROR")).toBe(false);
   });
 });

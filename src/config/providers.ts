@@ -162,7 +162,7 @@ export function modelDisplayName(id: string): string {
     .trim()
     .split(/\s+/)
     .filter(Boolean)
-    .map((w) => (w.length <= 4 && w === w.toLowerCase() ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)));
+    .map((w) => /^(gpt|api|ai)$/i.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1));
   return words.length > 0 ? words.join(" ") : id;
 }
 

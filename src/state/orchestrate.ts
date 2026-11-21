@@ -89,21 +89,13 @@ export const PHASE_TIMEOUTS = {
   probe: 60_000,
 } as const;
 
-/** 超时哨兵（区别于「校验失败」——两者要给用户不同的话）。 */
-const TIMED_OUT = Symbol("timed-out");
-
-/** 给 promise 加超时（超时 → 返回 TIMED_OUT 哨兵）。 */
-async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+/** 阶段看门狗只提示，绝不把仍在运行的后端命令判为已停止。 */
+async function watchPhase<T>(p: Promise<T>, ms: number, notice: () => void): Promise<T> {
+  const timer = setTimeout(notice, ms);
   try {
-    return await Promise.race([
-      p,
-      new Promise<typeof TIMED_OUT>((resolve) => {
-        timer = setTimeout(() => resolve(TIMED_OUT), ms);
-      }),
-    ]);
+    return await p;
   } finally {
-    if (timer !== undefined) clearTimeout(timer);
+    clearTimeout(timer);
   }
 }
 
@@ -167,6 +159,7 @@ export interface ExecuteDeps {
   takeSkipChannels?: () => string[];
   /** 阶段超时（ms；缺省用 PHASE_TIMEOUTS；测试可注入小值） */
   phaseTimeouts?: Partial<{ verify: number; install: number; probe: number }>;
+  onPhaseSlow?: (taskId: string, phase: "verify" | "install" | "probe") => void;
 }
 
 export interface ExecuteContext {
@@ -254,6 +247,7 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
   };
 
   const fail = (code: string, taskId?: string, human?: string | null): RunResult => {
+    if (state.stopped) return "stopped";
     deps.dispatch({
       type: "ERROR",
       code,
@@ -333,11 +327,11 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
         spec.download.hashMode === "content" && deps.api.verifyGzInnerSha256
           ? deps.api.verifyGzInnerSha256(dlPath, spec.download.sha256)
           : deps.api.verifySha256(dlPath, spec.download.sha256);
-      const verifyR = await withTimeout(
+      const verifyR = await watchPhase(
         verifyP,
         deps.phaseTimeouts?.verify ?? PHASE_TIMEOUTS.verify,
+        () => { if (!state.stopped) deps.onPhaseSlow?.(task.id, "verify"); },
       );
-      if (verifyR === TIMED_OUT) return fail("VERIFY_STALLED", task.id);
       verified = verifyR;
     } catch (e) {
       return fail(errCode(e, "VERIFY_FAILED"), task.id, errorHumanOf(e));
@@ -348,22 +342,16 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     if (state.stopped) return "stopped";
     deps.dispatch({ type: "TASK_PHASE", taskId: task.id, phase: "install" });
     let exit: { code: number; out: string };
-    let installTimedOut = false;
     try {
-      const r = await withTimeout(
+      const r = await watchPhase(
         deps.api.execInstall(spec.exec),
         deps.phaseTimeouts?.install ?? PHASE_TIMEOUTS.install,
+        () => { if (!state.stopped) deps.onPhaseSlow?.(task.id, "install"); },
       );
-      if (r === TIMED_OUT) {
-        installTimedOut = true;
-        exit = { code: -1, out: "" };
-      } else {
-        exit = r;
-      }
+      exit = r;
     } catch (e) {
       return fail(errCode(e, "EXEC_SPAWN_FAILED"), task.id, errorHumanOf(e));
     }
-    if (installTimedOut) return fail("INSTALL_STALLED", task.id);
     if (exit.code !== 0) return fail(`EXEC_EXIT_${exit.code}`, task.id);
 
     // 4) probe（拿到真实版本号才算装上；无 probe 定义则通过）
@@ -371,11 +359,11 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     deps.dispatch({ type: "TASK_PHASE", taskId: task.id, phase: "probe" });
     if (spec.probe) {
       try {
-        const r = await withTimeout(
+        await watchPhase(
           deps.api.probeRun(spec.probe),
           deps.phaseTimeouts?.probe ?? PHASE_TIMEOUTS.probe,
+          () => { if (!state.stopped) deps.onPhaseSlow?.(task.id, "probe"); },
         );
-        if (r === TIMED_OUT) return fail("PROBE_STALLED", task.id);
       } catch (e) {
         return fail(errCode(e, "PROBE_MISMATCH"), task.id, errorHumanOf(e));
       }
