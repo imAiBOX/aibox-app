@@ -47,8 +47,10 @@ pub fn detect_system_proxies() -> Vec<ProxyConfig> {
         //   "http=127.0.0.1:7890;https=127.0.0.1:7890" → 按协议
         //   "socks=127.0.0.1:1080"               → socks（ureq 不支持 → parse 返回 None）
         let mut out = Vec::new();
-        let mut push = |raw: &str| {
-            if let Some(cfg) = ProxyConfig::parse(raw, ProxySource::WinInet) {
+        // Windows 的 `socks=` 即 SOCKS5；`http=`/`https=` 即 HTTP 代理
+        let mut push = |raw: &str, scheme: &str| {
+            let full = format!("{scheme}://{raw}");
+            if let Some(cfg) = ProxyConfig::parse(&full, ProxySource::WinInet) {
                 out.push(cfg);
             }
         };
@@ -57,14 +59,20 @@ pub fn detect_system_proxies() -> Vec<ProxyConfig> {
                 let part = part.trim();
                 if let Some((proto, hostport)) = part.split_once('=') {
                     let proto = proto.trim().to_ascii_lowercase();
+                    let scheme = match proto.as_str() {
+                        "https" | "http" => "http",
+                        "socks" | "socks5" => "socks5",
+                        "socks4" => "socks4",
+                        _ => continue,
+                    };
                     // https 优先（下载都是 https）；再退到 http
-                    if proto == "https" || proto == "http" {
-                        push(hostport.trim());
+                    if proto == "https" || proto == "http" || proto.starts_with("socks") {
+                        push(hostport.trim(), scheme);
                     }
                 }
             }
         } else {
-            push(server.trim());
+            push(server.trim(), "http");
         }
         out
     }

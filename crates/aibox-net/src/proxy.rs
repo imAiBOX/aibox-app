@@ -42,6 +42,9 @@ pub struct ProxyConfig {
     pub username: Option<String>,
     pub password: Option<String>,
     pub source: ProxySource,
+    /// 代理协议：`http` / `socks5` / `socks4` / `socks4a`
+    /// （Windows 的 `ProxyServer=socks=…` = SOCKS5；env 里常见 `socks5://…`）
+    pub scheme: String,
 }
 
 /// Debug 必须脱敏：密码永不进日志/对话（凭据红线）。
@@ -58,6 +61,7 @@ impl fmt::Debug for ProxyConfig {
                     .map(|u| format!("{}***", u.chars().next().unwrap_or('*'))),
             )
             .field("password", &"***")
+            .field("scheme", &self.scheme)
             .field("source", &self.source)
             .finish()
     }
@@ -71,11 +75,14 @@ impl ProxyConfig {
         if s.is_empty() {
             return None;
         }
-        let rest = match s.split_once("://") {
-            Some(("http", r)) => r,
-            Some(("socks" | "socks4" | "socks4a" | "socks5", _)) => return None, // TODO(socks): ureq 需 socks feature
+        // 协议前缀：http / https（走 http 代理）/ socks / socks5 / socks4 / socks4a
+        let (scheme, rest) = match s.split_once("://") {
+            Some(("http" | "https", r)) => ("http", r),
+            Some(("socks" | "socks5", r)) => ("socks5", r),
+            Some(("socks4a", r)) => ("socks4a", r),
+            Some(("socks4", r)) => ("socks4", r),
             Some(_) => return None,
-            None => s,
+            None => ("http", s),
         };
         let (creds, hostpart) = match rest.rsplit_once('@') {
             Some((c, h)) => (Some(c), h),
@@ -105,6 +112,7 @@ impl ProxyConfig {
             username,
             password,
             source,
+            scheme: scheme.to_string(),
         })
     }
 
@@ -115,12 +123,22 @@ impl ProxyConfig {
 
     /// 转成 ureq 代理（凭据只进这里，不进日志）。
     pub fn to_ureq(&self) -> Result<ureq::Proxy, String> {
+        let scheme = self.scheme();
         let target = match (&self.username, &self.password) {
-            (Some(u), Some(p)) => format!("http://{u}:{p}@{}", self.authority()),
-            (Some(u), None) => format!("http://{u}@{}", self.authority()),
-            _ => format!("http://{}", self.authority()),
+            (Some(u), Some(p)) => format!("{scheme}://{u}:{p}@{}", self.authority()),
+            (Some(u), None) => format!("{scheme}://{u}@{}", self.authority()),
+            _ => format!("{scheme}://{}", self.authority()),
         };
         ureq::Proxy::new(&target).map_err(|e| format!("invalid proxy: {e}"))
+    }
+
+    /// 代理协议（`http` / `socks5` / `socks4` / `socks4a`；默认 http）。
+    pub fn scheme(&self) -> &str {
+        if self.scheme.is_empty() {
+            "http"
+        } else {
+            self.scheme.as_str()
+        }
     }
 }
 
@@ -316,8 +334,11 @@ mod tests {
         let p3 = ProxyConfig::parse("proxy.local", ProxySource::EnvHttp).expect("default port");
         assert_eq!(p3.port, 80);
 
-        // 不支持/坏值 → None
-        assert!(ProxyConfig::parse("socks5://127.0.0.1:1080", ProxySource::EnvHttp).is_none());
+        // socks 现在**支持**了（ureq 开 socks-proxy feature；本地代理常是 socks5）
+        let ps = ProxyConfig::parse("socks5://127.0.0.1:1080", ProxySource::EnvHttp)
+            .expect("socks5 应被支持");
+        assert_eq!(ps.scheme(), "socks5");
+        // 坏值 → None
         assert!(ProxyConfig::parse("", ProxySource::EnvHttp).is_none());
         assert!(ProxyConfig::parse("127.0.0.1:notaport", ProxySource::EnvHttp).is_none());
     }
@@ -461,5 +482,37 @@ mod tests {
     fn registry_probe_returns_empty_on_linux() {
         // Linux（CI）：cfg(not(windows)) 分支编译通过且返回空
         assert!(detect_registry_proxies().is_empty());
+    }
+}
+
+
+#[cfg(test)]
+mod socks_tests {
+    use super::*;
+
+    /// SOCKS 代理：以前直接丢弃（ureq 没开 socks feature）→ 现在支持 socks4/4a/5。
+    #[test]
+    fn socks_urls_are_parsed_and_keep_scheme() {
+        let c = ProxyConfig::parse("socks5://127.0.0.1:1080", ProxySource::EnvHttps).unwrap();
+        assert_eq!(c.scheme(), "socks5");
+        assert_eq!(c.host, "127.0.0.1");
+        assert_eq!(c.port, 1080);
+
+        let c4 = ProxyConfig::parse("socks4://user:pw@10.0.0.1:1080", ProxySource::EnvHttps).unwrap();
+        assert_eq!(c4.scheme(), "socks4");
+        assert_eq!(c4.username.as_deref(), Some("user"));
+
+        let ca = ProxyConfig::parse("socks4a://10.0.0.2:1080", ProxySource::EnvHttps).unwrap();
+        assert_eq!(ca.scheme(), "socks4a");
+    }
+
+    #[test]
+    fn http_default_scheme_unchanged() {
+        let c = ProxyConfig::parse("http://127.0.0.1:7890", ProxySource::EnvHttp).unwrap();
+        assert_eq!(c.scheme(), "http");
+        // to_ureq 必须能构造出代理（ureq 已开 socks-proxy feature）
+        assert!(c.to_ureq().is_ok());
+        let s = ProxyConfig::parse("socks5://127.0.0.1:1080", ProxySource::EnvHttp).unwrap();
+        assert!(s.to_ureq().is_ok());
     }
 }
