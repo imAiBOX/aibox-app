@@ -34,6 +34,7 @@ pub mod manage;
 pub mod matrix;
 pub mod paths;
 pub mod prefetch;
+pub mod proxy_sys;
 pub mod probe;
 pub mod redact;
 pub mod region;

@@ -316,7 +316,9 @@
     "tab": "Network",
     "fixBadge.R1": "auto-fix",
     "fixBadge.R2": "manual fix",
-    "fixBadge.R3": "needs approval"
+    "fixBadge.R3": "needs approval",
+    "proxyDesc": "Follow the system proxy on this computer (read-only, no admin rights needed). Turn it off to always connect directly.",
+    "proxyTitle": "Use the system proxy"
   },
   "e1": {
     "title": "Network trouble",

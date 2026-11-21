@@ -182,9 +182,36 @@ pub fn download_to_cache(
     }
     let mut opts = DownloadOptions::default();
     opts.expected_size = spec.size_bytes;
+    // **系统代理**：用户在设置里开着「使用系统代理」→ 自动跟随（Windows 读 WinINET 注册表）。
+    // 探测一次并缓存（代理很少变；每次下载都探会白等几秒）。
+    if crate::region::use_system_proxy() {
+        opts.proxy = system_proxy_cached();
+    }
     let dest = paths::downloads_dir().join(content_name(&spec.dest_name, &sha));
     let receipt = download_fallback(&channels, &dest, &sha, &opts, progress)?;
     Ok(receipt)
+}
+
+/// 进程内缓存的系统代理（`None` = 探测过且没有可用代理）。
+///
+/// 只探测一次：代理连通性检查要 TCP + CONNECT 握手，每次下载都探会白等几秒。
+fn system_proxy_cached() -> Option<aibox_net::ProxyConfig> {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<Option<Option<aibox_net::ProxyConfig>>>> = OnceLock::new();
+    let cell = CACHE.get_or_init(|| Mutex::new(None));
+    let mut g = cell.lock().unwrap_or_else(|p| p.into_inner());
+    if g.is_none() {
+        let mut candidates = crate::proxy_sys::detect_system_proxies();
+        candidates.extend(aibox_net::proxy::detect_env_proxies());
+        let liveness: Vec<aibox_net::ProxyLiveness> = candidates
+            .iter()
+            .map(|p| {
+                aibox_net::proxy::check_proxy(p, "github.com:443", std::time::Duration::from_secs(3))
+            })
+            .collect();
+        *g = Some(aibox_net::proxy::decide_proxy(&candidates, &liveness).cloned());
+    }
+    g.clone().flatten()
 }
 
 /// 内容寻址缓存命中检查（可注入目录，单测离线）：

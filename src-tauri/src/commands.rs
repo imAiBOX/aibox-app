@@ -869,6 +869,18 @@ pub fn app_quit(app: AppHandle) {
     app.exit(0);
 }
 
+/// 「使用系统代理」开关状态（默认开 = 自动跟随 Windows 系统代理）。
+#[tauri::command]
+pub fn net_use_system_proxy_get() -> Cmd<bool> {
+    Ok(aibox_core::region::use_system_proxy())
+}
+
+/// 写「使用系统代理」开关（合并写 + 回读校验）。
+#[tauri::command]
+pub fn net_use_system_proxy_set(enabled: bool) -> Cmd<bool> {
+    aibox_core::region::set_use_system_proxy(enabled).map_err(CommandError::from)
+}
+
 /// 开机自启状态（enabled = OS 真相；error = 最近一次注册失败）。
 #[tauri::command]
 pub fn autostart_get(app: AppHandle) -> crate::autostart::AutostartState {

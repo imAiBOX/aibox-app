@@ -57,6 +57,8 @@ fn main() {
             commands::reveal_dir,
             commands::net_region,
             commands::net_region_set,
+            commands::net_use_system_proxy_get,
+            commands::net_use_system_proxy_set,
             commands::net_probe,
             commands::netdoctor_run,
             // 执行任务（EXECUTE 四阶段）

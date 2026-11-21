@@ -316,7 +316,9 @@
     "tab": "網路",
     "fixBadge.R1": "自動修復",
     "fixBadge.R2": "需手動",
-    "fixBadge.R3": "需授權"
+    "fixBadge.R3": "需授權",
+    "proxyDesc": "跟隨這台電腦的系統代理設定（只讀，不需要管理員權限）。關掉則始終直連。",
+    "proxyTitle": "使用系統代理"
   },
   "e1": {
     "title": "網路好像有問題",

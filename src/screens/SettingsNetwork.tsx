@@ -36,6 +36,8 @@ export default function SettingsNetwork({
   const [report, setReport] = useState<DiagReport | null>(null);
   const [doctorBusy, setDoctorBusy] = useState(false);
   const [doctorErr, setDoctorErr] = useState<string | null>(null);
+  /** 「使用系统代理」（Rust 侧 settings 为真源；默认开） */
+  const [useSystemProxy, setUseSystemProxy] = useState(true);
 
   useEffect(() => {
     void api
@@ -60,6 +62,14 @@ export default function SettingsNetwork({
   }, [t]);
 
   // 打开即自动跑一次（首屏侧栏「打开体检」承诺的是「看看你的电脑」→ 就要真看）
+  // 读取「使用系统代理」开关（Rust settings 为真源）
+  useEffect(() => {
+    void api
+      .netUseSystemProxyGet()
+      .then(setUseSystemProxy)
+      .catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     if (!autoRun) return;
     runDoctor();
@@ -94,6 +104,44 @@ export default function SettingsNetwork({
           ))}
         </div>
         <p className="mt-2 font-mono text-[11px] text-aibox-text2">{t("net.regionHint")}</p>
+      </section>
+
+      {/* 使用系统代理（真接线：Windows 读 WinINET 注册表，免提权只读；
+          关掉则始终直连。默认开——Windows 桌面用户几乎不设 HTTP_PROXY 环境变量，
+          系统代理是在「设置 → 代理」里配的，不跟随就会直连失败） */}
+      <section className="rounded-[6px] border border-aibox-line bg-aibox-raised p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-sm font-semibold text-aibox-cream">
+            {t("net.proxyTitle")}
+          </h2>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={useSystemProxy}
+            aria-label={t("net.proxyTitle")}
+            onClick={() => {
+              const next = !useSystemProxy;
+              setUseSystemProxy(next);
+              void api.netUseSystemProxySet(next).catch(() => undefined);
+            }}
+            className={[
+              "h-6 w-11 shrink-0 rounded-full border transition-colors",
+              useSystemProxy
+                ? "border-aibox-green bg-aibox-green/30"
+                : "border-aibox-line bg-aibox-bg",
+            ].join(" ")}
+          >
+            <span
+              className={[
+                "block h-4 w-4 rounded-full transition-transform",
+                useSystemProxy ? "translate-x-6 bg-aibox-green" : "translate-x-1 bg-aibox-text2",
+              ].join(" ")}
+            />
+          </button>
+        </div>
+        <p className="mt-2 text-xs leading-relaxed text-aibox-text2">
+          {t("net.proxyDesc")}
+        </p>
       </section>
 
       {/* 立即体检（E2：netdoctor_run 真报告） */}

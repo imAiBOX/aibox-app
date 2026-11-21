@@ -294,6 +294,32 @@ pub fn set_region(v: &str) -> CoreResult<RegionState> {
     Ok(region_state())
 }
 
+/// 「使用系统代理」开关（默认 **开** = 自动跟随 Windows 系统代理）。
+///
+/// 读：`~/.aibox/settings.json` → `/net/useSystemProxy`；缺省视为 true。
+pub fn use_system_proxy() -> bool {
+    read_settings()
+        .pointer("/net/useSystemProxy")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+}
+
+/// 写「使用系统代理」开关（合并写 + 回读校验，与 `set_region` 同款）。
+pub fn set_use_system_proxy(enabled: bool) -> CoreResult<bool> {
+    let path = paths::settings_file();
+    let mut settings = fsops::read_json5(&path)?;
+    let patch = json!({ "net": { "useSystemProxy": enabled } });
+    fsops::merge_preserve(&mut settings, &patch);
+    fsops::write_json_atomic(&path, &settings)?;
+    if !fsops::readback_verify(&path, &settings)? {
+        return Err(CoreError::new(
+            "SETTINGS_WRITE_FAILED",
+            "Settings file did not verify after write",
+        ));
+    }
+    Ok(enabled)
+}
+
 /// 读设置文件（不存在 → `{}`）。
 pub fn read_settings() -> Value {
     fsops::read_json5(&paths::settings_file()).unwrap_or_else(|_| json!({}))

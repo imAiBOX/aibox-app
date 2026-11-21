@@ -17,7 +17,7 @@ mod clock;
 mod doh;
 mod download;
 mod probe;
-mod proxy;
+pub mod proxy;
 mod region;
 mod score;
 

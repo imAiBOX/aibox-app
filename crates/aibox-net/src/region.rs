@@ -252,9 +252,11 @@ pub fn signals_from_env(get: impl Fn(&str) -> Option<String>) -> RegionSignals {
 
 /// 读取本机环境信号并给出初值（best-effort，纯判定见 [`initial_region`]）。
 ///
-/// TODO(Windows)：region 用 `GetUserGeoID`（免提权）、tz 用 `GetTimeZoneInformation`
-/// 补齐（cfg(windows) 分支，Linux CI 不编译）；macOS 用 `systemsetup -gettimezone`
-/// （读取不需 root）。当前拿不到的信号为空串 → 走 GLOBAL 安全默认。
+/// Windows/macOS 的系统信号**已由 `aibox-core` 的 `detect_signals()` 实现**
+/// （Windows 用 winreg 只读注册表：LocaleName / Geo\Nation / TimeZoneKeyName，
+/// 见 `aibox-core/src/region.rs`；macOS 读 `/etc/timezone`）。
+/// 本函数是**纯 env 版**（Linux/CI 注入 `LANG`/`TZ`/`AIBOX_GEO_REGION`），
+/// 平台实现不要在这里重复造（会与 core 的注册表读法分叉）。
 pub fn detect_initial_region() -> RegionKind {
     let signals = signals_from_env(|k| std::env::var(k).ok());
     initial_region(&signals.locale, &signals.tz, &signals.region)

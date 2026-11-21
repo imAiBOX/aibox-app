@@ -469,6 +469,10 @@ export const api = {
   registryApp: (id: string) => invoke<AppManifest>("registry_app", { id }),
   netRegion: () => invoke<NetRegionResult>("net_region"),
   netRegionSet: (v: "auto" | "cn" | "global") => invoke<void>("net_region_set", { v }),
+  /** 「使用系统代理」开关（默认开；Windows 读 WinINET 注册表，免提权只读） */
+  netUseSystemProxyGet: () => invoke<boolean>("net_use_system_proxy_get"),
+  netUseSystemProxySet: (enabled: boolean) =>
+    invoke<boolean>("net_use_system_proxy_set", { enabled }),
   netProbe: () => invoke<NetProbeRow[]>("net_probe"),
   netdoctorRun: (items?: string[]) => invoke<DiagReport>("netdoctor_run", { items }),
   downloadStart: (task: DownloadTask) => invoke<string>("download_start", task),
