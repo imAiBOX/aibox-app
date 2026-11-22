@@ -125,6 +125,31 @@ pub fn ensure_dir(p: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(p)
 }
 
+/// 路径是否落在给定的 home 之内（**两边都 canonicalize** 后比较）。
+///
+/// 用于「打开文件夹」这类**路径由前端传**的命令：前端传什么就开什么 =
+/// 前端被注入 / 被改就能让系统打开任意目录（审计 P2-6）→ Rust 侧必须兜底。
+///
+/// - `canonicalize` 会解析软链 → 「home 里的软链指向 home 外」也能挡住；
+/// - Windows 上 `canonicalize` 会加 `\\?\` 前缀 → **两边都 canonicalize** → 前缀一致
+///   → 可以直接比（`Path::starts_with` 是按路径段比的，不会把 `C:\Users\me2`
+///   误判成在 `C:\Users\me` 里）；
+/// - 解析不了（路径不存在 / home 不可达）→ `false`（fail-closed：拿不准就不放行）。
+pub fn is_within_home(path: &Path, home: &Path) -> bool {
+    let Ok(real) = std::fs::canonicalize(path) else {
+        return false;
+    };
+    let Ok(home_real) = std::fs::canonicalize(home) else {
+        return false;
+    };
+    real == home_real || real.starts_with(&home_real)
+}
+
+/// 路径是否落在**本机 home** 之内（[`is_within_home`] + 本机 home）。
+pub fn is_inside_home(path: &Path) -> bool {
+    is_within_home(path, &home_dir())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,5 +185,54 @@ mod tests {
             expand(r"%LOCALAPPDATA%\Aibox"),
             PathBuf::from(r"%LOCALAPPDATA%\Aibox")
         );
+    }
+
+    /// home 之内 → 放行；home 之外 → 拒绝（审计 P2-6：前端不能指哪开哪）。
+    #[test]
+    fn inside_home_paths_are_allowed_others_are_not() {
+        let root = std::env::temp_dir().join(format!("aibox-paths-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let home = root.join("home");
+        let inside = home.join("data").join("app");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let home_real = std::fs::canonicalize(&home).unwrap();
+
+        assert!(is_within_home(&inside, &home_real), "home 之内必须放行");
+        assert!(
+            is_within_home(&home_real, &home_real),
+            "home 本身也算之内"
+        );
+        assert!(
+            !is_within_home(&outside, &home_real),
+            "home 之外必须拒绝"
+        );
+        // 解析不了的路径 → 拒绝（fail-closed）
+        assert!(
+            !is_within_home(&root.join("does-not-exist"), &home_real),
+            "不存在的路径必须拒绝"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// home 里的**软链**指向 home 外 → 拒绝（canonicalize 解析软链后才比较）。
+    #[cfg(unix)]
+    #[test]
+    fn symlink_out_of_home_is_rejected() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("aibox-paths-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let home = root.join("home");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, home.join("escape")).unwrap();
+        let home_real = std::fs::canonicalize(&home).unwrap();
+        assert!(
+            !is_within_home(&home.join("escape"), &home_real),
+            "指向 home 外的软链必须拒绝"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

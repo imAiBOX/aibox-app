@@ -14,7 +14,6 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type BackupRecord } from "../net/client";
 import { createInitialRestoreState, formatBytes, restoreReduce } from "../state/restore";
-
 interface Props {
   /** 已装应用（管理页列表） */
   installed: { appId: string }[];
@@ -38,6 +37,18 @@ export function RestorePanel({ installed, onRestore }: Props) {
   const [state, dispatch] = useReducer(restoreReduce, undefined, createInitialRestoreState);
   /** 应用名（registry；拿不到就用 appId 兜底） */
   const [names, setNames] = useState<Record<string, string>>({});
+  /** 「打开备份文件夹」失败（后端只允许打开家目录内的路径）→ 给一句人话，别静默 */
+  const [revealErr, setRevealErr] = useState(false);
+
+  /** 打开备份文件夹（失败 → 可见提示，而不是点了没反应） */
+  const reveal = useCallback(async (dir: string) => {
+    setRevealErr(false);
+    try {
+      await api.revealDir(dir);
+    } catch {
+      setRevealErr(true);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     dispatch({ type: "R_LIST_LOADING" });
@@ -115,18 +126,29 @@ export function RestorePanel({ installed, onRestore }: Props) {
         <p className="text-xs text-aibox-text2">{t("s8.restoreNoBackups")}</p>
       )}
 
+      {revealErr && (
+        <p className="text-xs text-aibox-danger">{t("s8.restoreRevealFail")}</p>
+      )}
+
       {rows.length > 0 && (
         <ul className="space-y-2">
           {rows.map((b) => {
-            const legacy = b.format !== "v1";
-            // 不可还原的原因**写成人话小字**（禁用按钮不给悬浮提示）
+            // 三种「不能还原」要分开说：
+            // legacy = 旧版本格式（没有还原清单）；unknown = 备份不完整（根本没有清单）；
+            // 其余（太旧 / 来自别的电脑 / 时间异常）→ 逐条给出人话原因。
+            const legacy = b.format === "legacy";
+            const noManifest = b.format === "unknown";
             const hint = legacy
               ? t("s8.restoreLegacy")
-              : !b.restorable
-                ? b.ageHours > 24
-                  ? t("s8.restoreTooOld")
-                  : t("s8.restoreUnsupported")
-                : "";
+              : noManifest
+                ? t("s8.restoreNoManifest")
+                : !b.restorable
+                  ? b.ageHours > 24
+                    ? t("s8.restoreTooOld")
+                    : b.ageHours === 0
+                      ? t("s8.restoreBadTime")
+                      : t("s8.restoreUnsupported")
+                  : "";
             return (
               <li
                 key={b.dir}
@@ -144,8 +166,8 @@ export function RestorePanel({ installed, onRestore }: Props) {
                   {hint && <p className="mt-1 text-xs text-aibox-danger">{hint}</p>}
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  {/* 旧格式备份不给还原按钮（没有还原清单，硬还原会出事） */}
-                  {!legacy && (
+                  {/* 旧格式 / 不完整的备份不给还原按钮（没有还原清单，硬还原会出事） */}
+                  {b.format === "v1" && (
                     <button
                       type="button"
                       disabled={!b.restorable}
@@ -157,7 +179,7 @@ export function RestorePanel({ installed, onRestore }: Props) {
                   )}
                   <button
                     type="button"
-                    onClick={() => void api.revealDir(b.dir).catch(() => undefined)}
+                    onClick={() => void reveal(b.dir)}
                     className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-[10px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
                   >
                     {t("s8.restoreOpenFolder")}

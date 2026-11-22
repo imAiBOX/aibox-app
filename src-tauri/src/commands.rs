@@ -114,16 +114,40 @@ pub async fn registry_app(id: String) -> Cmd<Value> {
 /// 旧版完成页只列名字+版本，什么都不说 → 用户自己去网上搜「XXX 怎么启动」。
 /// 这里给出**真实可点的入口**：点一下就打开那个文件夹。
 ///
-/// 安全：只开目录（不执行任何东西）；路径来自 registry 声明或安装前缀。
+/// 安全：
+/// - 只开目录（不执行任何东西）；路径来自 registry 声明或安装前缀；
+/// - **只允许打开 home 之内的目录**（审计 P2-6）：前端传什么就开什么 = 前端被注入 /
+///   被改就能让系统打开任意目录（快捷方式、网络位置 → 信息泄露 / 钓鱼）。
+///   Rust 侧兜底：展开 `~` → canonicalize（解析软链）→ 必须落在 canonical home 之内，
+///   否则 `REVEAL_FORBIDDEN`。
 #[tauri::command]
 pub async fn reveal_dir(path: String) -> Cmd<()> {
     let p = paths::expand(&path);
-    if !p.is_dir() {
+    // 解析软链后的真实路径（不解析就挡不住「home 里的软链指向别处」）
+    let real = std::fs::canonicalize(&p).map_err(|e| {
+        CommandError::new(
+            "REVEAL_NOT_FOUND",
+            format!("not a directory: {} ({e})", p.display()),
+        )
+    })?;
+    // 必须落在 home 之内（两边都 canonicalize → Windows 的 `\\?\` 前缀一致 → 可直接比）
+    //（**先判范围再判类型**：范围外的路径一律报「不允许」，不泄露它的细节）
+    if !paths::is_within_home(&p, &paths::home_dir()) {
+        return Err(CommandError::new(
+            "REVEAL_FORBIDDEN",
+            format!(
+                "{} is outside the home directory; refusing to open it",
+                p.display()
+            ),
+        ));
+    }
+    if !real.is_dir() {
         return Err(CommandError::new(
             "REVEAL_NOT_FOUND",
             format!("not a directory: {}", p.display()),
         ));
     }
+    // 用**展开后的原始路径**去打开（Windows 的 `\\?\` 前缀 explorer 处理不了）
     let dir = p.to_string_lossy().into_owned();
     let (prog, args): (&str, Vec<String>) = if cfg!(target_os = "windows") {
         ("explorer", vec![dir])
@@ -836,8 +860,9 @@ pub async fn manage_backup(app_id: String, data_paths: Vec<String>) -> Cmd<Backu
 
 /// 备份列表（本机备份库；含旧格式标记）。
 ///
-/// `restorable` = v1 清单 + home 指纹一致 + 创建时间已知 + 未超龄。
-/// 这里用**缺省 24h** 判定（registry 可为单个应用放宽；真正还原时按应用实际值再判一次）。
+/// `restorable` = v1 清单 + appId 与目录名一致 + home 指纹一致 + 创建时间已知 + 未超龄。
+/// 这里用**Rust 硬上限** [`restore::MAX_RESTORE_AGE_HOURS`]（24h）判定——与真正还原时
+/// 同一口径（registry 只能往小里收，不能放宽）。
 #[tauri::command]
 pub async fn manage_backup_list() -> Cmd<Vec<BackupRecord>> {
     blocking(|| {
@@ -845,7 +870,7 @@ pub async fn manage_backup_list() -> Cmd<Vec<BackupRecord>> {
         restore::list_backups_in(
             &manage::default_backup_root(),
             &home,
-            restore::DEFAULT_MAX_AGE_HOURS,
+            restore::MAX_RESTORE_AGE_HOURS,
         )
     })
     .await
@@ -884,11 +909,18 @@ pub async fn manage_restore_preview(backup_dir: String, app_id: String) -> Cmd<R
 /// 返回 `(白名单, 最大可还原时长, registry 来源)`。
 ///
 /// 硬规则（全部 fail-closed）：
-/// 1. registry 必须来自网络（`cache` / `cache-stale` → `RESTORE_REGISTRY_UNVERIFIED`）：
-///    本地缓存可被投毒 → 白名单可能被换成 `~/.ssh`；
-/// 2. 白名单 = `maintenance.dataPaths`（缺省 → `RESTORE_NO_WHITELIST`）；
-/// 3. 灰度开关 = `maintenance.restore.supported`（缺省/false → `RESTORE_UNSUPPORTED`）；
-/// 4. `maxAgeHours` = `maintenance.restore.maxAgeHours`（缺省 24；范围 1..=168，越界 → 24）。
+/// 1. registry 必须来自**真网络源**（允许列表 `jsdelivr` / `raw` / `github-api` / `aibox-im`；
+///    `cache` / `cache-stale` / `snapshot` / 未知来源 → `RESTORE_REGISTRY_UNVERIFIED`）：
+///    本地缓存 / 内嵌快照可被投毒 → 白名单可能被换成 `~/.ssh`（审计 P2-1）；
+/// 2. 灰度开关 = `maintenance.restore.supported`（缺省/false → `RESTORE_UNSUPPORTED`）；
+/// 3. 白名单 = `maintenance.dataPaths`（缺省 → `RESTORE_NO_WHITELIST`）；
+/// 4. `maxAgeHours` = `maintenance.restore.maxAgeHours`（缺省 24；范围 1..=168，越界 → 24；
+///    **且一律不得超过 Rust 硬上限 [`restore::MAX_RESTORE_AGE_HOURS`] = 24h**——
+///    registry **不能放宽**灰度硬规则，审计 P1-4）。
+///
+/// **判定顺序**：先判「不支持还原」再判「白名单为空」——两者都是拒绝，但
+/// 「这个应用还不支持还原」才是用户真正该看到的原因（先报白名单为空会误导成
+/// 「数据目录没声明」，审计 P2-4）。
 fn restore_policy(app_id: &str) -> CoreResult<(Vec<String>, u32, String)> {
     let (doc, source) = registry::fetch_app(app_id, true)?;
     if !registry::is_network_verified_source(&source) {
@@ -900,6 +932,19 @@ fn restore_policy(app_id: &str) -> CoreResult<(Vec<String>, u32, String)> {
         ));
     }
     let maintenance = doc.get("maintenance");
+    // ① 灰度开关（先判：理由更贴近用户真正该看到的）
+    let restore_cfg = maintenance.and_then(|m| m.get("restore"));
+    let supported = restore_cfg
+        .and_then(|r| r.get("supported"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !supported {
+        return Err(CoreError::new(
+            "RESTORE_UNSUPPORTED",
+            format!("'{app_id}' does not support restoring yet; refusing to restore"),
+        ));
+    }
+    // ② 白名单
     let data_paths: Vec<String> = maintenance
         .and_then(|m| m.get("dataPaths"))
         .and_then(|v| v.as_array())
@@ -917,26 +962,12 @@ fn restore_policy(app_id: &str) -> CoreResult<(Vec<String>, u32, String)> {
             ),
         ));
     }
-    let restore_cfg = maintenance.and_then(|m| m.get("restore"));
-    let supported = restore_cfg
-        .and_then(|r| r.get("supported"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    if !supported {
-        return Err(CoreError::new(
-            "RESTORE_UNSUPPORTED",
-            format!("'{app_id}' does not support restoring yet; refusing to restore"),
-        ));
-    }
-    let max_age_hours = restore_cfg
-        .and_then(|r| r.get("maxAgeHours"))
-        .and_then(|v| v.as_u64())
-        .filter(|v| {
-            (*v as u64) >= restore::MIN_MAX_AGE_HOURS as u64
-                && (*v as u64) <= restore::MAX_MAX_AGE_HOURS as u64
-        })
-        .map(|v| v as u32)
-        .unwrap_or(restore::DEFAULT_MAX_AGE_HOURS);
+    // ③ 允许的最长时长（**Rust 硬上限 24h**；registry 只能往小里收，不能放宽）
+    let max_age_hours = restore::effective_max_age_hours(
+        restore_cfg
+            .and_then(|r| r.get("maxAgeHours"))
+            .and_then(|v| v.as_u64()),
+    );
     Ok((data_paths, max_age_hours, source))
 }
 
@@ -970,7 +1001,9 @@ pub struct RestorePreview {
 /// - 还原目标也**不得落在备份库内**；
 /// - 清单 appId 必须匹配、home 指纹必须一致、软链目标跳过；
 /// - 清单超过 32 MiB → `RESTORE_MANIFEST_TOO_LARGE`；
-/// - 备份超过 `maxAgeHours` → `RESTORE_BACKUP_TOO_OLD`；
+/// - 备份超过 `maxAgeHours` → `RESTORE_BACKUP_TOO_OLD`
+///   （**Rust 硬上限 24h**，registry 不能放宽；且清单自述时间与备份目录 mtime
+///   **任一**超龄、或清单自称「未来的备份」→ 同样拒绝）；
 /// - 覆盖前先把旧数据**移**到 `~/.aibox/backup/pre-restore-<ts>/<appId>/` 保全（不删除）。
 ///   **该目录需人工清理**（AiBOX 不自动删旧凭据）——路径随结果返回并写入任务日志。
 #[tauri::command]

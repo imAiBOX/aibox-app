@@ -13,7 +13,7 @@
  *   还原了几条就写几条，没做的事绝不写成做了。
  * - **`RESTORE_*` 错误不可重试**（重试同一个备份结果一样）→ 错误页只给「关闭」。
  */
-import { useCallback, useEffect, useMemo, useReducer } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type RestoreIssue } from "../net/client";
 import { restoreErrorKey } from "../state/manage";
@@ -57,6 +57,18 @@ function IssueRow({ issue, tone }: { issue: RestoreIssue; tone: "skip" | "fail" 
 export function RestoreFlow({ backupDir, appId, onClose }: Props) {
   const { t } = useTranslation();
   const [state, dispatch] = useReducer(restoreReduce, undefined, createInitialRestoreState);
+  /** 「打开保全目录」失败（后端只允许打开家目录内的路径）→ 可见提示 */
+  const [revealErr, setRevealErr] = useState(false);
+
+  /** 打开保全目录（失败要说人话，别让用户以为按钮坏了） */
+  const revealPreserved = useCallback(async (dir: string) => {
+    setRevealErr(false);
+    try {
+      await api.revealDir(dir);
+    } catch {
+      setRevealErr(true);
+    }
+  }, []);
 
   /** 预览（**不写任何东西**） */
   const loadPreview = useCallback(async () => {
@@ -197,11 +209,14 @@ export function RestoreFlow({ backupDir, appId, onClose }: Props) {
               <p className="text-xs text-aibox-text2">{t("s8.restorePreserveNote", { dir: result.preservedDir })}</p>
               <button
                 type="button"
-                onClick={() => void api.revealDir(result.preservedDir!).catch(() => undefined)}
+                onClick={() => void revealPreserved(result.preservedDir!)}
                 className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-[10px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
               >
                 {t("s8.restoreOpenPreserved")}
               </button>
+              {revealErr && (
+                <p className="text-xs text-aibox-danger">{t("s8.restoreRevealFail")}</p>
+              )}
             </div>
           )}
         </div>

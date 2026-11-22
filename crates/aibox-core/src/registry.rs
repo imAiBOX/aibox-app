@@ -366,13 +366,20 @@ pub fn fetch_crosschecked(
 
 /// 该来源是不是**网络核过的**（可用于安全敏感判定，如还原白名单）。
 ///
-/// **只有本地缓存不可信**：
-/// - `cache`（新鲜缓存）/ `cache-stale`（断网时的旧缓存）→ `false`（**免复校** → 可被投毒）；
-/// - 其余（`jsdelivr` / `raw` / `github-api` / `aibox-im` …）→ `true`。
+/// **允许列表**（不是黑名单！）：只有这 4 个**真网络来源**算数——
+/// `jsdelivr` / `raw` / `github-api` / `aibox-im`。
 ///
-/// 白名单必须走这条判定：缓存里的 registry 文档可能被改过 → 还原目标可被换成 `~/.ssh`。
+/// **为什么不用黑名单**（审计 P2-1）：黑名单（"排除 cache / cache-stale"）在**新增来源**时
+/// 会**默认放行**（fail-open）——例如构建期内嵌的本地快照 `snapshot`（网络全挂时的兜底）
+/// 就会被当成「网络核过」→ 白名单可被本地文件投毒。
+/// 允许列表的默认是「拒绝」→ 新增来源必须**显式**加进来。
+///
+/// 本地来源一律 `false`：`cache`（新鲜缓存）/ `cache-stale`（断网时的旧缓存）/ `snapshot`
+/// （随版本发布的内嵌快照）/ 任何未知值。
+///
+/// 白名单必须走这条判定：缓存 / 快照里的 registry 文档可能被改过 → 还原目标可被换成 `~/.ssh`。
 pub fn is_network_verified_source(src: &str) -> bool {
-    !matches!(src, "cache" | "cache-stale")
+    matches!(src, "jsdelivr" | "raw" | "github-api" | "aibox-im")
 }
 
 /// 构建时嵌入的目录快照（`scripts/gen-registry-snapshot.mjs` 拉 registry index.json
@@ -756,6 +763,28 @@ mod tests {
         assert!(is_network_verified_source("raw"));
         assert!(is_network_verified_source("jsdelivr"));
         assert!(is_network_verified_source("aibox-im"));
+    }
+
+    /// **允许列表**语义（审计 P2-1）：本地来源 / 未知来源一律不算「网络核过」。
+    ///
+    /// 黑名单会在**新增来源**时 fail-open（默认放行）→ 内嵌快照 `snapshot`
+    /// （构建时打进安装包的 registry 目录）就会被当成网络源 → 白名单可被投毒。
+    #[test]
+    fn only_the_four_network_sources_count_as_verified() {
+        // 本地来源
+        assert!(!is_network_verified_source("snapshot"));
+        assert!(!is_network_verified_source("cache"));
+        assert!(!is_network_verified_source("cache-stale"));
+        // 未知 / 空 / 大小写变体 → 一律拒绝（允许列表的默认是「拒绝」）
+        assert!(!is_network_verified_source(""));
+        assert!(!is_network_verified_source("github-api "));
+        assert!(!is_network_verified_source("GitHub-API"));
+        assert!(!is_network_verified_source("https://evil.example/app.json"));
+        assert!(!is_network_verified_source("file:///etc/passwd"));
+        // 四个真网络源
+        for src in ["jsdelivr", "raw", "github-api", "aibox-im"] {
+            assert!(is_network_verified_source(src), "{src} must be verified");
+        }
     }
 
     /// 正确 SHA + 非 UTF-8 内容 → 仍是完整性问题（内容不符预期文档）。

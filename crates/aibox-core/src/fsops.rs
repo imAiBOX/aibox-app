@@ -275,6 +275,22 @@ pub fn tighten_dir(p: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// 新建目录（Unix `0700`，**新建即 0700**——不是事后 chmod）。
+///
+/// 与 [`ensure_private_dir`] 的关键区别：**绝不 chmod 已存在的目录**。
+/// 还原时建的是**用户原始数据目录**（`~/.config/xxx`）→ 不能改它的权限
+/// （用户自己定的 0755 可能就是有意的）；只有**我们新建**的目录才收紧。
+pub fn create_dirs_private(p: &Path) -> std::io::Result<()> {
+    let mut b = std::fs::DirBuilder::new();
+    b.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        b.mode(0o700);
+    }
+    b.create(p)
+}
+
 /// 独占创建临时文件（**`create_new`**）——同名已存在则**加序号重试**
 /// （`.1`、`.2`…）：备份侧的临时文件不因残留而彻底卡死。
 pub fn create_unique_tmp(

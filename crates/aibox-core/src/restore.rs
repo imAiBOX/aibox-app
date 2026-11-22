@@ -35,9 +35,12 @@
 //! 9. **零提权 / 不删任何东西**：只做「移到保全目录」+「写新文件」。
 //! 10. **备份库与保全目录私有**（Unix 0700 / 0600）：里面是应用凭据明文，
 //!    同机别的账号不该能读（审计 P1-3）。
-//! 11. **只还原本机刚做的备份**（v0.1.20 灰度）：备份的 `createdAt` 超过
-//!    `max_age_hours`（缺省 24h）→ 整体拒绝 `RESTORE_BACKUP_TOO_OLD`；
-//!    清单没写创建时间 → 年龄未知 → **同样拒绝**（fail-closed）。
+//! 11. **只还原本机刚做的备份**（v0.1.20 灰度）：备份年龄超过 `max_age_hours`
+//!    （**Rust 硬上限 24h**，registry 不能放宽）→ 整体拒绝 `RESTORE_BACKUP_TOO_OLD`；
+//!    清单没写创建时间 → 年龄未知 → **同样拒绝**（fail-closed）；
+//!    **双口径**：清单自述 `createdAt` **或**备份目录 mtime 任一超龄 → 拒绝；
+//!    清单自称「未来的备份」→ 拒绝（审计 P1-2）。
+//! 12. **目录私有**（Unix 0700）：还原新建的目录与文件（0600）权限齐平（审计 P3-5）。
 //!
 //! 整体拒绝（抛错、**在任何读写之前**）：`RESTORE_NO_MANIFEST` / `RESTORE_HOME_MISMATCH` /
 //! `RESTORE_TOO_LARGE` / `RESTORE_MANIFEST_TOO_LARGE` / `RESTORE_APP_MISMATCH` /
@@ -77,11 +80,25 @@ pub const MAX_BACKUP_ENTRIES: usize = MAX_RESTORE_ENTRIES;
 /// 还原清单格式版本（不符 → 拒绝，不猜路径）。
 pub const MANIFEST_SCHEMA: &str = "aibox-restore/v1";
 /// 缺省的最大可还原时长（小时）——registry 可在 1..=168 内声明自己的值。
+///
+/// **注意**：真正的上限是 [`MAX_RESTORE_AGE_HOURS`]（Rust 硬上限 24h）——
+/// registry 只能往小里收，不能放宽（见 [`effective_max_age_hours`]）。
 pub const DEFAULT_MAX_AGE_HOURS: u32 = 24;
 /// registry 可声明的最大可还原时长下界（小时）。
 pub const MIN_MAX_AGE_HOURS: u32 = 1;
 /// registry 可声明的最大可还原时长上界（小时）。
 pub const MAX_MAX_AGE_HOURS: u32 = 168;
+/// **Rust 侧硬上限**：可还原备份的最大年龄（小时）——**registry 不能放宽**。
+///
+/// 灰度规则是「只还原本机刚做的备份」；registry 文档虽然走多源网络交叉校验，
+/// 但它仍然是**外部文档**（能被改）→ **放宽窗口的权限只留在 Rust 手里**。
+/// registry 声明值 > 本值 → 一律压回本值（见 [`effective_max_age_hours`]）。
+pub const MAX_RESTORE_AGE_HOURS: u32 = 24;
+/// 年龄闸门的**未来容忍度**（毫秒）：清单自述时间最多比「现在」晚这么多。
+///
+/// 只容忍极小的时钟漂移（备份就在本机做的，误差毫秒级）；
+/// **不容忍**清单自称「几年后做的」——那会让年龄算成 0 → 备份永远「新鲜」（审计 P1-2）。
+const FUTURE_SKEW_MS: u64 = 5 * 60 * 1000;
 
 // ── 逐条原因码（固定枚举；UI 必须逐个映射人话文案）────────────────────
 /// 路径上有软链 → 为安全跳过。
@@ -291,7 +308,7 @@ pub fn restore_backup_in(
         home,
         data_paths,
         &crate::manage::default_backup_root(),
-        DEFAULT_MAX_AGE_HOURS,
+        MAX_RESTORE_AGE_HOURS,
     )
 }
 
@@ -572,28 +589,17 @@ fn prepare_restore(
     }
 
     // ⑧ 超龄（**在 ①–⑦ 之后、任何写入之前**）：越界/限额比「太旧」更严重，先报它们。
-    // 清单没写创建时间 → 年龄未知 → **按超龄拒绝**（fail-closed：拿不准 → 拒绝）。
-    let age_hours = age_hours_since(manifest.created_at_ms);
-    if manifest.created_at_ms == 0 {
-        return Err(CoreError::new(
-            "RESTORE_BACKUP_TOO_OLD",
-            "The backup does not state when it was created (age unknown); refusing to restore",
-        ));
-    }
-    if age_hours > max_age_hours {
-        return Err(CoreError::new(
-            "RESTORE_BACKUP_TOO_OLD",
-            format!(
-                "This backup is {age_hours} hour(s) old (limit {max_age_hours}); refusing to restore"
-            ),
-        ));
-    }
-
+    // **双口径**（清单自述 `createdAt` + 备份目录 mtime；任一超龄 → 拒绝；
+    // 清单自称「未来」→ 也拒绝；详见 [`check_backup_age`]）。
+    //
     // 载荷根 = 清单所在目录；保全根 = 备份根
     let payload_root = manifest_path
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| backup_dir_real.clone());
+    let dir_mtime_ms = backup_dir_mtime_ms(&payload_root, &backup_root_real);
+    let age = backup_age(manifest.created_at_ms, dir_mtime_ms);
+    check_backup_age(&age, max_age_hours)?;
 
     Ok(RestoreContext {
         home_real,
@@ -692,22 +698,45 @@ fn build_plan(ctx: &RestoreContext, app_id: &str, max_age_hours: u32) -> Restore
     }
 }
 
-/// 计划摘要：entries 按 `target` 排序 → 拼 `"{target}|{size}|{sha256}\n"` → sha256。
+/// 计划摘要：entries 按 `(target, rel, is_dir, size, sha256)` 排序 → **无歧义编码** → sha256。
 ///
-/// 摘要只由**清单**决定（不读载荷）→ 预览与执行之间清单被改 → 摘要变了 → 拒绝执行。
+/// **为什么改成无歧义编码**（审计 P1-1：摘要可碰撞 → 「预览 = 执行」不变式被破）：
+/// 旧格式 `"{target}|{size}|{sha256}\n"` 有两处可碰撞：
+/// ① **不含 `isDir`** → 同一个 target 从「目录」翻成「文件」→ 真正写下去的内容完全不同，
+///    摘要却一模一样（预览看到 A，执行却写了 A 的文件）；
+/// ② **分隔符不转义** → 清单里的 `sha256` 可以含换行 → 「条目数不同」的两份清单
+///    能拼出同一段摘要输入（换行注入）。
+///
+/// 新格式：**每个字段都用字节长度前缀**（`len:value`）→ 任何字段内容都无法伪造边界；
+/// 且覆盖**所有影响写入的字段**：`target` / `rel` / `isDir` / `size` / `sha256`。
+/// 排序键也改成全字段 → 清单条目顺序不同但内容相同时摘要相同（写入结果相同 → 摘要相同）。
 fn plan_digest(entries: &[PlannedEntry]) -> String {
-    let mut sorted: Vec<(&str, u64, &str)> = entries
-        .iter()
-        .map(|e| (e.target.as_str(), e.size, e.sha256.as_str()))
-        .collect();
-    sorted.sort_by(|a, b| a.0.cmp(b.0));
+    let mut sorted: Vec<&PlannedEntry> = entries.iter().collect();
+    sorted.sort_by(|a, b| {
+        a.target
+            .cmp(&b.target)
+            .then_with(|| a.rel.cmp(&b.rel))
+            .then_with(|| a.is_dir.cmp(&b.is_dir))
+            .then_with(|| a.size.cmp(&b.size))
+            .then_with(|| a.sha256.cmp(&b.sha256))
+    });
     let mut buf = String::new();
-    for (target, size, sha) in sorted {
-        buf.push_str(target);
+    for e in sorted {
+        buf.push_str(&e.target.len().to_string());
+        buf.push(':');
+        buf.push_str(&e.target);
         buf.push('|');
-        buf.push_str(&size.to_string());
+        buf.push_str(&e.rel.len().to_string());
+        buf.push(':');
+        buf.push_str(&e.rel);
         buf.push('|');
-        buf.push_str(sha);
+        buf.push_str(if e.is_dir { "1" } else { "0" });
+        buf.push('|');
+        buf.push_str(&e.size.to_string());
+        buf.push('|');
+        buf.push_str(&e.sha256.len().to_string());
+        buf.push(':');
+        buf.push_str(&e.sha256);
         buf.push('\n');
     }
     sha256_str(&buf)
@@ -755,7 +784,7 @@ fn execute_restore(ctx: &RestoreContext, plan: &RestorePlan) -> CoreResult<Resto
 /// - `format = "legacy"`：有清单但 schema 不符（旧格式 `data.zip`）→ **不可还原**；
 /// - `format = "unknown"`：没有清单 → **不可还原**。
 ///
-/// `restorable` = v1 + home 指纹一致 + 创建时间已知 + 未超龄。
+/// `restorable` = v1 + 清单 appId 与目录名一致 + home 指纹一致 + 创建时间已知 + 未超龄。
 pub fn list_backups_in(
     backup_root: &Path,
     home: &Path,
@@ -767,6 +796,9 @@ pub fn list_backups_in(
         // 备份库还不存在 → 空列表（不是错误）
         return Ok(Vec::new());
     };
+    // 备份根的真实路径（包含性检查的基准）
+    let backup_root_real =
+        fs::canonicalize(backup_root).unwrap_or_else(|_| backup_root.to_path_buf());
     let mut out: Vec<BackupRecord> = Vec::new();
     for ts_entry in rd.flatten() {
         let ts_dir = ts_entry.path();
@@ -778,6 +810,14 @@ pub fn list_backups_in(
         if ts_name.starts_with("pre-restore-") {
             continue;
         }
+        // **包含性检查**（审计 P2-2）：`<ts>` 目录解析软链后必须仍在备份根之内
+        // （备份库里放一个指向库外的软链 → 列表不得把它交给 UI）。
+        let Ok(ts_real) = fs::canonicalize(&ts_dir) else {
+            continue;
+        };
+        if !ts_real.starts_with(&backup_root_real) {
+            continue;
+        }
         let Ok(app_rd) = fs::read_dir(&ts_dir) else {
             continue;
         };
@@ -786,12 +826,20 @@ pub fn list_backups_in(
             if !app_dir.is_dir() {
                 continue;
             }
+            // **包含性检查**（同上）：`<ts>/<appId>` 目录也必须在备份根之内。
+            let Ok(app_real) = fs::canonicalize(&app_dir) else {
+                continue;
+            };
+            if !app_real.starts_with(&backup_root_real) {
+                continue;
+            }
             let app_id = app_entry.file_name().to_string_lossy().into_owned();
             out.push(read_backup_record(
                 &app_dir,
                 &app_id,
                 &home_hash,
                 max_age_hours,
+                &backup_root_real,
             ));
         }
     }
@@ -810,6 +858,7 @@ fn read_backup_record(
     app_id: &str,
     home_hash: &str,
     max_age_hours: u32,
+    backup_root_real: &Path,
 ) -> BackupRecord {
     let mut rec = BackupRecord {
         app_id: app_id.to_string(),
@@ -841,10 +890,12 @@ fn read_backup_record(
         .unwrap_or("")
         .to_string();
     let created_at_ms = parse_iso8601_ms(&created_at).unwrap_or(0);
-    let age_hours = age_hours_since(created_at_ms);
+    // **与执行同一条年龄口径**（清单自述 + 目录 mtime；任一超龄 → 不可还原）
+    let dir_mtime_ms = backup_dir_mtime_ms(app_dir, backup_root_real);
+    let age = backup_age(created_at_ms, dir_mtime_ms);
     rec.created_at = created_at;
     rec.created_at_ms = created_at_ms;
-    rec.age_hours = age_hours;
+    rec.age_hours = age.worst();
     let schema = value.get("schema").and_then(|v| v.as_str()).unwrap_or("");
     if schema != MANIFEST_SCHEMA {
         // 有清单但不是本格式（旧备份）→ 明确标出来，UI 提示「请手动恢复」
@@ -873,11 +924,18 @@ fn read_backup_record(
         .and_then(|v| v.as_str())
         .map(|h| h.eq_ignore_ascii_case(home_hash))
         .unwrap_or(false);
+    // 清单的 appId 必须与**目录名**一致（审计 P2-3 的一部分）：
+    // 清单被挪到别的应用目录下（或目录被改名）→ 张冠李戴 → 不可还原。
+    let app_ok = value
+        .get("appId")
+        .and_then(|v| v.as_str())
+        .map(|a| a == app_id)
+        .unwrap_or(false);
     rec.format = "v1".to_string();
     rec.file_count = file_count;
     rec.total_bytes = total_bytes;
-    // 可还原 = v1 + home 指纹一致 + 创建时间已知 + 未超龄
-    rec.restorable = home_ok && created_at_ms > 0 && age_hours <= max_age_hours;
+    // 可还原 = v1 + appId 一致 + home 指纹一致 + 年龄合格（双口径，与执行同一条规则）
+    rec.restorable = app_ok && home_ok && check_backup_age(&age, max_age_hours).is_ok();
     rec
 }
 
@@ -897,6 +955,152 @@ fn age_hours_since(created_at_ms: u64) -> u32 {
     }
     let ms = now_ms().saturating_sub(created_at_ms);
     (ms / 3_600_000).min(u32::MAX as u64) as u32
+}
+
+/// registry 声明的「最大可还原时长」→ **实际生效值**（小时）。
+///
+/// 规则（全部 fail-closed）：
+/// - 缺失 / 非数字 / 越界（不在 `MIN_MAX_AGE_HOURS..=MAX_MAX_AGE_HOURS`）→ [`MAX_RESTORE_AGE_HOURS`]；
+/// - 声明值 **大于 [`MAX_RESTORE_AGE_HOURS`] → 压回 [`MAX_RESTORE_AGE_HOURS`]**：
+///   **registry 不能放宽**灰度硬规则（否则一份远端文档就能把「只还原 24h 内的备份」
+///   悄悄变成 7 天——审计 P1-4）。
+pub fn effective_max_age_hours(declared: Option<u64>) -> u32 {
+    let raw = match declared {
+        Some(v) if (MIN_MAX_AGE_HOURS as u64) <= v && v <= (MAX_MAX_AGE_HOURS as u64) => v,
+        _ => return MAX_RESTORE_AGE_HOURS,
+    };
+    raw.min(MAX_RESTORE_AGE_HOURS as u64) as u32
+}
+
+/// 备份目录的**文件系统时间**（unix 毫秒）→ 取「载荷所在目录」与「它的上一层目录」
+/// 两个 mtime 里**较旧**的那个。
+///
+/// **为什么取较旧者**（取舍，审计 P1-2 的第二口径）：
+/// - 正常备份里这两个 mtime 只差几秒（`<ts>` 先建、`<appId>` 后建、文件最后写）；
+/// - **改写 `manifest.json` 会刷新 `<appId>` 目录的 mtime，但不会刷新父 `<ts>` 目录的**
+///   → 取较旧者（= `<ts>` 的 mtime）才能挡住「改清单伪造年龄」这种半篡改；
+///   取较新者则会被改清单顺手刷新 → 第二口径形同虚设；
+/// - **拷贝 / 移动会同时刷新两个 mtime** → 取较旧者不会因为「搬过家」而误拒真备份
+///   （可用性上没有代价）。
+/// - 备份根本身**不计入**：保全目录（`pre-restore-*`）的创建会刷新它 → 与备份新旧无关。
+///
+/// 局限（写在这里避免误以为它很强）：能写备份目录的人也能改这两个 mtime →
+/// 第二口径挡的是「只能改清单」的篡改与损坏，不是同机全权限攻击者。
+fn backup_dir_mtime_ms(payload_root: &Path, backup_root_real: &Path) -> Option<u64> {
+    let mut dirs: Vec<&Path> = vec![payload_root];
+    if let Some(parent) = payload_root.parent() {
+        dirs.push(parent);
+    }
+    let mut best: Option<u64> = None;
+    for p in dirs {
+        if p == backup_root_real {
+            continue; // 备份根：保全目录会刷新它 → 与备份新旧无关
+        }
+        let Ok(meta) = fs::metadata(p) else { continue };
+        let Ok(t) = meta.modified() else { continue };
+        let Ok(d) = t.duration_since(std::time::UNIX_EPOCH) else {
+            continue;
+        };
+        let ms = d.as_millis() as u64;
+        best = Some(match best {
+            Some(b) => b.min(ms),
+            None => ms,
+        });
+    }
+    best
+}
+
+/// 备份年龄的**两个口径**（清单自述 + 目录 mtime）。
+#[derive(Debug, Clone, Copy)]
+struct BackupAge {
+    /// 清单自述创建时间（unix 毫秒；0 = 清单没写/解析不了 → 年龄未知）
+    created_at_ms: u64,
+    /// 清单自述年龄（小时；`None` = 年龄未知）
+    declared: Option<u32>,
+    /// 备份目录 mtime（unix 毫秒；`None` = 取不到）
+    dir_mtime_ms: Option<u64>,
+    /// 目录年龄（小时；`None` = 取不到）
+    dir: Option<u32>,
+}
+
+impl BackupAge {
+    /// **最坏估计**年龄（小时）：两个口径里**较旧**的那个（未知算 0）。
+    ///
+    /// 报告值与闸门取同一口径 → UI 显示与判定永远一致
+    /// （不会出现「0 小时前但不可还原」这种自相矛盾）。
+    fn worst(&self) -> u32 {
+        self.declared.unwrap_or(0).max(self.dir.unwrap_or(0))
+    }
+}
+
+/// 采集两个口径的年龄（清单时间 + 目录 mtime）。
+fn backup_age(created_at_ms: u64, dir_mtime_ms: Option<u64>) -> BackupAge {
+    BackupAge {
+        created_at_ms,
+        declared: if created_at_ms == 0 {
+            None
+        } else {
+            Some(age_hours_since(created_at_ms))
+        },
+        dir_mtime_ms,
+        dir: dir_mtime_ms.map(age_hours_since),
+    }
+}
+
+/// 备份年龄闸门（**列表与执行共用同一套口径**——否则会出现
+/// 「列表说可还原、执行说太旧」的自相矛盾）。
+///
+/// **双口径**（**任一超龄即拒绝**）：
+/// 1. **清单自述年龄**（`createdAt`）：**可被篡改** → 只能当参考，不能当唯一依据；
+/// 2. **目录年龄**（备份目录 mtime）：改清单改不了它 → 更可信。
+///
+/// 返回 `Ok(最坏估计年龄)`；超龄 / 时间非法 → `Err(RESTORE_BACKUP_TOO_OLD)`。
+fn check_backup_age(age: &BackupAge, max_age_hours: u32) -> CoreResult<u32> {
+    let too_old = |what: String| {
+        CoreError::new(
+            "RESTORE_BACKUP_TOO_OLD",
+            format!("{what}; refusing to restore"),
+        )
+    };
+    let now = now_ms();
+    // ① 时间未知 → 拒绝（fail-closed：拿不准 → 不放行）
+    if age.created_at_ms == 0 {
+        return Err(too_old(
+            "The backup does not state when it was created (age unknown)".to_string(),
+        ));
+    }
+    // ② 清单自称「未来的备份」→ 清单被改过 → 按非法处理（fail-closed）
+    if age.created_at_ms > now.saturating_add(FUTURE_SKEW_MS) {
+        return Err(too_old(
+            "The backup claims to be created in the future (its creation time was tampered with)"
+                .to_string(),
+        ));
+    }
+    // ③ 目录年龄（第二口径）：取不到 → 不可信 → 拒绝
+    let Some(dir_mtime) = age.dir_mtime_ms else {
+        return Err(too_old(
+            "The backup folder has no readable timestamp (age unknown)".to_string(),
+        ));
+    };
+    if dir_mtime > now.saturating_add(FUTURE_SKEW_MS) {
+        return Err(too_old(
+            "The backup folder timestamp is in the future (it was tampered with)".to_string(),
+        ));
+    }
+    let declared_age = age.declared.unwrap_or(0);
+    let dir_age = age.dir.unwrap_or(0);
+    // ④ 任一口径超龄 → 拒绝（宁可拒绝，也不放行可疑备份）
+    if declared_age > max_age_hours {
+        return Err(too_old(format!(
+            "This backup is {declared_age} hour(s) old (limit {max_age_hours})"
+        )));
+    }
+    if dir_age > max_age_hours {
+        return Err(too_old(format!(
+            "This backup folder is {dir_age} hour(s) old (limit {max_age_hours})"
+        )));
+    }
+    Ok(age.worst())
 }
 
 /// ISO-8601（`YYYY-MM-DDTHH:MM:SS[.fff]Z`，UTC）→ unix 毫秒；解析不了 → `None`。
@@ -1081,6 +1285,9 @@ fn parse_manifest(value: &Value, app_id: &str) -> CoreResult<Manifest> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    if has_control_chars(&created_at) {
+        return Err(damaged("createdAt contains control characters"));
+    }
     let created_at_ms = parse_iso8601_ms(&created_at).unwrap_or(0);
     let arr = obj
         .get("entries")
@@ -1100,6 +1307,14 @@ fn parse_manifest(value: &Value, app_id: &str) -> CoreResult<Manifest> {
         if rel.is_empty() || target.is_empty() {
             return Err(damaged("entry with empty rel/target"));
         }
+        // **所有字符串字段拒绝控制字符**（U+0000–U+001F，含 `\n` `\r`）：
+        // 清单里塞一个换行就能伪造摘要编码的字段边界（审计 P1-1）→ 当作损坏清单。
+        if has_control_chars(rel) {
+            return Err(damaged("entry rel contains control characters"));
+        }
+        if has_control_chars(target) {
+            return Err(damaged("entry target contains control characters"));
+        }
         let is_dir = item.get("isDir").and_then(|v| v.as_bool()).unwrap_or(false);
         // 文件条目的 size **缺失即视为损坏**（默认 0 会让限额与校验失效）
         let size = match item.get("size").and_then(|v| v.as_u64()) {
@@ -1116,8 +1331,16 @@ fn parse_manifest(value: &Value, app_id: &str) -> CoreResult<Manifest> {
             .get("sha256")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
+        if has_control_chars(sha256) {
+            return Err(damaged("entry sha256 contains control characters"));
+        }
         if !is_dir && !is_hex64(sha256) {
             return Err(damaged("file entry without a 64-hex sha256"));
+        }
+        // 目录条目的摘要：**只允许空串或 64 位 hex**（与文件条目同规则）。
+        // 旧实现对目录条目的 `sha256` 完全不校验 → 可以塞换行伪造摘要输入（审计 P1-1）。
+        if is_dir && !sha256.is_empty() && !is_hex64(sha256) {
+            return Err(damaged("directory entry with an invalid sha256"));
         }
         entries.push(ManifestEntry {
             rel: rel.to_string(),
@@ -1335,7 +1558,11 @@ fn restore_entry(
     restore_file(entry, &source, &target_abs, &target_rel, preserver)
 }
 
-/// 目录条目：缺失则创建（父目录一并建）。
+/// 目录条目：缺失则创建（父目录一并建，**0700 私有**）。
+///
+/// **权限**（审计 P3-5）：新建目录用 **0700**（Unix 新建即 0700，不靠事后 chmod）
+/// → 与文件 0600、备份库 0700 齐平；**已存在的目录不动权限**
+/// （绝不改用户原始数据目录的权限）。
 fn restore_dir(target_abs: &Path) -> EntryResult {
     match fs::symlink_metadata(target_abs) {
         Ok(m) if m.is_dir() => EntryResult::Ready,
@@ -1344,7 +1571,7 @@ fn restore_dir(target_abs: &Path) -> EntryResult {
             detail: "target exists as a file".into(),
         },
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            if let Err(e) = fs::create_dir_all(target_abs) {
+            if let Err(e) = fsops::create_dirs_private(target_abs) {
                 return EntryResult::Fail {
                     code: ISSUE_WRITE_FAILED,
                     detail: format!("cannot create directory: {e}"),
@@ -1489,7 +1716,8 @@ fn preserve_existing(
     };
     let dest = unique_path(&dir.join(target_rel));
     if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent)?;
+        // 保全目录里的子目录也是私有（0700）
+        fsops::create_dirs_private(parent)?;
     }
     match fs::rename(target_abs, &dest) {
         Ok(()) => {}
@@ -1546,7 +1774,8 @@ fn write_verified(
         verify: false,
         detail: "target has no parent directory".into(),
     })?;
-    fs::create_dir_all(dir).map_err(|e| WriteFailure {
+    // 目标父目录：新建即 0700（与文件 0600 齐平；审计 P3-5）
+    fsops::create_dirs_private(dir).map_err(|e| WriteFailure {
         verify: false,
         detail: format!("cannot create the parent directory: {e}"),
     })?;
@@ -1635,6 +1864,14 @@ fn hex(bytes: &[u8]) -> String {
 /// 是否 64 位十六进制。
 fn is_hex64(s: &str) -> bool {
     s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// 字符串里是否含**控制字符**（U+0000–U+001F，含 `\n` `\r`）。
+///
+/// 清单里的路径 / 摘要字段一旦含控制字符 → 就能伪造摘要编码的字段边界
+/// （审计 P1-1）→ 一律当作**损坏清单**（整体拒绝，不猜、不跳过）。
+fn has_control_chars(s: &str) -> bool {
+    s.chars().any(|c| (c as u32) < 0x20)
 }
 
 /// 相对路径白名单：必须相对、无 `..`、无根/盘符前缀、无空结果。
@@ -4035,4 +4272,467 @@ mod tests {
         );
     }
     // ── 备份侧：junction / 越界目录 + 限额（manage.rs 里断言） ──────────
+
+    // ══ 第三轮独立安全审计的回归用例 ══════════════════════════════════
+
+    /// 造一条计划条目（摘要单测用）。
+    fn planned(target: &str, rel: &str, size: u64, sha: &str, is_dir: bool) -> PlannedEntry {
+        PlannedEntry {
+            target: target.to_string(),
+            rel: rel.to_string(),
+            size,
+            is_dir,
+            exists: false,
+            payload_present: true,
+            sha256: sha.to_string(),
+        }
+    }
+
+    /// ① P1-1：`isDir` 翻转 → 摘要**必须**不同（否则「预览 = 执行」不变式被破）。
+    #[test]
+    fn plan_digest_changes_when_a_directory_becomes_a_file() {
+        let dir = planned("/home/appdata/A", "appdata/A", 7, "aa", true);
+        let file = planned("/home/appdata/A", "appdata/A", 7, "aa", false);
+        assert_ne!(
+            plan_digest(&[dir.clone()]),
+            plan_digest(&[file.clone()]),
+            "isDir must be part of the digest"
+        );
+        // 其它字段同样必须进摘要（逐个翻转都要变）
+        let other_rel = planned("/home/appdata/A", "appdata/B", 7, "aa", true);
+        assert_ne!(plan_digest(&[dir.clone()]), plan_digest(&[other_rel]));
+        let other_size = planned("/home/appdata/A", "appdata/A", 8, "aa", true);
+        assert_ne!(plan_digest(&[dir.clone()]), plan_digest(&[other_size]));
+        let other_sha = planned("/home/appdata/A", "appdata/A", 7, "bb", true);
+        assert_ne!(plan_digest(&[dir.clone()]), plan_digest(&[other_sha]));
+        let other_target = planned("/home/appdata/B", "appdata/A", 7, "aa", true);
+        assert_ne!(plan_digest(&[dir.clone()]), plan_digest(&[other_target]));
+        // 相同输入 → 相同摘要（不能变成随机）
+        assert_eq!(plan_digest(&[dir.clone()]), plan_digest(&[dir]));
+    }
+
+    /// ② P1-1：条目数不同的两份清单 → 摘要**必须**不同（换行注入的老坑）。
+    #[test]
+    fn plan_digest_differs_when_the_entry_count_differs() {
+        let one = planned("/home/appdata/A", "appdata/A", 1, "aa", false);
+        let two = planned("/home/appdata/B", "appdata/B", 2, "bb", false);
+        assert_ne!(
+            plan_digest(&[one.clone()]),
+            plan_digest(&[one.clone(), two.clone()])
+        );
+        // 端到端：清单多一条条目 → 预览摘要必须变
+        let root = tmpdir("digest-count");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+        write(&dir.join("a.txt"), "a");
+        write(&dir.join("b.txt"), "b");
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [json_entry("a.txt", "appdata/a.txt", 1, &sha256_str("a"), false)],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        let p1 = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap();
+        let manifest2 = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [
+                json_entry("a.txt", "appdata/a.txt", 1, &sha256_str("a"), false),
+                json_entry("b.txt", "appdata/b.txt", 1, &sha256_str("b"), false),
+            ],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest2).unwrap(),
+        );
+        let p2 = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap();
+        assert_ne!(p1.digest, p2.digest, "条目数不同 → 摘要必须不同");
+    }
+
+    /// ③⑤ P1-1：清单里含控制字符（`\n` / `\r` / NUL）→ 清单损坏 → 整体拒绝。
+    #[test]
+    fn rejects_manifest_fields_with_control_characters() {
+        let root = tmpdir("ctrl-chars");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+        write(&dir.join("payload.txt"), "x");
+
+        let cases: Vec<(&str, Value)> = vec![
+            (
+                "target with a newline",
+                json_entry("payload.txt", "appdata/a\nb.txt", 1, &sha256_str("x"), false),
+            ),
+            (
+                "rel with a newline",
+                json_entry("pay\nload.txt", "appdata/a.txt", 1, &sha256_str("x"), false),
+            ),
+            (
+                "sha256 with a newline",
+                json_entry("payload.txt", "appdata/a.txt", 1, "aa\nbb", false),
+            ),
+            (
+                "target with NUL",
+                json_entry("payload.txt", "appdata/a\u{0}b.txt", 1, &sha256_str("x"), false),
+            ),
+        ];
+        for (what, entry) in cases {
+            let manifest = serde_json::json!({
+                "schema": MANIFEST_SCHEMA,
+                "appId": "demo",
+                "createdAt": crate::fsops::now_iso8601(),
+                "homeHash": home_fingerprint(&home),
+                "entries": [entry],
+            });
+            write(
+                &dir.join("manifest.json"),
+                &serde_json::to_string(&manifest).unwrap(),
+            );
+            let err = plan_restore_in_at(
+                &dir,
+                "demo",
+                &home,
+                &wl(&home, "appdata"),
+                &backup_root,
+                24,
+            )
+            .unwrap_err();
+            assert_eq!(err.code, "RESTORE_NO_MANIFEST", "{what}: {err:?}");
+            let err = restore_backup_in_at(
+                &dir,
+                "demo",
+                &home,
+                &wl(&home, "appdata"),
+                &backup_root,
+                24,
+            )
+            .unwrap_err();
+            assert_eq!(err.code, "RESTORE_NO_MANIFEST", "{what}: {err:?}");
+        }
+        assert!(!home.join("appdata/a.txt").exists(), "must not touch home");
+    }
+
+    /// ④ P1-1：目录条目的 `sha256` 非 64-hex（或含换行）→ 清单损坏 → 整体拒绝。
+    #[test]
+    fn rejects_directory_entries_with_an_invalid_sha256() {
+        let root = tmpdir("dir-sha");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+
+        for bad in ["B", "not-a-sha", "aa\nbb", &"a".repeat(63), &"z".repeat(64)] {
+            let manifest = serde_json::json!({
+                "schema": MANIFEST_SCHEMA,
+                "appId": "demo",
+                "createdAt": crate::fsops::now_iso8601(),
+                "homeHash": home_fingerprint(&home),
+                "entries": [json_entry("payload.txt", "appdata/sub", 0, bad, true)],
+            });
+            write(
+                &dir.join("manifest.json"),
+                &serde_json::to_string(&manifest).unwrap(),
+            );
+            let err = restore_backup_in_at(
+                &dir,
+                "demo",
+                &home,
+                &wl(&home, "appdata"),
+                &backup_root,
+                24,
+            )
+            .unwrap_err();
+            assert_eq!(err.code, "RESTORE_NO_MANIFEST", "sha={bad:?}: {err:?}");
+        }
+        // 合法形态：空串（我们自己的备份就是这么写的）与 64-hex 都放行
+        for good in ["", &"a".repeat(64)] {
+            let manifest = serde_json::json!({
+                "schema": MANIFEST_SCHEMA,
+                "appId": "demo",
+                "createdAt": crate::fsops::now_iso8601(),
+                "homeHash": home_fingerprint(&home),
+                "entries": [json_entry("payload.txt", "appdata/sub", 0, good, true)],
+            });
+            write(
+                &dir.join("manifest.json"),
+                &serde_json::to_string(&manifest).unwrap(),
+            );
+            let plan = plan_restore_in_at(
+                &dir,
+                "demo",
+                &home,
+                &wl(&home, "appdata"),
+                &backup_root,
+                24,
+            );
+            assert!(plan.is_ok(), "sha={good:?} must be accepted: {plan:?}");
+        }
+    }
+
+    /// P1-2：年龄闸门是 fail-closed 的（纯函数级：未来时间 / 目录很旧 / 两者都新）。
+    #[test]
+    fn age_gate_is_fail_closed() {
+        let now = now_ms();
+        let hour = 3_600_000u64;
+        // ① 清单自称「未来的备份」→ 拒绝（年龄会算成 0 → 永远新鲜）
+        let future = backup_age(now + 60 * 60 * 1000, Some(now));
+        let err = check_backup_age(&future, 24).unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
+        // ② 清单很旧 → 拒绝
+        let old = backup_age(now - 100 * hour, Some(now));
+        let err = check_backup_age(&old, 24).unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
+        // ③ 清单说新、但目录很旧 → 拒绝（第二口径）
+        let forged = backup_age(now - hour, Some(now - 100 * hour));
+        let err = check_backup_age(&forged, 24).unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
+        // ④ 清单说未来、目录也新 → 仍然拒绝（清单自述不可信）
+        let forged2 = backup_age(now + 60 * 60 * 1000, Some(now - 100 * hour));
+        assert!(check_backup_age(&forged2, 24).is_err());
+        // ⑤ 时间未知 → 拒绝
+        let unknown = backup_age(0, Some(now));
+        let err = check_backup_age(&unknown, 24).unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
+        // ⑥ 目录 mtime 取不到 → 拒绝
+        let no_dir = backup_age(now - hour, None);
+        assert!(check_backup_age(&no_dir, 24).is_err());
+        // ⑦ 两者都新 → 放行
+        let fresh = backup_age(now - hour, Some(now - 2 * hour));
+        assert!(check_backup_age(&fresh, 24).is_ok());
+        // ⑧ 刚好在窗口内 → 放行；超出一小时 → 拒绝
+        let edge = backup_age(now - 24 * hour, Some(now - 24 * hour));
+        assert!(check_backup_age(&edge, 24).is_ok());
+        let over = backup_age(now - 25 * hour, Some(now - 25 * hour));
+        assert!(check_backup_age(&over, 24).is_err());
+    }
+
+    /// P1-2（端到端）：清单自称「未来的备份」→ 整体拒绝（预览与执行一致）。
+    #[test]
+    fn refuses_backup_with_a_future_creation_time() {
+        let root = tmpdir("future-time");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = make_backup_at(
+            &backup_root,
+            &home,
+            "demo",
+            "2999-01-01T00:00:00Z",
+            &[("appdata/x.txt", "x")],
+        );
+        let err = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
+        let err =
+            restore_backup_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+                .unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
+        assert!(!home.join("appdata/x.txt").exists(), "must not touch home");
+        // 列表侧同口径 → 不可还原
+        let list = list_backups_in(&backup_root, &home, 24).unwrap();
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert!(!list[0].restorable, "{list:?}");
+    }
+
+    /// P1-2（端到端，Unix）：清单说新、但备份目录很旧 → 拒绝（第二口径生效）。
+    #[cfg(unix)]
+    #[test]
+    fn refuses_backup_whose_folder_is_older_than_the_manifest() {
+        let root = tmpdir("old-folder");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = make_backup_at(
+            &backup_root,
+            &home,
+            "demo",
+            &crate::fsops::now_iso8601(),
+            &[("appdata/x.txt", "x")],
+        );
+        // 把备份目录的 mtime 改成 100 天前（模拟「清单被改成新的、目录还是旧的」）
+        let old = std::time::SystemTime::UNIX_EPOCH
+            + std::time::Duration::from_millis(now_ms().saturating_sub(100 * 24 * 3_600_000));
+        let f = fs::File::open(&dir).unwrap();
+        f.set_times(fs::FileTimes::new().set_modified(old)).unwrap();
+        drop(f);
+
+        let err = restore_backup_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
+        assert!(!home.join("appdata/x.txt").exists(), "must not touch home");
+        // 列表侧同口径 → 不可还原
+        let list = list_backups_in(&backup_root, &home, 24).unwrap();
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert!(!list[0].restorable, "{list:?}");
+    }
+
+    /// P1-4：registry **不能放宽** Rust 的 24h 硬上限。
+    #[test]
+    fn registry_cannot_widen_the_restore_window() {
+        assert_eq!(MAX_RESTORE_AGE_HOURS, 24);
+        // 声明 168h（registry 允许的最大值）→ 实际生效 24h
+        assert_eq!(effective_max_age_hours(Some(168)), 24);
+        assert_eq!(effective_max_age_hours(Some(25)), 24);
+        assert_eq!(effective_max_age_hours(Some(48)), 24);
+        // 往小里收是允许的
+        assert_eq!(effective_max_age_hours(Some(1)), 1);
+        assert_eq!(effective_max_age_hours(Some(12)), 12);
+        // 缺失 / 越界 → 缺省 24
+        assert_eq!(effective_max_age_hours(None), 24);
+        assert_eq!(effective_max_age_hours(Some(0)), 24);
+        assert_eq!(effective_max_age_hours(Some(9999)), 24);
+    }
+
+    /// P2-2：备份库里放一个指向库外的软链 → **列表不得把它交给 UI**。
+    #[cfg(unix)]
+    #[test]
+    fn list_skips_backup_dirs_outside_the_backup_root() {
+        use std::os::unix::fs::symlink;
+        let root = tmpdir("list-escape");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+
+        // 库外做一个「备份」
+        let outside = root.join("outside");
+        let evil = outside.join("20260101000000/evilapp");
+        fs::create_dir_all(&evil).unwrap();
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "evilapp",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [],
+        });
+        write(
+            &evil.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        // 库里放一个指向它的软链（模拟攻击者把库外目录挂进备份库）
+        symlink(&outside.join("20260101000000"), backup_root.join("20260101000000")).unwrap();
+
+        let list = list_backups_in(&backup_root, &home, 24).unwrap();
+        assert!(
+            !list.iter().any(|r| r.app_id == "evilapp"),
+            "a backup outside the library must not be listed: {list:?}"
+        );
+        // 正常备份仍然要列出来（别把整个功能打死）
+        //（用**另一个**时间戳目录：上面那个名字已被软链占用了）
+        let ok = backup_root.join("20260101000001/goodapp");
+        fs::create_dir_all(&ok).unwrap();
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "goodapp",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [],
+        });
+        write(
+            &ok.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        let list = list_backups_in(&backup_root, &home, 24).unwrap();
+        assert!(list.iter().any(|r| r.app_id == "goodapp"), "{list:?}");
+    }
+
+    /// P2-3（一部分）：清单 appId 与目录名不一致 → 不可还原。
+    #[test]
+    fn list_marks_backup_with_mismatched_app_id_as_not_restorable() {
+        let root = tmpdir("app-mismatch");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        // 目录叫 "dirname"，清单却说自己是 "otherapp"
+        let dir = backup_root.join("20260101000000/dirname");
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "otherapp",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        let list = list_backups_in(&backup_root, &home, 24).unwrap();
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(list[0].format, "v1", "{list:?}");
+        assert!(
+            !list[0].restorable,
+            "a manifest from another app must not be restorable: {list:?}"
+        );
+    }
+
+    /// P3-5：还原**新建**的目录是 0700（与文件 0600 齐平）；既有目录权限不动。
+    #[cfg(unix)]
+    #[test]
+    fn restored_directories_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tmpdir("dir-mode");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+        write(&dir.join("payload.txt"), "x");
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [json_entry("payload.txt", "appdata/sub", 0, "", true)],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        let out =
+            restore_backup_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+                .unwrap();
+        assert_eq!(out.restored, 0, "{out:?}");
+        assert!(out.skipped.is_empty(), "{out:?}");
+        let sub = home.join("appdata/sub");
+        assert!(sub.is_dir(), "the directory must be created");
+        let mode = fs::metadata(&sub).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "restored directories must be private");
+    }
 }
