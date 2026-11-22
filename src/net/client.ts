@@ -36,6 +36,7 @@ import {
   mockDownloadCancel,
   mockManageBackup,
   mockManageRemove,
+  mockManageRestore,
   mockManageManifestList,
   getMockScenario,
 } from "./mock";
@@ -184,6 +185,20 @@ export interface ManageRemoveResult {
   backupDir?: string;
   removed: string[];
   skipped: { path: string; reason: string }[];
+}
+
+/**
+ * MANAGE：还原结果（Rust `manage_restore` 返回）。
+ *
+ * `preservedDir` = 被覆盖的旧数据保全目录（`<backup_root>/pre-restore-<ts>/<appId>`）——
+ * **需要人工清理**（AiBOX 不自动删旧凭据）。
+ */
+export interface ManageRestoreResult {
+  restored: number;
+  restoredPaths?: string[];
+  skipped?: string[];
+  failed?: string[];
+  preservedDir?: string;
 }
 
 /** MANAGE：已装清单条目（Rust manage_manifest_list 返回） */
@@ -441,6 +456,12 @@ function mockDispatch<T>(cmd: string, a?: unknown): T {
       ) as T;
     case "manage_remove":
       return mockManageRemove(a as Parameters<typeof mockManageRemove>[0]) as T;
+    case "manage_restore":
+      return mockManageRestore(
+        String((a as { backupDir?: string })?.backupDir ?? ""),
+        String((a as { appId?: string })?.appId ?? ""),
+        ((a as { dataPaths?: string[] })?.dataPaths ?? []) as string[],
+      ) as T;
     case "manage_manifest_list":
       return mockManageManifestList() as T;
     case "tray_sync":
@@ -512,12 +533,14 @@ export const api = {
   manageBackup: (appId: string, dataPaths: string[]) =>
     invoke<ManageBackupResult>("manage_backup", { appId, dataPaths }),
   /** MANAGE：卸载（backupFirst 自动备份 → 白名单删除；backup=false 仅风险卡二次确认后传） */
-  /** 从备份还原（破坏性：会覆盖升级后的新文件；界面需显式确认） */
-  manageRestore: (backupDir: string, appId: string) =>
-    invoke<{ restored: number; restoredPaths?: string[]; skipped?: string[]; failed?: string[] }>(
-      "manage_restore",
-      { backupDir, appId },
-    ),
+  /**
+   * 从备份还原（破坏性：会覆盖升级后的新文件；界面需显式确认）。
+   *
+   * `dataPaths` = **调用方给的可信白名单**（registry manifest 的 `maintenance.dataPaths`）——
+   * Rust 侧命令 `manage_restore` 必填，漏传会被参数校验拒。
+   */
+  manageRestore: (backupDir: string, appId: string, dataPaths: string[]) =>
+    invoke<ManageRestoreResult>("manage_restore", { backupDir, appId, dataPaths }),
   manageRemove: (input: {
     appId: string;
     residualPaths: string[];

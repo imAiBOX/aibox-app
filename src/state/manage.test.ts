@@ -303,6 +303,33 @@ describe("manage 错误码 → 人话（不给用户看英文原文）", () => {
     expect(isRetryableManageError("MANAGE_SOME_FUTURE_CODE")).toBe(false);
     expect(isRetryableManageError("")).toBe(false);
   });
+
+  // P2-7：还原类错误码各自独立（落 s8.errRemove 是误导——它们都是「整体拒绝」）
+  const RESTORE_CODES: [string, string][] = [
+    ["RESTORE_NO_MANIFEST", "s8.errRestoreNoManifest"],
+    ["RESTORE_HOME_MISMATCH", "s8.errRestoreHomeMismatch"],
+    ["RESTORE_TOO_LARGE", "s8.errRestoreTooLarge"],
+    ["RESTORE_MANIFEST_TOO_LARGE", "s8.errRestoreManifestTooLarge"],
+    ["RESTORE_APP_MISMATCH", "s8.errRestoreAppMismatch"],
+    ["RESTORE_NO_WHITELIST", "s8.errRestoreNoWhitelist"],
+    ["RESTORE_TARGET_NOT_ALLOWED", "s8.errRestoreTargetNotAllowed"],
+    ["RESTORE_BAD_BACKUP_DIR", "s8.errRestoreBadBackupDir"],
+  ];
+
+  it("8 个 RESTORE_* 码各自有独立的人话 key（不落通用错误）", () => {
+    for (const [code, key] of RESTORE_CODES) {
+      expect(manageErrorKey(code, "whatever")).toBe(key);
+      expect(key).not.toBe("s8.errRemove");
+    }
+    // 8 个码 → 8 个不同的 key（不能两个码共用一句）
+    expect(new Set(RESTORE_CODES.map(([, k]) => k)).size).toBe(RESTORE_CODES.length);
+  });
+
+  it("RESTORE_* 一律不可重试（重试同一个备份结果一样）", () => {
+    for (const [code] of RESTORE_CODES) {
+      expect(isRetryableManageError(code)).toBe(false);
+    }
+  });
 });
 
 describe("ERROR → 重新确认风险卡 → REMOVE（第三轮审计 REJECT 的回归防护）", () => {

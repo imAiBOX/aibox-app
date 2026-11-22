@@ -499,7 +499,16 @@
     "backupDone": "升級前已把你的資料備份到 {{path}}",
     "backupLast": "上次升級 {{appId}} 前，已把你的資料備份到 {{path}} —— 需要還原時去那裡找。",
     "restoreUnavailable": "自動還原尚未開放。可開啟備份目錄手動還原資料；這不會退回軟體版本。",
-    "upgradeBackupBlocked": "{{appId}} 的備份未能完成，升級已暫停。請檢查磁碟空間及檔案權限後再試。"
+    "upgradeBackupBlocked": "{{appId}} 的備份未能完成，升級已暫停。請檢查磁碟空間及檔案權限後再試。",
+    "errRestoreNoManifest": "這個備份裡沒有還原清單，所以什麼都沒改動。開啟備份資料夾，手動把需要的檔案拿回來。",
+    "errRestoreHomeMismatch": "這個備份是在另一個使用者帳號下做的，所以什麼都沒改動。開啟備份資料夾，手動把需要的檔案拿回來。",
+    "errRestoreTooLarge": "這個備份太大，安全還原處理不了，所以什麼都沒改動。開啟備份資料夾，手動把需要的檔案拿回來。",
+    "errRestoreManifestTooLarge": "這個備份裡的還原清單損壞或太大，所以什麼都沒改動。開啟備份資料夾，手動把需要的檔案拿回來。",
+    "errRestoreAppMismatch": "這個備份屬於另一個應用程式，所以什麼都沒改動。開啟備份資料夾，手動把需要的檔案拿回來。",
+    "errRestoreNoWhitelist": "AiBOX 不知道這個應用程式可以寫到哪些資料夾，所以什麼都沒改動。開啟備份資料夾，手動把需要的檔案拿回來。",
+    "errRestoreTargetNotAllowed": "這個備份想寫到應用程式資料夾以外的地方，AiBOX 基於安全停下了，所以什麼都沒改動。開啟備份資料夾，手動把需要的檔案拿回來。",
+    "errRestoreBadBackupDir": "這個備份不在 AiBOX 的備份資料夾裡，所以什麼都沒改動。開啟備份資料夾，手動把需要的檔案拿回來。",
+    "restorePreservedNote": "原本的檔案已移到 {{path}}。沒有任何東西被刪除——確認不需要後，你可以自己刪掉那個資料夾。"
   },
   "notify": {
     "tab": "通知",

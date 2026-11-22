@@ -22,6 +22,7 @@ import type {
   VerifyInput,
   ManageBackupResult,
   ManageRemoveResult,
+  ManageRestoreResult,
   ManifestEntry,
   PrefetchOutcome,
   PrefetchState,
@@ -546,6 +547,28 @@ export function mockManageRemove(input: {
       : {}),
     removed,
     skipped,
+  };
+}
+
+/**
+ * MANAGE：从备份还原（mock）。
+ *
+ * **不假装写了文件**：mock 模式没有真的备份库可还原，返回「什么都没还原」
+ * 并说清原因（`skipped` 里给一句人话）。真行为只在 Rust 侧发生。
+ */
+export function mockManageRestore(
+  backupDir: string,
+  appId: string,
+  dataPaths: string[],
+): ManageRestoreResult {
+  void backupDir;
+  void appId;
+  void dataPaths;
+  return {
+    restored: 0,
+    restoredPaths: [],
+    skipped: ["mock: 还原未在 mock 模式执行（没有写入任何文件）"],
+    failed: [],
   };
 }
 

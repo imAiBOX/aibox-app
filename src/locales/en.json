@@ -499,7 +499,16 @@
     "backupDone": "Before upgrading, your data was backed up to {{path}}",
     "backupLast": "Before the last upgrade of {{appId}}, your data was backed up to {{path}} — open it if you need to restore something.",
     "restoreUnavailable": "Automatic restore is not available yet. Open the backup folder for manual recovery; this does not downgrade the app.",
-    "upgradeBackupBlocked": "Upgrade paused for {{appId}} because the backup could not be completed. Check disk space and file permissions, then try again."
+    "upgradeBackupBlocked": "Upgrade paused for {{appId}} because the backup could not be completed. Check disk space and file permissions, then try again.",
+    "errRestoreNoManifest": "This backup has no restore list, so nothing was changed. Open the backup folder to pick your files back up by hand.",
+    "errRestoreHomeMismatch": "This backup was made for a different user account, so nothing was changed. Open the backup folder to pick your files back up by hand.",
+    "errRestoreTooLarge": "This backup is too big to restore safely, so nothing was changed. Open the backup folder to pick your files back up by hand.",
+    "errRestoreManifestTooLarge": "The restore list inside this backup is damaged or too big, so nothing was changed. Open the backup folder to pick your files back up by hand.",
+    "errRestoreAppMismatch": "This backup belongs to a different app, so nothing was changed. Open the backup folder to pick your files back up by hand.",
+    "errRestoreNoWhitelist": "AiBOX doesn't know which folders this app is allowed to write to, so nothing was changed. Open the backup folder to pick your files back up by hand.",
+    "errRestoreTargetNotAllowed": "This backup wants to write outside the app's own data folders, so AiBOX stopped for safety and nothing was changed. Open the backup folder to pick your files back up by hand.",
+    "errRestoreBadBackupDir": "This backup isn't in AiBOX's backup folder, so nothing was changed. Open the backup folder to pick your files back up by hand.",
+    "restorePreservedNote": "Your previous files were moved to {{path}}. Nothing was deleted — delete that folder yourself when you no longer need it."
   },
   "notify": {
     "tab": "Notifications",

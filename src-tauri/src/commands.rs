@@ -825,8 +825,9 @@ pub async fn install_record(app_id: String, version: Option<String>) -> Cmd<Stri
 
 // ── MANAGE 维护模式（已装应用 升级复用安装链 / 卸载 / 备份 / 清单）──────
 
-/// 数据备份：dataPaths（展开 ~、只读存在的）→ `~/.aibox/backup/<ts>/<appId>/data.zip`
-/// + `manifest.json`（条目↔原路径还原映射）。只碰声明路径，绝不越界。
+/// 数据备份：dataPaths（展开 ~、只读存在的）→ `~/.aibox/backup/<ts>/<appId>/`
+/// （原相对路径树 + `manifest.json` 还原清单：条目↔原路径映射 + 每文件 sha256 + home 指纹）。
+/// 只碰声明路径，绝不越界。
 #[tauri::command]
 pub async fn manage_backup(app_id: String, data_paths: Vec<String>) -> Cmd<BackupOutcome> {
     blocking(move || manage::backup_app(&app_id, &data_paths, &manage::default_backup_root())).await
@@ -835,11 +836,38 @@ pub async fn manage_backup(app_id: String, data_paths: Vec<String>) -> Cmd<Backu
 /// **从备份还原**（升级前备份 → 恢复用户数据）。
 ///
 /// 破坏性操作（会覆盖升级后的新文件）→ 界面必须显式确认后再调。
-/// 安全红线在 `manage::restore_backup_in` 内（只还原 manifest 登记的条目、
-/// 目标必须仍在 home 内、appId 必须匹配、软链目标跳过）。
+/// 安全红线在 `manage::restore_backup_in` 内：
+/// - `data_paths` 是**调用方给的可信白名单**（registry manifest 的 `maintenance.dataPaths`，
+///   与 `manage_backup` 同一来源）——**清单自述的 target 不可信**；
+///   白名单为空 → `RESTORE_NO_WHITELIST`；
+///   **白名单就是 home 本身（`~` / `~/.` / home 绝对路径）→ 拒绝该条目**
+///   （否则等于放开整个 home）；
+///   任一条 target 不在白名单内 → 整体拒绝 `RESTORE_TARGET_NOT_ALLOWED`；
+/// - 备份目录必须在 `~/.aibox/backup` 之内 → 否则 `RESTORE_BAD_BACKUP_DIR`；
+///   还原目标也**不得落在备份库内**；
+/// - 清单 appId 必须匹配、home 指纹必须一致、软链目标跳过；
+/// - 清单超过 32 MiB → `RESTORE_MANIFEST_TOO_LARGE`；
+/// - 覆盖前先把旧数据**移**到 `~/.aibox/backup/pre-restore-<ts>/<appId>/` 保全（不删除）。
+///   **该目录需人工清理**（AiBOX 不自动删旧凭据）——路径随结果返回并写入任务日志。
 #[tauri::command]
-pub async fn manage_restore(backup_dir: String, app_id: String) -> Cmd<manage::RestoreOutcome> {
-    blocking(move || manage::restore_backup(&backup_dir, &app_id)).await
+pub async fn manage_restore(
+    backup_dir: String,
+    app_id: String,
+    data_paths: Vec<String>,
+) -> Cmd<manage::RestoreOutcome> {
+    let app_for_log = app_id.clone();
+    let out = blocking(move || manage::restore_backup(&backup_dir, &app_id, &data_paths)).await?;
+    // 还原留痕：还原了多少、旧数据保全目录在哪（**需人工清理**）
+    let _ = aibox_core::tasklog::append(
+        &app_for_log,
+        "restore",
+        &format!(
+            "restored {} file(s); preserved old data at: {} (delete it manually when no longer needed)",
+            out.restored,
+            out.preserved_dir.as_deref().unwrap_or("(none)")
+        ),
+    );
+    Ok(out)
 }
 
 /// 卸载：backupFirst 自动备份 → 白名单内（residualPaths ∪ dataPaths）删除 →

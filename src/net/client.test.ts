@@ -14,6 +14,7 @@ import {
   mockExecInstall,
   mockLocalesLoad,
   mockEvents,
+  mockManageRestore,
   mockNetdoctorRun,
   mockNetProbe,
   mockRegistryApp,
@@ -166,6 +167,20 @@ describe("mock 基础数据", () => {
   it("diag_export 返回 zip 路径", () => {
     // 直接测 mock 层（client.diagExport 需要 VITE_AIBOX_MOCK，交给集成）
     expect(typeof mockNetdoctorRun().items.length).toBe("number");
+  });
+
+  // P2-8：mock 的 manage_restore 分支必须存在，且**不假装写了文件**
+  it("manage_restore：mock 不假装还原成功（restored=0 + 说清原因）", () => {
+    const r = mockManageRestore(
+      "C:\\Users\\dev\\.aibox\\backup\\20261113170000\\openclaw",
+      "openclaw",
+      ["~/.config/openclaw"],
+    );
+    expect(r.restored).toBe(0);
+    expect(r.restoredPaths ?? []).toHaveLength(0);
+    expect(r.failed ?? []).toHaveLength(0);
+    expect((r.skipped ?? []).join(" ")).toContain("mock");
+    expect(r.preservedDir).toBeUndefined();
   });
 });
 

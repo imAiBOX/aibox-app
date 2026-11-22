@@ -13,7 +13,8 @@
 //! | [`exec`] | 静默安装执行（nsis-silent / npm-prefix / script，零提权，超时+4KB 截断） |
 //! | [`probe`] | 运行探测命令 + regex expect → 真实版本字符串（V2 不变量） |
 //! | [`fsops`] | 备份 `.bak.<ts>`、JSON/JSON5 合并保键、原子写+回读校验 |
-//! | [`manage`] | MANAGE 维护模式：dataPaths 备份打包（zip+还原映射）/ 白名单卸载（越界拒绝、零提权） |
+//! | [`manage`] | MANAGE 维护模式：dataPaths 备份（路径树 + 还原清单）/ 白名单卸载（越界拒绝、零提权） |
+//! | [`restore`] | 安全自动还原：manifest 驱动（**白名单来自调用方给的 dataPaths**；越界/软链/校验不符跳过；覆盖前先保全旧数据） |
 //! | [`config`] | CONFIG C5：`config_write` 全流程（备份→合并→回读→脱敏返回） |
 //! | [`scan`] | `scan_system`：OS/磁盘/内存/Node/Git/WSL/已装应用/端口 18789（cfg 双实现） |
 //! | [`diagzip`] | 诊断打包（日志+ScanReport+计划+版本+系统信息）+ 强制脱敏扫描 |
@@ -27,6 +28,7 @@
 pub mod config;
 pub mod config_tpl;
 pub mod content_digest;
+pub mod datapaths;
 pub mod diagzip;
 pub mod download;
 pub mod exec;
@@ -40,6 +42,7 @@ pub mod probe;
 pub mod redact;
 pub mod region;
 pub mod registry;
+pub mod restore;
 pub mod scan;
 pub mod stats;
 pub mod tasklog;

@@ -321,6 +321,9 @@ export function manageReduce(state: ManageState, event: ManageEvent): ManageStat
  * 旧版把异常 message（英文 "failed to remove file …: permission denied (os error 5)"）
  * 直接截 64 字符当「说明」显示，却又在文案里写「看下面的说明」——小白完全看不懂。
  * 这里按机器码分流；实在认不出的再按关键字嗅（权限 / 文件被占用）。
+ *
+ * **还原类错误码（`RESTORE_*`）各自独立**（P2-7）：它们全是「**整体拒绝**」——
+ * 什么都没改动、只能人工取回；统一落 `s8.errRemove`（「可能部分改动」）是**误导**。
  */
 export function manageErrorKey(code: string, human: string): string {
   const byCode: Record<string, string> = {
@@ -332,6 +335,15 @@ export function manageErrorKey(code: string, human: string): string {
     MANAGE_BACKUP_INCOMPLETE: "s8.errBackupFailed",
     MANAGE_DELETE_FAILED: "s8.errDeleteFailed",
     IO_ERROR: "s8.errIo",
+    // ── 安全还原（`manage_restore`）：每码一句人话，都说清「什么都没改动」──
+    RESTORE_NO_MANIFEST: "s8.errRestoreNoManifest",
+    RESTORE_HOME_MISMATCH: "s8.errRestoreHomeMismatch",
+    RESTORE_TOO_LARGE: "s8.errRestoreTooLarge",
+    RESTORE_MANIFEST_TOO_LARGE: "s8.errRestoreManifestTooLarge",
+    RESTORE_APP_MISMATCH: "s8.errRestoreAppMismatch",
+    RESTORE_NO_WHITELIST: "s8.errRestoreNoWhitelist",
+    RESTORE_TARGET_NOT_ALLOWED: "s8.errRestoreTargetNotAllowed",
+    RESTORE_BAD_BACKUP_DIR: "s8.errRestoreBadBackupDir",
   };
   const direct = byCode[code];
   if (direct) return direct;
@@ -347,6 +359,9 @@ export function manageErrorKey(code: string, human: string): string {
  * **为什么用白名单而不是黑名单**（独立审计 2026-11-20 NOTE-4）：
  * 后端将来新增安全类错误码而前端未同步时，黑名单会让未知码「看起来可重试」→
  * 用户反复重试一个可能破坏数据的操作。白名单下未知码一律保守处理（不给重试）。
+ *
+ * **`RESTORE_*` 一律不可重试**（P2-7）：它们是「整体拒绝」——重试同一个备份
+ * 结果一样，只会让人以为多试几次就能成。
  */
 const RETRYABLE_MANAGE_ERRORS = new Set(["MANAGE_DELETE_FAILED", "IO_ERROR"]);
 

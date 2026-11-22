@@ -499,7 +499,16 @@
     "backupDone": "升级前已把你的数据备份到 {{path}}",
     "backupLast": "上次升级 {{appId}} 前，已把你的数据备份到 {{path}} —— 需要恢复时去那里找。",
     "restoreUnavailable": "自动还原尚未开放。可打开备份目录手动恢复数据；这不会回退软件版本。",
-    "upgradeBackupBlocked": "{{appId}} 的备份没能完成，升级已暂停。请检查磁盘空间和文件权限，再重试。"
+    "upgradeBackupBlocked": "{{appId}} 的备份没能完成，升级已暂停。请检查磁盘空间和文件权限，再重试。",
+    "errRestoreNoManifest": "这个备份里没有还原清单，所以什么都没改动。打开备份文件夹，手动把需要的文件拿回来。",
+    "errRestoreHomeMismatch": "这个备份是在另一个用户账号下做的，所以什么都没改动。打开备份文件夹，手动把需要的文件拿回来。",
+    "errRestoreTooLarge": "这个备份太大，安全还原处理不了，所以什么都没改动。打开备份文件夹，手动把需要的文件拿回来。",
+    "errRestoreManifestTooLarge": "这个备份里的还原清单损坏或太大，所以什么都没改动。打开备份文件夹，手动把需要的文件拿回来。",
+    "errRestoreAppMismatch": "这个备份属于另一个应用，所以什么都没改动。打开备份文件夹，手动把需要的文件拿回来。",
+    "errRestoreNoWhitelist": "AiBOX 不知道这个应用可以往哪些文件夹里写数据，所以什么都没改动。打开备份文件夹，手动把需要的文件拿回来。",
+    "errRestoreTargetNotAllowed": "这个备份想写到应用数据目录以外的地方，AiBOX 出于安全停下了，所以什么都没改动。打开备份文件夹，手动把需要的文件拿回来。",
+    "errRestoreBadBackupDir": "这个备份不在 AiBOX 的备份文件夹里，所以什么都没改动。打开备份文件夹，手动把需要的文件拿回来。",
+    "restorePreservedNote": "原来的文件已移到 {{path}}。没有任何东西被删除——确认不需要后，你可以自己删掉那个文件夹。"
   },
   "notify": {
     "tab": "通知",
