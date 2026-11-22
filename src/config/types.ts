@@ -26,4 +26,8 @@ export interface ProviderMeta {
   getKeyUrl?: string;
   recommendedModels?: ModelOption[];
   notes?: string;
+  /** registry 真源：AiBOX 能否自动写入这个 provider 的配置 */
+  configWritable?: boolean;
+  /** 目标配置格式（json/yaml/toml/db/other…） */
+  configFormat?: string;
 }

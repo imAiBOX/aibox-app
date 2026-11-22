@@ -25,6 +25,7 @@
 //! | [`stats`] | 应用统计：aibox.im/api/stats 拉取（卡片计数）+ 安装上报（best-effort） |
 
 pub mod config;
+pub mod config_tpl;
 pub mod content_digest;
 pub mod diagzip;
 pub mod download;

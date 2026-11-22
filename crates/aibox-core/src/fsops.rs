@@ -165,6 +165,30 @@ pub fn write_json_atomic(path: &Path, value: &Value) -> CoreResult<()> {
     std::fs::rename(&tmp, path).map_err(|e| io_err(format!("rename to {}", path.display()), e))
 }
 
+/// 原子写**文本**（同目录 tmp + rename；父目录自动创建）。
+/// 多格式配置（yaml/toml）用这个 —— JSON 专用写入器会把用户文件写坏。
+pub fn write_text_atomic(path: &Path, text: &str) -> CoreResult<()> {
+    let dir = path.parent().ok_or_else(|| {
+        CoreError::new("IO_ERROR", format!("No parent dir for {}", path.display()))
+    })?;
+    paths::ensure_dir(dir).map_err(|e| io_err(format!("create {}", dir.display()), e))?;
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, text).map_err(|e| io_err(format!("write {}", tmp.display()), e))?;
+    if path.exists() {
+        let _ = std::fs::remove_file(path);
+    }
+    std::fs::rename(&tmp, path).map_err(|e| io_err(format!("rename to {}", path.display()), e))
+}
+
+/// 回读校验（文本）：读盘内容必须与写入内容完全一致。
+pub fn readback_verify_text(path: &Path, expected: &str) -> CoreResult<bool> {
+    let actual = std::fs::read_to_string(path)
+        .map_err(|e| io_err(format!("read back {}", path.display()), e))?;
+    Ok(actual == expected)
+}
+
 /// 回读校验：重新读盘解析，与预期值深比较。
 pub fn readback_verify(path: &Path, expected: &Value) -> CoreResult<bool> {
     let actual = read_json5(path)?;

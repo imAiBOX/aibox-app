@@ -25,6 +25,10 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # sha2（gzip 内层内容摘要；纯 Rust）
 sha2 = "0.10"
+# 配置写入模板（按上游真实结构写 YAML/TOML/JSON）：toml_edit 保留注释与未知键（纯 Rust）
+toml_edit = "0.20"
+# YAML 读写（纯 Rust；yaml-rust2 不带 C 依赖）
+yaml-rust2 = "0.13"
 
 # Windows 系统信息读取（GetDiskFreeSpaceExW / GlobalMemoryStatusEx）——windows-sys 纯绑定无 C 构建
 [target.'cfg(windows)'.dependencies]

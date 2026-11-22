@@ -184,7 +184,8 @@
       "free": "free",
       "included": "in plan"
     },
-    "manualGuide": "Open the setup guide"
+    "manualGuide": "Open the setup guide",
+    "manualOnlyHint": "AiBOX cannot write this app's settings automatically (it keeps them in a database, a system keychain, or an encrypted file). Your config file will not be touched. Use the guide below, or open the app and paste the key there yourself."
   },
   "s6": {
     "title": "Real test message",
@@ -537,5 +538,6 @@
     "point3": "You can update, reinstall or remove what you install, from one place.",
     "skip": "Skip",
     "start": "Pick an app"
-  }
+  },
+  "err.configNoTarget": "This app has no matching entry for the provider yet (for example Continue needs a model entry created inside the app first). Nothing was written. Open the app and add a model entry, then try again, or configure it by hand with the guide."
 }

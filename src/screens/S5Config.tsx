@@ -114,6 +114,9 @@ export default function S5Config({
   );
 
   const keyCheck = wizardKeyCheck(w);
+  // registry 真源：这个 provider 的配置 AiBOX 能不能自动写（不能 → 提前告知，别让用户白忙）
+  const meta = wizardMeta(w);
+  const autoWritable = meta?.configWritable === true;
   const models = wizardModels(w);
 
   // C5 写入（真 invoke / mock 由 client 单一入口决定）
@@ -393,6 +396,20 @@ export default function S5Config({
                 </p>
                 <p className="mt-2 text-xs">{t("s5.writeNote")}</p>
               </div>
+              {meta && !autoWritable && (
+                <div className="rounded-[6px] border border-aibox-warn/70 bg-aibox-warn/10 px-3 py-2 text-xs leading-relaxed text-aibox-text2">
+                  <p>{t("s5.manualOnlyHint")}</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void openExternal(appGuideUrl(appId ?? "openclaw", i18n.resolvedLanguage))
+                    }
+                    className="mt-2 rounded-[4px] border border-aibox-warn px-3 py-1.5 font-mono text-xs hover:bg-aibox-warn/10"
+                  >
+                    {t("s5.manualGuide")}
+                  </button>
+                </div>
+              )}
               {w.errorKey && (
                 <div className="rounded-[6px] border border-aibox-danger px-3 py-2 text-sm text-aibox-danger">
                   <p>{t(w.errorKey)}</p>

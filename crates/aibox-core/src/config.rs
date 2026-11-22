@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use crate::err::{CoreError, CoreResult};
 use crate::fsops;
 use crate::paths;
+use crate::config_tpl::{Ctx, Template};
 use crate::registry;
 
 /// `config_write` 输入（ConfigWriteInput）。
@@ -76,6 +77,22 @@ pub fn resolve_target(input: &ConfigWriteInput) -> CoreResult<PathBuf> {
         "~/.config/{0}/{0}.json5",
         input.app_id.trim()
     )))
+}
+
+/// 解析目标配置文件（**模板优先**）：
+/// `configWrite.file` > 调用方 `targetPath` > registry 的 `configTarget` > 兜底。
+fn resolve_target_with_template(
+    input: &ConfigWriteInput,
+    template: Option<&Template>,
+) -> CoreResult<PathBuf> {
+    if let Some(t) = template {
+        if let Some(f) = &t.file {
+            if !f.trim().is_empty() {
+                return Ok(paths::expand(f));
+            }
+        }
+    }
+    resolve_target(input)
 }
 
 /// 该 provider 在此应用下**是否可由 AiBOX 自动写入**。
@@ -178,11 +195,76 @@ pub fn build_patch(input: &ConfigWriteInput) -> CoreResult<Value> {
 
 /// C5 全流程（同步；调用方放入 spawn_blocking）。
 pub fn config_write(input: &ConfigWriteInput) -> CoreResult<ConfigWriteResult> {
+    let app_doc = registry::read_cached_app(&input.app_id).ok();
+
+    // ① 写入模板（registry 的 `configWrite`）—— 有模板就按**该应用真实结构**写。
+    //    模板不合法 → 直接报错（fail-closed，不退回通用结构）。
+    let template = match app_doc.as_ref() {
+        Some(doc) => doc
+            .pointer(&format!(
+                "/modelProviders/{}/configWrite",
+                input.provider
+            ))
+            .map(Template::from_value)
+            .transpose()?,
+        None => None,
+    };
+
+    // ② 模板存在 → 走模板写入（JSON/YAML/TOML/JSON5 通用）。
+    if let Some(tpl) = template.as_ref() {
+        // 模板也必须声明可写（registry 是真源；显式 false 一律不写）。
+        if !provider_writable_in(
+            app_doc.as_ref().expect("app doc present"),
+            &input.provider,
+        ) {
+            return Err(CoreError::new(
+                "CONFIG_FORMAT_UNSUPPORTED",
+                format!(
+                    "AiBOX does not know how to write this app's config ({} format); the file was left untouched",
+                    tpl.format
+                ),
+            ));
+        }
+        let target = resolve_target_with_template(input, Some(tpl))?;
+        let ctx = Ctx {
+            provider: &input.provider,
+            api_key: input.api_key.as_deref(),
+            base_url: input.base_url.as_deref(),
+            model: input.model.as_deref(),
+        };
+        let existing = if target.is_file() {
+            std::fs::read_to_string(&target).map_err(|e| {
+                CoreError::new(
+                    "IO_ERROR",
+                    format!("cannot read {}: {}", target.display(), e),
+                )
+            })?
+        } else {
+            String::new()
+        };
+        let (text, changed) = crate::config_tpl::render(tpl, &existing, &ctx)?;
+        // 1) 备份（已有原文件才备份；首次写入 backupPath = ""）
+        let backup_path = if target.is_file() {
+            fsops::backup_file(&target)?.to_string_lossy().into_owned()
+        } else {
+            String::new()
+        };
+        // 2) 原子写（文本；多格式不能走 JSON 写入器）
+        fsops::write_text_atomic(&target, &text)?;
+        // 3) 回读校验（读盘内容必须与写入内容一致）
+        let ok = fsops::readback_verify_text(&target, &text)?;
+        return Ok(ConfigWriteResult {
+            backup_path,
+            ok,
+            merged_keys: changed,
+        });
+    }
+
+    // ③ 无模板 → 旧路径（通用 JSON5 结构）。
+    //    **格式闸门**：只对「已知写结构」的应用动手。
+    //    未知格式（yaml/toml/sqlite/…）→ 直接拒绝，**绝不碰用户的文件**。
     let patch = build_patch(input)?;
     let target = resolve_target(input)?;
-    // **格式闸门**：只对「已知写结构」的应用动手。
-    // 未知格式（yaml/toml/sqlite/…）→ 直接拒绝，**绝不碰用户的文件**。
-    let app_doc = registry::read_cached_app(&input.app_id).ok();
     if !write_allowed(app_doc.as_ref(), &input.provider, &target) {
         return Err(CoreError::new(
             "CONFIG_FORMAT_UNSUPPORTED",
