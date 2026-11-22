@@ -493,6 +493,16 @@ pub async fn download_cancel(job_id: String) -> Cmd<()> {
     Ok(())
 }
 
+/// 取消正在运行的安装进程（后端杀掉子进程；幂等：任务已结束也返回成功）。
+#[tauri::command]
+pub fn exec_cancel(task_id: String) -> Cmd<()> {
+    let execs = state::execs();
+    if let Some(h) = execs.get(&task_id) {
+        h.cancel.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
 /// **gzip 内层内容摘要校验**（源码归档用）。
 ///
 /// 字节 sha256 对 GitHub 自动生成的源码包**必然漂移**（每次 fetch 重新 gzip），
@@ -543,8 +553,20 @@ pub async fn exec_install(
     let log_cmd = format!("{} {}", spec.exe, spec.args.join(" "));
 
     let _ = app.emit("task_phase", json!({"taskId": id, "phase": "install"}));
+
+    // 取消标志：用户点「取消」→ 后端杀掉安装进程（前端停编排 ≠ 进程退出）
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let mut execs = state::execs();
+        execs.insert(id.clone(), state::ExecHandle { cancel: cancel.clone() });
+    }
+
     let task_id = id.clone();
-    let outcome = blocking(move || exec::run(&spec)).await;
+    let outcome = blocking(move || exec::run_cancellable(&spec, exec::timeout_from_env(), Some(&cancel))).await;
+    {
+        let mut execs = state::execs();
+        execs.remove(&task_id);
+    }
 
     // 任务日志：命令 / 退出码 / stdout+stderr 摘要（上游已截 4KB）
     let exec_log = match &outcome {

@@ -37,6 +37,23 @@ export interface NotifyPrefs {
  *
  * 支持跨零点（22:00 → 08:00）：start > end 时视为「跨天」。
  */
+/**
+ * 距离免打扰结束的毫秒数（不在免打扰时段 → 0）。
+ *
+ * 为什么需要：免打扰时段内我们**不发也不标记**（否则永远补不上），
+ * 但时段结束后必须**主动重新评估**一次，否则要等到下一次 4 小时轮询才补发。
+ */
+export function msUntilQuietEnd(
+  prefs: Pick<NotifyPrefs, "quietEnabled" | "quietStart" | "quietEnd">,
+  now: Date = new Date(),
+): number {
+  if (!isQuietNow(prefs, now)) return 0;
+  const end = new Date(now);
+  end.setHours(prefs.quietEnd, 0, 0, 0);
+  if (end.getTime() <= now.getTime()) end.setDate(end.getDate() + 1);
+  return end.getTime() - now.getTime();
+}
+
 export function isQuietNow(
   prefs: Pick<NotifyPrefs, "quietEnabled" | "quietStart" | "quietEnd">,
   now: Date = new Date(),
@@ -78,6 +95,8 @@ export interface NotifyStore {
   savePrefs(p: NotifyPrefs): Promise<void>;
   /** 取已通知集合 */
   loadSeen(): Promise<string[]>;
+  /** 只读：这个事件是否已经提醒过（**不标记**，用于「投递成功后才标记」） */
+  wasSeen(key: string): Promise<boolean>;
   /** 记入已通知（返回是否首次） */
   markSeen(key: string): Promise<boolean>;
   /** 记下最近一次升级前备份 */
@@ -194,6 +213,13 @@ export function createNotifyStore(kv?: Kv | null): NotifyStore {
         return raw && typeof raw.path === "string" ? raw : null;
       } catch {
         return null;
+      }
+    },
+    async wasSeen(key) {
+      try {
+        return (await this.loadSeen()).includes(key);
+      } catch {
+        return false;
       }
     },
     async markSeen(key) {

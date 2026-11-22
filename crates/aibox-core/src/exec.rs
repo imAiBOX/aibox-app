@@ -9,6 +9,7 @@
 //! 提权失败 → 结构化错误 `EXEC_ELEVATION_REQUIRED`（**绝不自动提权**）。
 
 use std::io::Read;
+use std::sync::atomic::Ordering;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -57,6 +58,8 @@ pub struct ExecOutcome {
     pub code: i32,
     pub out: String,
     pub timed_out: bool,
+    /// **被用户取消**（安装进程已被杀掉，不是自己退出的）
+    pub cancelled: bool,
 }
 
 /// 按 kind 计算最终参数（纯函数，单测锁语义）。
@@ -121,6 +124,45 @@ pub fn run(spec: &ExecSpec) -> CoreResult<ExecOutcome> {
     run_with_timeout(spec, timeout_from_env())
 }
 
+/// 带**取消标志**的执行：用户点「取消」时，置位标志 → 轮询循环杀掉子进程 → 返回 `cancelled: true`。
+///
+/// 为什么需要：前端停止编排 ≠ 安装进程退出。没有这一步，用户点完取消立刻重试，
+/// 第二个安装器会和第一个并发跑（互相覆盖同一批文件）。
+pub fn run_cancellable(
+    spec: &ExecSpec,
+    timeout: Duration,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+) -> CoreResult<ExecOutcome> {
+    let args = build_args(spec.kind, &spec.args);
+    let cwd = match &spec.cwd {
+        Some(c) => Some(paths::expand(c)),
+        None if spec.kind == ExecKind::NpmPrefix => {
+            let p = npm_prefix_dir();
+            let _ = paths::ensure_dir(&p);
+            Some(p)
+        }
+        None => std::env::current_dir().ok(),
+    };
+    let mut env: Vec<(String, String)> = Vec::new();
+    if spec.kind == ExecKind::NpmPrefix && !args.iter().any(|a| a.starts_with("--prefix")) {
+        env.push((
+            "npm_config_prefix".into(),
+            npm_prefix_dir().to_string_lossy().into_owned(),
+        ));
+    }
+    run_command_cancellable(
+        &CommandSpec {
+            program: &spec.exe,
+            args: &args,
+            cwd,
+            env: &env,
+            timeout,
+            elevation_guard: true,
+        },
+        cancel,
+    )
+}
+
 /// 带显式超时的执行（单测用短超时，避免进程级 env 竞态）。
 pub fn run_with_timeout(spec: &ExecSpec, timeout: Duration) -> CoreResult<ExecOutcome> {
     let args = build_args(spec.kind, &spec.args);
@@ -159,6 +201,17 @@ pub fn run_with_timeout(spec: &ExecSpec, timeout: Duration) -> CoreResult<ExecOu
 
 /// 跑一个命令：spawn → 收集 stdout/stderr → 超时杀 → 截断 4KB。
 pub fn run_command(cs: &CommandSpec<'_>) -> CoreResult<ExecOutcome> {
+    run_command_cancellable(cs, None)
+}
+
+/// 跑一个命令（可取消）：轮询时同时看取消标志 → 置位则**杀掉子进程**并回报 `cancelled`。
+///
+/// 注意：`child.kill()` 只杀直接子进程；安装器自己再派的孙进程（如 msiexec 的服务）
+/// 未必随之退出 —— 已知边界，Windows 上要彻底断进程树需要 Job Object（成本高，暂不做）。
+pub fn run_command_cancellable(
+    cs: &CommandSpec<'_>,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+) -> CoreResult<ExecOutcome> {
     let mut cmd = Command::new(cs.program);
     cmd.args(cs.args)
         .stdin(Stdio::null())
@@ -211,10 +264,20 @@ pub fn run_command(cs: &CommandSpec<'_>) -> CoreResult<ExecOutcome> {
 
     let deadline = Instant::now() + cs.timeout;
     let mut timed_out = false;
+    let mut cancelled = false;
     let status_opt = loop {
         match child.try_wait() {
             Ok(Some(st)) => break Some(st),
             Ok(None) => {
+                // 用户取消 → 立刻杀掉安装进程（前端不能只停编排）
+                if let Some(flag) = cancel {
+                    if flag.load(Ordering::Relaxed) {
+                        cancelled = true;
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break None;
+                    }
+                }
                 if Instant::now() >= deadline {
                     timed_out = true;
                     let _ = child.kill();
@@ -228,21 +291,37 @@ pub fn run_command(cs: &CommandSpec<'_>) -> CoreResult<ExecOutcome> {
     };
 
     // 收集输出（读线程随子进程退出 EOF）
-    if let Ok(b) = rx_o.recv_timeout(Duration::from_secs(5)) {
+    // 取消时只等很短：被杀进程的输出没价值，且孙进程可能仍持有管道（等满 5+5 秒会让「取消」感觉很慢）
+    let out_wait = if cancelled {
+        Duration::from_millis(500)
+    } else {
+        Duration::from_secs(5)
+    };
+    if let Ok(b) = rx_o.recv_timeout(out_wait) {
         out_buf.extend_from_slice(&b);
     }
-    if let Ok(b) = rx_e.recv_timeout(Duration::from_secs(5)) {
+    if let Ok(b) = rx_e.recv_timeout(out_wait) {
         out_buf.extend_from_slice(&b);
     }
 
     let raw = String::from_utf8_lossy(&out_buf);
     let out = truncate_utf8(&raw, MAX_OUT_BYTES);
 
+    if cancelled {
+        return Ok(ExecOutcome {
+            code: -1,
+            out: format!("{out}\n...[cancelled by user]"),
+            timed_out: false,
+            cancelled: true,
+        });
+    }
+
     if timed_out {
         return Ok(ExecOutcome {
             code: -1,
             out: format!("{out}\n...[timed out after {:?}]", cs.timeout),
             timed_out: true,
+            cancelled: false,
         });
     }
 
@@ -272,6 +351,7 @@ pub fn run_command(cs: &CommandSpec<'_>) -> CoreResult<ExecOutcome> {
         code,
         out,
         timed_out: false,
+        cancelled: false,
     })
 }
 
@@ -388,5 +468,59 @@ mod tests {
         let e = run(&spec(ExecKind::Script, "/no/such/binary-xyz", &[])).unwrap_err();
         assert_eq!(e.code, "EXEC_NOT_FOUND");
         assert!(!e.human.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod cancel_tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    /// 用户取消 → 子进程被杀、如实回报 cancelled（而不是当成失败）。
+    #[test]
+    fn cancel_kills_child_and_reports_cancelled() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let f2 = flag.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            f2.store(true, Ordering::Relaxed);
+        });
+        let started = Instant::now();
+        let out = run_cancellable(
+            &ExecSpec {
+                id: "t".into(),
+                kind: ExecKind::Script,
+                exe: "sh".to_string(),
+                args: vec!["-c".to_string(), "exec sleep 30".to_string()],
+                cwd: None,
+            },
+            Duration::from_secs(30),
+            Some(&flag),
+        )
+        .unwrap();
+        assert!(out.cancelled, "应报告 cancelled");
+        assert!(!out.timed_out);
+        assert!(started.elapsed() < Duration::from_secs(10), "应很快返回");
+    }
+
+    /// 不取消 → 正常跑完，cancelled=false。
+    #[test]
+    fn normal_run_is_not_cancelled() {
+        let flag = AtomicBool::new(false);
+        let out = run_cancellable(
+            &ExecSpec {
+                id: "t".into(),
+                kind: ExecKind::Script,
+                exe: "sh".to_string(),
+                args: vec!["-c".to_string(), "exit 0".to_string()],
+                cwd: None,
+            },
+            Duration::from_secs(10),
+            Some(&flag),
+        )
+        .unwrap();
+        assert!(!out.cancelled);
+        assert_eq!(out.code, 0);
     }
 }

@@ -137,7 +137,9 @@ export interface ExecuteApi {
   verifySha256(path: string, expected: string): Promise<boolean>;
   /** gzip 内层内容摘要校验（源码归档：外层 gzip 会漂移，内层内容稳定） */
   verifyGzInnerSha256?(path: string, expected: string): Promise<boolean>;
-  execInstall(task: ExecTask): Promise<{ code: number; out: string }>;
+  execInstall(task: ExecTask): Promise<{ code: number; out: string; cancelled?: boolean }>;
+  /** 取消正在运行的安装进程（后端杀掉子进程并回报「已取消」） */
+  execCancel?(taskId: string): Promise<void>;
   probeRun(spec: ProbeSpec): Promise<{ version: string }>;
   /** 安装上报（best-effort：fire-and-forget，reject/同步抛都不影响编排；可选） */
   trackInstall?(appId: string): Promise<void>;
@@ -233,6 +235,8 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
   const state = {
     stopped: false,
     jobId: null as string | null,
+    /** 当前执行中的任务 id（取消时用于停掉安装进程） */
+    taskId: null as string | null,
     lastEventAt: deps.now(),
     abortWait: null as (() => void) | null,
   };
@@ -244,6 +248,10 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     const j = state.jobId;
     state.jobId = null;
     if (j) void deps.api.downloadCancel(j).catch(() => undefined);
+    // **安装进程也要停**：前端停止编排 ≠ 后台安装器退出。
+    // 不停的话，用户取消后立刻重试 → 两个安装器并发覆盖同一批文件。
+    const running = state.taskId;
+    if (running) void deps.api.execCancel?.(running).catch(() => undefined);
   };
 
   const fail = (code: string, taskId?: string, human?: string | null): RunResult => {
@@ -340,8 +348,9 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
 
     // 3) install（静默、零提权；exit≠0 → EXEC_FAILED）
     if (state.stopped) return "stopped";
+    state.taskId = task.id;
     deps.dispatch({ type: "TASK_PHASE", taskId: task.id, phase: "install" });
-    let exit: { code: number; out: string };
+    let exit: { code: number; out: string; cancelled?: boolean };
     try {
       const r = await watchPhase(
         deps.api.execInstall(spec.exec),
@@ -352,6 +361,9 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     } catch (e) {
       return fail(errCode(e, "EXEC_SPAWN_FAILED"), task.id, errorHumanOf(e));
     }
+    state.taskId = null;
+    // 后端确认「是被取消的」→ 不是失败，是用户取消（前端已停编排）
+    if (exit.cancelled) return "stopped";
     if (exit.code !== 0) return fail(`EXEC_EXIT_${exit.code}`, task.id);
 
     // 4) probe（拿到真实版本号才算装上；无 probe 定义则通过）

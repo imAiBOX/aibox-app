@@ -24,6 +24,23 @@ pub fn jobs() -> MutexGuard<'static, HashMap<String, JobHandle>> {
     JOBS.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// 安装 job：取消标志（安装进程轮询；置位 → 杀掉安装进程并如实回报「已取消」）。
+///
+/// 为什么要有：前端「取消」只是停止编排，**后台安装进程可能还在跑**。
+/// 没有这张表，用户点完取消马上重试 → 第二个安装器与第一个并发跑（互相覆盖文件）。
+#[derive(Clone)]
+pub struct ExecHandle {
+    pub cancel: Arc<AtomicBool>,
+}
+
+static EXECS: LazyLock<Mutex<HashMap<String, ExecHandle>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// 执行 job 表（锁；毒化时取内层继续）。
+pub fn execs() -> MutexGuard<'static, HashMap<String, ExecHandle>> {
+    EXECS.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 /// update_check 5min 缓存。
 static UPDATE_CACHE: LazyLock<Mutex<Option<(Instant, UpdateInfo)>>> =
     LazyLock::new(|| Mutex::new(None));

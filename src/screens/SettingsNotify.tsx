@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DEFAULT_NOTIFY_PREFS, type NotifyPrefs } from "../state/notifyPrefs";
+import { notificationAllowed } from "../lib/notify";
 
 interface Props {
   prefs: NotifyPrefs;
@@ -71,8 +72,18 @@ export default function SettingsNotify({ prefs, onChange, trayHint }: Props) {
       setP(next);
       onChange(next);
     };
+  // 系统通知授权状态（用户可能一开始拒绝、后来才允许 → 页面要能看出��）
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    void notificationAllowed().then(setAllowed);
+  }, []);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+      {allowed === false && (
+        <p className="rounded-[4px] border border-aibox-danger/60 bg-aibox-danger/10 px-3 py-2 text-xs leading-relaxed text-aibox-text2">
+          {t("notify.permissionDenied")}
+        </p>
+      )}
       <p className="text-xs leading-relaxed text-aibox-text2">{t("notify.intro", { where: trayHint })}</p>
       <Row
         title={t("notify.coreUpdate")}

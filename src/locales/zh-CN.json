@@ -526,7 +526,8 @@
     "quiet": "夜里别打扰我",
     "quietDesc": "这段时间里不弹通知。错过的事会在免打扰结束后补发 —— 不会丢。",
     "quietFrom": "从",
-    "quietTo": "到"
+    "quietTo": "到",
+    "permissionDenied": "系统挡住了 AiBOX 的通知。请在系统设置里允许 AiBOX 发通知，下面的升级与上新提示才能送到你眼前。"
   },
   "first": {
     "title": "挑一个应用，剩下的交给我。",

@@ -54,6 +54,7 @@ import {
   DEFAULT_NOTIFY_PREFS,
   createNotifyStore,
   isQuietNow,
+  msUntilQuietEnd,
   type NotifyPrefs,
   type UpgradeBackupRecord,
 } from "./state/notifyPrefs";
@@ -80,6 +81,8 @@ export default function App() {
   const [showFirstRun, setShowFirstRun] = useState(() => !hasSeenFirstRun());
   /** startInstall 的最新引用（托盘动作在声明之前 → 用 ref 避免 TDZ） */
   const startInstallRef = useRef<((appId?: string) => void) | null>(null);
+  /** 免打扰结束时的重评触发器（时段结束要主动补发，不能等下一次 4 小时轮询） */
+  const [quietTick, setQuietTick] = useState(0);
   /** 通知偏好（用户说了算；持久化） */
   const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>(DEFAULT_NOTIFY_PREFS);
   /** 偏好是否已从存储读出（未读出前不按偏好做「启动即收进托盘」等动作） */
@@ -309,6 +312,15 @@ export default function App() {
     void notifyStoreRef.current.loadUpgradeBackup().then(setUpgradeBackup);
   }, []);
 
+  // 免打扰时段结束 → 主动重评一次（补发被压下的通知）
+  useEffect(() => {
+    if (!notifyPrefsLoaded) return;
+    const ms = msUntilQuietEnd(notifyPrefs);
+    if (ms <= 0) return;
+    const id = window.setTimeout(() => setQuietTick((n) => n + 1), Math.min(ms + 1000, 2 ** 31 - 1));
+    return () => window.clearTimeout(id);
+  }, [notifyPrefsLoaded, notifyPrefs.quietEnabled, notifyPrefs.quietStart, notifyPrefs.quietEnd, quietTick]);
+
   // 载入通知偏好（一次性）
   useEffect(() => {
     void notifyStoreRef.current.loadPrefs().then((p) => {
@@ -462,17 +474,21 @@ export default function App() {
     void (async () => {
       const fresh = [];
       for (const r of pending) {
-        if (await notifyStoreRef.current.markSeen(`upd:${r.appId}@${r.latest}`)) fresh.push(r);
+        if (!(await notifyStoreRef.current.wasSeen(`upd:${r.appId}@${r.latest}`))) continue;
+        fresh.push(r);
       }
       if (fresh.length === 0) return;
-      await notifyDesktop(
+      const delivered = await notifyDesktop(
         t("notify.appUpdateTitle", { count: fresh.length }),
         fresh.length === 1
           ? t("notify.appUpdateBodyOne", { name: fresh[0].appId, version: fresh[0].latest })
           : t("notify.appUpdateBodyMany", { count: fresh.length }),
       );
+      // **投递成功才标记**：否则用户拒授权/系统丢弃时，这条更新被永久吞掉
+      if (!delivered) return;
+      for (const r of fresh) await notifyStoreRef.current.markSeen(`upd:${r.appId}@${r.latest}`);
     })();
-  }, [checks.appUpdates, notifyPrefs.appUpdate, notifyPrefsLoaded, t]);
+  }, [checks.appUpdates, notifyPrefs.appUpdate, notifyPrefsLoaded, quietTick, t]);
 
   // 本体有新版 → 通知（每版只发一次）
   useEffect(() => {
@@ -482,13 +498,14 @@ export default function App() {
     if (!info?.hasUpdate || !info.version) return;
     void (async () => {
       const key = `core:${info.version}`;
-      if (!(await notifyStoreRef.current.markSeen(key))) return;
-      await notifyDesktop(
+      if (await notifyStoreRef.current.wasSeen(key)) return;
+      const delivered = await notifyDesktop(
         t("notify.coreUpdateTitle"),
         t("notify.coreUpdateBody", { version: info.version }),
       );
+      if (delivered) await notifyStoreRef.current.markSeen(key);
     })();
-  }, [banner.info, notifyPrefs.coreUpdate, notifyPrefsLoaded, t]);
+  }, [banner.info, notifyPrefs.coreUpdate, notifyPrefsLoaded, quietTick, t]);
 
   // 目录上新 → 通知（每个新应用只提醒一次）
   useEffect(() => {
@@ -498,15 +515,18 @@ export default function App() {
     void (async () => {
       const fresh: string[] = [];
       for (const id of checks.newApps) {
-        if (await notifyStoreRef.current.markSeen(`new:${id}`)) fresh.push(id);
+        if (await notifyStoreRef.current.wasSeen(`new:${id}`)) continue;
+        fresh.push(id);
       }
       if (fresh.length === 0) return;
-      await notifyDesktop(
+      const delivered = await notifyDesktop(
         t("notify.newAppsTitle"),
         t("notify.newAppsBody", { count: fresh.length }),
       );
+      if (!delivered) return;
+      for (const id of fresh) await notifyStoreRef.current.markSeen(`new:${id}`);
     })();
-  }, [checks.newApps, notifyPrefs.newApps, notifyPrefsLoaded, t]);
+  }, [checks.newApps, notifyPrefs.newApps, notifyPrefsLoaded, quietTick, t]);
 
   // 托盘菜单动作（Rust 发出）：下载=开官网；检查=三类合并重查；退出=安装中先确认
   useEffect(

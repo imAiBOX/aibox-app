@@ -33,14 +33,25 @@ export async function canNotify(): Promise<boolean> {
   }
 }
 
-/** 发一条系统通知（失败静默：通知不是关键路径，绝不能因此报错） */
-export async function notifyDesktop(title: string, body: string): Promise<void> {
-  if (!(await canNotify())) return;
+/**
+ * 发一条系统通知。**返回是否真的投递出去了**。
+ *
+ * 为什么要有返回值：调用方要**投递成功后才标记「已提醒」**。
+ * 旧版先标记再发送 → 用户拒授权或系统丢弃时，这条更新被永久吞掉。
+ */
+export async function notifyDesktop(title: string, body: string): Promise<boolean> {
+  if (!(await canNotify())) return false;
   try {
     sendNotification({ title, body });
+    return true;
   } catch {
-    /* 静默 */
+    return false;
   }
+}
+
+/** 当前系统通知授权状态（设置页展示用；用户可能后来才允许） */
+export async function notificationAllowed(): Promise<boolean> {
+  return canNotify();
 }
 
 /**

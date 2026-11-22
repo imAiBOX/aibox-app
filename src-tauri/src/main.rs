@@ -67,6 +67,7 @@ fn main() {
             commands::verify_sha256,
             commands::verify_gz_inner_sha256,
             commands::exec_install,
+            commands::exec_cancel,
             commands::probe_run,
             // CONFIG / VERIFY
             commands::config_write,

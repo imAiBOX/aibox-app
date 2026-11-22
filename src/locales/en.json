@@ -526,7 +526,8 @@
     "quiet": "Do not disturb at night",
     "quietDesc": "No notifications during these hours. Anything you missed is sent when the quiet period ends — nothing is lost.",
     "quietFrom": "From",
-    "quietTo": "Until"
+    "quietTo": "Until",
+    "permissionDenied": "Your system is blocking notifications from AiBOX. Allow notifications for AiBOX in your system settings, then the upgrade and new-app hints below can reach you."
   },
   "first": {
     "title": "Pick an app, the rest is on me.",

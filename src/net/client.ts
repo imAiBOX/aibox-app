@@ -484,7 +484,10 @@ export const api = {
   /** gzip 内层内容摘要校验（源码归档：外层 gzip 会漂移，内层稳定） */
   verifyGzInnerSha256: (path: string, expected: string) =>
     invoke<boolean>("verify_gz_inner_sha256", { path, expected }),
-  execInstall: (task: ExecTask) => invoke<{ code: number; out: string }>("exec_install", task),
+  /** 取消正在运行的安装进程（后端杀掉子进程并回报 cancelled） */
+  execCancel: (taskId: string) => invoke<void>("exec_cancel", { taskId }),
+  execInstall: (task: ExecTask) =>
+    invoke<{ code: number; out: string; cancelled?: boolean }>("exec_install", task),
   probeRun: (spec: ProbeSpec) => invoke<{ version: string }>("probe_run", spec),
   configWrite: (input: ConfigWriteInput) =>
     invoke<ConfigWriteResult>("config_write", input),

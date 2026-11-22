@@ -2,7 +2,7 @@
  * 通知偏好与「同一事件只提醒一次」的去重逻辑（体验克制的核心）。
  */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_NOTIFY_PREFS, createNotifyStore, isQuietNow } from "./notifyPrefs";
+import { DEFAULT_NOTIFY_PREFS, createNotifyStore, isQuietNow, msUntilQuietEnd } from "./notifyPrefs";
 
 describe("通知偏好", () => {
   it("默认：三类通知都开；「启动即收进托盘」默认关（不擅自改变用户预期）", () => {
@@ -61,5 +61,30 @@ describe("免打扰时段", () => {
 
   it("起止相同 → 视为未设置（不静默）", () => {
     expect(isQuietNow({ quietEnabled: true, quietStart: 3, quietEnd: 3 }, at(3))).toBe(false);
+  });
+});
+
+describe("免打扰时段边界", () => {
+  const at = (h: number) => new Date(2026, 0, 1, h, 0, 0);
+  const prefs = { quietEnabled: true, quietStart: 22, quietEnd: 8 };
+
+  it("时段内 → 距离结束的毫秒数 > 0", () => {
+    expect(msUntilQuietEnd(prefs, at(23))).toBeGreaterThan(0);
+    expect(msUntilQuietEnd(prefs, at(3))).toBeGreaterThan(0);
+  });
+
+  it("时段外 → 0（无需等待）", () => {
+    expect(msUntilQuietEnd(prefs, at(12))).toBe(0);
+  });
+
+  it("跨零点：03:00 结束在当天 08:00", () => {
+    const ms = msUntilQuietEnd(prefs, at(3));
+    const end = new Date(at(3).getTime() + ms);
+    expect(end.getHours()).toBe(8);
+    expect(end.getDate()).toBe(1);
+  });
+
+  it("时段外时 isQuietNow 为 false", () => {
+    expect(isQuietNow(prefs, at(12))).toBe(false);
   });
 });
