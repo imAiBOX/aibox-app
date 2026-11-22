@@ -5,6 +5,7 @@
  * - 卸载 / 重装的删除部分 = manage_remove（backupFirst 硬规则在 Rust 侧强制；UI 负责风险卡守卫）
  * - 路径清单只来自 registry maintenance（buildRemovePaths 硬规则④）
  */
+import { KeyBatchPanel } from "../components/KeyBatchPanel";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type AppManifest, type AppUpdateRow, type ManifestEntry } from "../net/client";
@@ -496,6 +497,10 @@ export default function S8Manage({
         <div className="border border-dashed border-aibox-line p-6 text-sm text-aibox-text2" style={{ borderRadius: 4 }}>
           {t("s8.empty")}
         </div>
+      )}
+
+      {rows && rows.length > 0 && (
+        <KeyBatchPanel installed={rows.map((r) => ({ appId: r.entry.appId }))} />
       )}
 
       <ul className="space-y-3">

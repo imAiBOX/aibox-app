@@ -539,5 +539,17 @@
     "skip": "Skip",
     "start": "Pick an app"
   },
-  "err.configNoTarget": "This app has no matching entry for the provider yet (for example Continue needs a model entry created inside the app first). Nothing was written. Open the app and add a model entry, then try again, or configure it by hand with the guide."
+  "err.configNoTarget": "This app has no matching entry for the provider yet (for example Continue needs a model entry created inside the app first). Nothing was written. Open the app and add a model entry, then try again, or configure it by hand with the guide.",
+  "batch.title": "One key, many apps",
+  "batch.hint": "Paste one API key and AiBOX writes it into the apps you pick, in each app's own real settings format. Each app is backed up first, and anything that cannot be configured automatically is listed for you to set by hand.",
+  "batch.keyPlaceholder": "Paste your API key",
+  "batch.keyInvalid": "This key does not look like a valid key for this provider.",
+  "batch.loading": "Checking which apps can be configured automatically…",
+  "batch.reasonManual": "set by hand",
+  "batch.reasonUnknown": "not verified yet",
+  "batch.write": "Write to {{count}} app(s)",
+  "batch.writing": "Writing…",
+  "batch.pickHint": "Pick at least one app above.",
+  "batch.summary": "Done: {{ok}} succeeded, {{failed}} failed.",
+  "batch.backupAt": "backup:"
 }

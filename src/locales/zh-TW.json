@@ -539,5 +539,17 @@
     "skip": "跳過",
     "start": "開始挑應用"
   },
-  "err.configNoTarget": "這個應用裡還沒有對應的服務商條目（例如 Continue 要先在應用裡建一個模型條目）。原檔案沒有被改動。請先在應用裡建好條目再回來寫入，或按教學手動設定。"
+  "err.configNoTarget": "這個應用裡還沒有對應的服務商條目（例如 Continue 要先在應用裡建一個模型條目）。原檔案沒有被改動。請先在應用裡建好條目再回來寫入，或按教學手動設定。",
+  "batch.title": "一個 key 通吃",
+  "batch.hint": "貼一個 API key，AiBOX 會按每個應用**自己的真實設定格式**寫進去。寫之前每個應用都會先備份；不能自動配的應用會列出來，讓你照教學手動設定。",
+  "batch.keyPlaceholder": "貼上你的 API key",
+  "batch.keyInvalid": "這個 key 看起來不像該服務商的 key。",
+  "batch.loading": "正在確認哪些應用可以自動設定…",
+  "batch.reasonManual": "需手動設定",
+  "batch.reasonUnknown": "尚未核實",
+  "batch.write": "寫入 {{count}} 個應用",
+  "batch.writing": "寫入中…",
+  "batch.pickHint": "請先在上面勾選至少一個應用。",
+  "batch.summary": "完成：成功 {{ok}} 個，失敗 {{failed}} 個。",
+  "batch.backupAt": "備份："
 }

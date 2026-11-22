@@ -539,5 +539,17 @@
     "skip": "跳过",
     "start": "开始挑应用"
   },
-  "err.configNoTarget": "这个应用里还没有对应的服务商条目（比如 Continue 要先在应用里建一个模型条目）。原文件没有被改动。请先在应用里建好条目再回来写入，或按教程手动配置。"
+  "err.configNoTarget": "这个应用里还没有对应的服务商条目（比如 Continue 要先在应用里建一个模型条目）。原文件没有被改动。请先在应用里建好条目再回来写入，或按教程手动配置。",
+  "batch.title": "一个 key 通吃",
+  "batch.hint": "贴一个 API key，AiBOX 会按每个应用**自己的真实配置格式**写进去。写之前每个应用都会先备份；不能自动配的应用会列出来，让你照教程手动配。",
+  "batch.keyPlaceholder": "粘贴你的 API key",
+  "batch.keyInvalid": "这个 key 看起来不像该服务商的 key。",
+  "batch.loading": "正在确认哪些应用可以自动配置…",
+  "batch.reasonManual": "需手动配置",
+  "batch.reasonUnknown": "尚未核实",
+  "batch.write": "写入 {{count}} 个应用",
+  "batch.writing": "写入中…",
+  "batch.pickHint": "请先在上面勾选至少一个应用。",
+  "batch.summary": "完成：成功 {{ok}} 个，失败 {{failed}} 个。",
+  "batch.backupAt": "备份："
 }
