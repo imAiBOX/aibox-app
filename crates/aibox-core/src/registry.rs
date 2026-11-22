@@ -364,6 +364,17 @@ pub fn fetch_crosschecked(
     }
 }
 
+/// 该来源是不是**网络核过的**（可用于安全敏感判定，如还原白名单）。
+///
+/// **只有本地缓存不可信**：
+/// - `cache`（新鲜缓存）/ `cache-stale`（断网时的旧缓存）→ `false`（**免复校** → 可被投毒）；
+/// - 其余（`jsdelivr` / `raw` / `github-api` / `aibox-im` …）→ `true`。
+///
+/// 白名单必须走这条判定：缓存里的 registry 文档可能被改过 → 还原目标可被换成 `~/.ssh`。
+pub fn is_network_verified_source(src: &str) -> bool {
+    !matches!(src, "cache" | "cache-stale")
+}
+
 /// 构建时嵌入的目录快照（`scripts/gen-registry-snapshot.mjs` 拉 registry index.json
 /// 写入 `src/assets/registry-snapshot.json`，随版本发布；网络失败沿用仓库内上一次快照）。
 /// 本地缓存与全部网络源都不可用时的最后兑底 → **断网首开也有目录**。
@@ -734,6 +745,17 @@ mod tests {
         let e = r.unwrap_err();
         assert!(e.starts_with(INTEGRITY_ERR_TAG), "must be tagged integrity: {e}");
         assert!(is_api_integrity_failure("github-api", &Err(e)));
+    }
+
+    /// 缓存不是网络核过的来源（安全敏感判定必须拒绝）。
+    #[test]
+    fn cache_sources_are_not_network_verified() {
+        assert!(!is_network_verified_source("cache"));
+        assert!(!is_network_verified_source("cache-stale"));
+        assert!(is_network_verified_source("github-api"));
+        assert!(is_network_verified_source("raw"));
+        assert!(is_network_verified_source("jsdelivr"));
+        assert!(is_network_verified_source("aibox-im"));
     }
 
     /// 正确 SHA + 非 UTF-8 内容 → 仍是完整性问题（内容不符预期文档）。

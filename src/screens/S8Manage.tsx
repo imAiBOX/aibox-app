@@ -6,6 +6,8 @@
  * - 路径清单只来自 registry maintenance（buildRemovePaths 硬规则④）
  */
 import { KeyBatchPanel } from "../components/KeyBatchPanel";
+import { RestoreFlow } from "../components/RestoreFlow";
+import { RestorePanel } from "../components/RestorePanel";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type AppManifest, type AppUpdateRow, type ManifestEntry } from "../net/client";
@@ -63,6 +65,8 @@ export default function S8Manage({
   const [loadErr, setLoadErr] = useState(false);
   /** 本次删除尝试的参数（重试时原样重发） */
   const attemptRef = useRef<RemoveAttempt | null>(null);
+  /** 还原目标（非空 → 整屏渲染还原流程；列表态被替换） */
+  const [restoreTarget, setRestoreTarget] = useState<{ dir: string; appId: string } | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -237,6 +241,19 @@ export default function S8Manage({
       setBusy(false);
     }
   };
+
+  // ---------- 还原流程（整屏替换：破坏性操作不与列表同屏） ----------
+  // **放最前面**：还原一旦打开，列表里的其他按钮都不该能被点到
+  // （一边看清单一边误触卸载/升级是危险的）。
+  if (restoreTarget) {
+    return (
+      <RestoreFlow
+        backupDir={restoreTarget.dir}
+        appId={restoreTarget.appId}
+        onClose={() => setRestoreTarget(null)}
+      />
+    );
+  }
 
   // ---------- DONE / ERROR 全屏态 ----------
   if (m.status === "DONE") {
@@ -444,7 +461,14 @@ export default function S8Manage({
             >
               {t("s7.openFolder")}
             </button>
-            <span className="text-xs text-aibox-text2">{t("s8.restoreUnavailable")}</span>
+            {/* 还原入口（破坏性）：真正的按钮 → 打开全屏确认卡 */}
+            <button
+              type="button"
+              onClick={() => setRestoreTarget({ dir: upgradeBackup.path, appId: upgradeBackup.appId })}
+              className="rounded-[4px] border border-aibox-danger/70 px-3 py-1.5 font-mono text-[10px] text-aibox-danger hover:border-aibox-danger"
+            >
+              {t("s8.restoreConfirmBtn")}
+            </button>
           </span>
         </div>
       )}
@@ -502,6 +526,12 @@ export default function S8Manage({
       {rows && rows.length > 0 && (
         <KeyBatchPanel installed={rows.map((r) => ({ appId: r.entry.appId }))} />
       )}
+
+      {/* 还原面板（放在批量配置之后、应用列表之前：用户想「放回数据」时一眼能找到） */}
+      <RestorePanel
+        installed={rows?.map((r) => ({ appId: r.entry.appId })) ?? []}
+        onRestore={(dir, appId) => setRestoreTarget({ dir, appId })}
+      />
 
       <ul className="space-y-3">
         {orderedRows.map(({ entry, maintenance, update }) => {

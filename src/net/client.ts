@@ -35,8 +35,10 @@ import {
   mockDownloadStart,
   mockDownloadCancel,
   mockManageBackup,
+  mockManageBackupList,
   mockManageRemove,
   mockManageRestore,
+  mockManageRestorePreview,
   mockManageManifestList,
   getMockScenario,
 } from "./mock";
@@ -188,7 +190,82 @@ export interface ManageRemoveResult {
 }
 
 /**
+ * MANAGE：还原计划单条（Rust `PlannedEntry`，camelCase 序列化）。
+ *
+ * `target` = **绝对路径**（还原到的位置）；`rel` = 相对 home 的路径。
+ * `exists` = 目标已存在 → 覆盖前会先挪到保全目录；`payloadPresent` = 备份载荷在不在。
+ */
+export interface PlannedEntry {
+  target: string;
+  rel: string;
+  size: number;
+  isDir: boolean;
+  exists: boolean;
+  payloadPresent: boolean;
+  sha256: string;
+}
+/** 别名（规格 §2.1 里这类型叫 RestorePlanEntry；同一份结构，两名等价） */
+export type RestorePlanEntry = PlannedEntry;
+
+/**
+ * MANAGE：还原计划（Rust `RestorePlan`）。
+ *
+ * **预览 = 执行前的同一份判定结果**（Rust 内核共用一份判定代码）→ 用户看到什么就还原什么。
+ * `digest` = 计划摘要：执行前 Rust 会重算并比对，不一致 → `RESTORE_PLAN_CHANGED`（不写任何东西）。
+ */
+export interface RestorePlan {
+  appId: string;
+  backupDir: string;
+  createdAt: string;
+  createdAtMs: number;
+  entries: PlannedEntry[];
+  fileCount: number;
+  dirCount: number;
+  totalBytes: number;
+  /** 会被挪到保全目录的条数（覆盖前的旧文件） */
+  wouldPreserve: number;
+  digest: string;
+  maxAgeHours: number;
+}
+
+/** MANAGE：还原预览（Rust `RestorePreview`；**不写任何东西**） */
+export interface RestorePreview {
+  appId: string;
+  plan: RestorePlan;
+  /** registry 来源（网络来源名：github-api / raw / jsdelivr / aibox-im） */
+  registrySource: string;
+  /** registry 声明的白名单（人话展示） */
+  dataPaths: string[];
+  maxAgeHours: number;
+}
+
+/** MANAGE：备份库条目（Rust `BackupRecord`） */
+export interface BackupRecord {
+  appId: string;
+  dir: string;
+  createdAt: string;
+  createdAtMs: number;
+  fileCount: number;
+  totalBytes: number;
+  /** "v1" = 新格式（可还原）；"legacy" = 旧格式（只能手动恢复）；"unknown" = 没有清单 */
+  format: "v1" | "legacy" | "unknown";
+  /** v1 + home 指纹一致 + 未超龄 */
+  restorable: boolean;
+  ageHours: number;
+}
+
+/** MANAGE：逐条还原问题（Rust `RestoreIssue`；`code` 是固定枚举，`detail` 只进技术详情） */
+export interface RestoreIssue {
+  target: string;
+  code: string;
+  detail: string;
+}
+
+/**
  * MANAGE：还原结果（Rust `manage_restore` 返回）。
+ *
+ * `skipped` / `failed` 是**结构化逐条问题**（`RestoreIssue[]`）→ UI 才能给「人话原因」；
+ * `detail`（技术细节）只进折叠区。
  *
  * `preservedDir` = 被覆盖的旧数据保全目录（`<backup_root>/pre-restore-<ts>/<appId>`）——
  * **需要人工清理**（AiBOX 不自动删旧凭据）。
@@ -196,8 +273,8 @@ export interface ManageRemoveResult {
 export interface ManageRestoreResult {
   restored: number;
   restoredPaths?: string[];
-  skipped?: string[];
-  failed?: string[];
+  skipped?: RestoreIssue[];
+  failed?: RestoreIssue[];
   preservedDir?: string;
 }
 
@@ -456,11 +533,18 @@ function mockDispatch<T>(cmd: string, a?: unknown): T {
       ) as T;
     case "manage_remove":
       return mockManageRemove(a as Parameters<typeof mockManageRemove>[0]) as T;
+    case "manage_backup_list":
+      return mockManageBackupList() as T;
+    case "manage_restore_preview":
+      return mockManageRestorePreview(
+        String((a as { backupDir?: string })?.backupDir ?? ""),
+        String((a as { appId?: string })?.appId ?? ""),
+      ) as T;
     case "manage_restore":
       return mockManageRestore(
         String((a as { backupDir?: string })?.backupDir ?? ""),
         String((a as { appId?: string })?.appId ?? ""),
-        ((a as { dataPaths?: string[] })?.dataPaths ?? []) as string[],
+        String((a as { planDigest?: string })?.planDigest ?? ""),
       ) as T;
     case "manage_manifest_list":
       return mockManageManifestList() as T;
@@ -536,11 +620,19 @@ export const api = {
   /**
    * 从备份还原（破坏性：会覆盖升级后的新文件；界面需显式确认）。
    *
-   * `dataPaths` = **调用方给的可信白名单**（registry manifest 的 `maintenance.dataPaths`）——
-   * Rust 侧命令 `manage_restore` 必填，漏传会被参数校验拒。
+   * **白名单不再由前端传入**：`manage_restore` 由 Rust 自己联网复校 registry 取得
+   * （本地缓存可被投毒 → 白名单可能被换成 `~/.ssh`）。旧签名带 `dataPaths` 会参数校验失败。
+   *
+   * `planDigest` = 预览拿到的计划摘要；Rust 执行前会重算并比对，
+   * 不一致 → `RESTORE_PLAN_CHANGED`（**不写任何东西**）。
    */
-  manageRestore: (backupDir: string, appId: string, dataPaths: string[]) =>
-    invoke<ManageRestoreResult>("manage_restore", { backupDir, appId, dataPaths }),
+  manageRestore: (backupDir: string, appId: string, planDigest: string) =>
+    invoke<ManageRestoreResult>("manage_restore", { backupDir, appId, planDigest }),
+  /** MANAGE：本机备份库列表（Rust manage_backup_list；含旧格式标记） */
+  manageBackupList: () => invoke<BackupRecord[]>("manage_backup_list"),
+  /** MANAGE：还原预览（**不写任何东西**；Rust manage_restore_preview） */
+  manageRestorePreview: (backupDir: string, appId: string) =>
+    invoke<RestorePreview>("manage_restore_preview", { backupDir, appId }),
   manageRemove: (input: {
     appId: string;
     residualPaths: string[];

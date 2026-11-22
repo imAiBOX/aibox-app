@@ -85,8 +85,10 @@ fn main() {
             commands::install_record,
             // MANAGE 维护模式
             commands::manage_backup,
+            commands::manage_backup_list,
             commands::manage_remove,
             commands::manage_restore,
+            commands::manage_restore_preview,
             commands::manage_manifest_list,
             commands::tray_sync,
             commands::app_quit,

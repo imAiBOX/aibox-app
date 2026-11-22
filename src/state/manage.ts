@@ -325,32 +325,65 @@ export function manageReduce(state: ManageState, event: ManageEvent): ManageStat
  * **还原类错误码（`RESTORE_*`）各自独立**（P2-7）：它们全是「**整体拒绝**」——
  * 什么都没改动、只能人工取回；统一落 `s8.errRemove`（「可能部分改动」）是**误导**。
  */
+/**
+ * 错误码 → 人话 key 的**单一真源**（导出供还原流程复用，避免两处各写一份而漂移）。
+ */
+export const MANAGE_ERROR_KEYS: Record<string, string> = {
+  MANAGE_NO_MANIFEST: "s8.errNoManifest",
+  MANAGE_PROTECTED: "s8.errProtected",
+  MANAGE_OUT_OF_SCOPE: "s8.errOutOfScope",
+  MANAGE_SYMLINK_ESCAPE: "s8.errSymlinkEscape",
+  MANAGE_BACKUP_FAILED: "s8.errBackupFailed",
+  MANAGE_BACKUP_INCOMPLETE: "s8.errBackupFailed",
+  MANAGE_DELETE_FAILED: "s8.errDeleteFailed",
+  IO_ERROR: "s8.errIo",
+  // ── 安全还原（`manage_restore`）：每码一句人话，都说清「什么都没改动」──
+  RESTORE_NO_MANIFEST: "s8.errRestoreNoManifest",
+  RESTORE_HOME_MISMATCH: "s8.errRestoreHomeMismatch",
+  RESTORE_TOO_LARGE: "s8.errRestoreTooLarge",
+  RESTORE_MANIFEST_TOO_LARGE: "s8.errRestoreManifestTooLarge",
+  RESTORE_APP_MISMATCH: "s8.errRestoreAppMismatch",
+  RESTORE_NO_WHITELIST: "s8.errRestoreNoWhitelist",
+  RESTORE_TARGET_NOT_ALLOWED: "s8.errRestoreTargetNotAllowed",
+  RESTORE_BAD_BACKUP_DIR: "s8.errRestoreBadBackupDir",
+  // ── v0.1.20 新增 4 码（白名单由 Rust 联网复校 + 灰度开关 + 计划摘要）──
+  // 全部是「整体拒绝」：什么都没改动，且**不可重试**（重试同一个备份结果一样）。
+  RESTORE_REGISTRY_UNVERIFIED: "s8.errRestoreRegistryUnverified",
+  RESTORE_UNSUPPORTED: "s8.errRestoreUnsupported",
+  RESTORE_BACKUP_TOO_OLD: "s8.errRestoreTooOld",
+  RESTORE_PLAN_CHANGED: "s8.errRestorePlanChanged",
+};
+
+/**
+ * 错误码 → 人话 i18n key（**不把 Rust 英文原文当说明给用户**）。
+ *
+ * 旧版把异常 message（英文 "failed to remove file …: permission denied (os error 5)"）
+ * 直接截 64 字符当「说明」显示，却又在文案里写「看下面的说明」——小白完全看不懂。
+ * 这里按机器码分流；实在认不出的再按关键字嗅（权限 / 文件被占用）。
+ *
+ * **还原类错误码（`RESTORE_*`）各自独立**（P2-7）：它们全是「**整体拒绝**」——
+ * 什么都没改动、只能人工取回；统一落 `s8.errRemove`（「可能部分改动」）是**误导**。
+ */
 export function manageErrorKey(code: string, human: string): string {
-  const byCode: Record<string, string> = {
-    MANAGE_NO_MANIFEST: "s8.errNoManifest",
-    MANAGE_PROTECTED: "s8.errProtected",
-    MANAGE_OUT_OF_SCOPE: "s8.errOutOfScope",
-    MANAGE_SYMLINK_ESCAPE: "s8.errSymlinkEscape",
-    MANAGE_BACKUP_FAILED: "s8.errBackupFailed",
-    MANAGE_BACKUP_INCOMPLETE: "s8.errBackupFailed",
-    MANAGE_DELETE_FAILED: "s8.errDeleteFailed",
-    IO_ERROR: "s8.errIo",
-    // ── 安全还原（`manage_restore`）：每码一句人话，都说清「什么都没改动」──
-    RESTORE_NO_MANIFEST: "s8.errRestoreNoManifest",
-    RESTORE_HOME_MISMATCH: "s8.errRestoreHomeMismatch",
-    RESTORE_TOO_LARGE: "s8.errRestoreTooLarge",
-    RESTORE_MANIFEST_TOO_LARGE: "s8.errRestoreManifestTooLarge",
-    RESTORE_APP_MISMATCH: "s8.errRestoreAppMismatch",
-    RESTORE_NO_WHITELIST: "s8.errRestoreNoWhitelist",
-    RESTORE_TARGET_NOT_ALLOWED: "s8.errRestoreTargetNotAllowed",
-    RESTORE_BAD_BACKUP_DIR: "s8.errRestoreBadBackupDir",
-  };
-  const direct = byCode[code];
+  const direct = MANAGE_ERROR_KEYS[code];
   if (direct) return direct;
   const h = human.toLowerCase();
   if (/permission denied|access is denied|os error 5/.test(h)) return "s8.errPermission";
   if (/being used by another process|cannot access|os error 32/.test(h)) return "s8.errInUse";
   return "s8.errRemove";
+}
+
+/**
+ * 还原流程专用：错误码 → 人话 i18n key（**fail-closed**）。
+ *
+ * **为什么不用 `manageErrorKey` 的兜底**：它最后落到 `s8.errRemove`
+ * （「卸载失败，你的数据可能有部分变动」）—— 对还原**不成立**
+ * （还原只挪走不删除；且 Rust 的 `RESTORE_*` 码全是「整体拒绝」）。
+ * 未知的还原码 → 还原专用兜底文案（不承诺成功、也不谎称「什么都没变」以外的猜测）。
+ */
+export function restoreErrorKey(code: string): string {
+  if (!code.startsWith("RESTORE_")) return "s8.errRestoreGeneric";
+  return MANAGE_ERROR_KEYS[code] ?? "s8.errRestoreGeneric";
 }
 
 /**

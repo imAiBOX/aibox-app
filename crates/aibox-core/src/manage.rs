@@ -1515,6 +1515,7 @@ mod restore_gate_tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            u32::MAX,
         )
         .unwrap_err();
         assert_eq!(e.code, "RESTORE_NO_MANIFEST");
@@ -1562,6 +1563,7 @@ mod restore_gate_tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            u32::MAX,
         )
         .unwrap_err();
         assert_eq!(e.code, "RESTORE_HOME_MISMATCH");
@@ -1612,6 +1614,7 @@ mod restore_gate_tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            u32::MAX,
         )
         .unwrap_err();
         assert_eq!(e.code, "RESTORE_TOO_LARGE");
@@ -1643,6 +1646,7 @@ mod restore_gate_tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            u32::MAX,
         )
         .unwrap_err();
         assert_eq!(e.code, "RESTORE_BAD_BACKUP_DIR");
@@ -1653,6 +1657,9 @@ mod restore_gate_tests {
 }
 
 /// 从备份目录还原（`~/.aibox/backup/<ts>/<appId>`）。
+///
+/// **命令层不得调用本函数**（v0.1.20）：白名单必须由 Rust 自己**联网复校 registry** 取得
+/// （命令层用 [`crate::restore::restore_backup_verified`]）——本地 registry 缓存可被投毒。
 ///
 /// `data_paths` = **调用方给的可信白名单**（registry manifest 的 `maintenance.dataPaths`，
 /// 与 `manage_backup` 同一来源）——清单自述的 target 不可信；

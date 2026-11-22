@@ -24,6 +24,9 @@ import type {
   ManageRemoveResult,
   ManageRestoreResult,
   ManifestEntry,
+  BackupRecord,
+  PlannedEntry,
+  RestorePreview,
   PrefetchOutcome,
   PrefetchState,
 } from "./client";
@@ -551,23 +554,122 @@ export function mockManageRemove(input: {
 }
 
 /**
+ * MANAGE：备份库列表（mock）。
+ *
+ * 两条：一条 **v1 可还原**（本机、24h 内）+ 一条 **legacy 不可还原**（旧格式 → 只能手动恢复）。
+ * mock 只给形状可信的假数据，不代表真实磁盘内容。
+ */
+export function mockManageBackupList(): BackupRecord[] {
+  const now = Date.now();
+  return [
+    {
+      appId: "openclaw",
+      dir: "C:\\Users\\dev\\.aibox\\backup\\20261122120000\\openclaw",
+      createdAt: new Date(now - 3600_000).toISOString(),
+      createdAtMs: now - 3600_000,
+      fileCount: 12,
+      totalBytes: 4_500_000,
+      format: "v1",
+      restorable: true,
+      ageHours: 1,
+    },
+    {
+      appId: "openclaw-old",
+      dir: "C:\\Users\\dev\\.aibox\\backup\\20261001090000\\openclaw-old",
+      createdAt: new Date(now - 30 * 24 * 3600_000).toISOString(),
+      createdAtMs: now - 30 * 24 * 3600_000,
+      fileCount: 0,
+      totalBytes: 0,
+      format: "legacy",
+      restorable: false,
+      ageHours: 24 * 30,
+    },
+  ];
+}
+
+/**
+ * MANAGE：还原预览（mock）：返回一份**含 3 条 entry** 的假计划。
+ *
+ * 预览**不写任何东西**（真行为在 Rust 侧）；digest 给一个非空假串（真值由 Rust 算）。
+ */
+export function mockManageRestorePreview(backupDir: string, appId: string): RestorePreview {
+  const app = appId || "openclaw";
+  const base = backupDir || `C:\\Users\\dev\\.aibox\\backup\\20261122120000\\${app}`;
+  const now = Date.now();
+  const entries: PlannedEntry[] = [
+    {
+      target: `${base}\\data\\config.json5`,
+      rel: ".config/openclaw/config.json5",
+      size: 2048,
+      isDir: false,
+      exists: true,
+      payloadPresent: true,
+      sha256: FAKE_SHA,
+    },
+    {
+      target: `${base}\\data\\sessions`,
+      rel: ".config/openclaw/sessions",
+      size: 0,
+      isDir: true,
+      exists: true,
+      payloadPresent: true,
+      sha256: "",
+    },
+    {
+      target: `${base}\\data\\sessions\\2026-11-21.jsonl`,
+      rel: ".config/openclaw/sessions/2026-11-21.jsonl",
+      size: 88_000,
+      isDir: false,
+      exists: false,
+      payloadPresent: true,
+      sha256: FAKE_SHA,
+    },
+  ];
+  return {
+    appId: app,
+    plan: {
+      appId: app,
+      backupDir: base,
+      createdAt: new Date(now - 3600_000).toISOString(),
+      createdAtMs: now - 3600_000,
+      entries,
+      fileCount: 2,
+      dirCount: 1,
+      totalBytes: 90_048,
+      wouldPreserve: 2,
+      digest: "mock-plan-digest-0123456789abcdef",
+      maxAgeHours: 24,
+    },
+    registrySource: "github-api",
+    dataPaths: ["~/.config/openclaw"],
+    maxAgeHours: 24,
+  };
+}
+
+/**
  * MANAGE：从备份还原（mock）。
  *
  * **不假装写了文件**：mock 模式没有真的备份库可还原，返回「什么都没还原」
- * 并说清原因（`skipped` 里给一句人话）。真行为只在 Rust 侧发生。
+ * 并说清原因（`skipped` 里给一条结构化问题：人话原因由 UI 按 `code` 映射，
+ * 技术细节在 `detail`）。真行为只在 Rust 侧发生。
  */
 export function mockManageRestore(
   backupDir: string,
   appId: string,
-  dataPaths: string[],
+  planDigest: string,
 ): ManageRestoreResult {
-  void backupDir;
   void appId;
-  void dataPaths;
+  void planDigest;
   return {
     restored: 0,
     restoredPaths: [],
-    skipped: ["mock: 还原未在 mock 模式执行（没有写入任何文件）"],
+    skipped: [
+      {
+        target: backupDir || "(unknown)",
+        code: "write_failed",
+        detail: "mock: 还原未在 mock 模式执行（没有写入任何文件）",
+      },
+    ],
     failed: [],
   };
 }

@@ -4,6 +4,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  api,
   emitEvent,
   onEvent,
   type AiboxEvent,
@@ -15,6 +16,8 @@ import {
   mockLocalesLoad,
   mockEvents,
   mockManageRestore,
+  mockManageBackupList,
+  mockManageRestorePreview,
   mockNetdoctorRun,
   mockNetProbe,
   mockRegistryApp,
@@ -174,13 +177,36 @@ describe("mock 基础数据", () => {
     const r = mockManageRestore(
       "C:\\Users\\dev\\.aibox\\backup\\20261113170000\\openclaw",
       "openclaw",
-      ["~/.config/openclaw"],
+      "mock-plan-digest",
     );
     expect(r.restored).toBe(0);
     expect(r.restoredPaths ?? []).toHaveLength(0);
     expect(r.failed ?? []).toHaveLength(0);
-    expect((r.skipped ?? []).join(" ")).toContain("mock");
+    // v0.1.20：skipped 变成结构化逐条问题（RestoreIssue[]）—— 技术细节在 detail
+    expect(r.skipped ?? []).toHaveLength(1);
+    expect(r.skipped?.[0]?.code).toBe("write_failed");
+    expect(r.skipped?.[0]?.detail ?? "").toContain("mock");
     expect(r.preservedDir).toBeUndefined();
+  });
+
+  // v0.1.20：备份列表 + 还原预览（mock）
+  it("manage_backup_list：mock 给一条可还原 + 一条旧格式不可还原", () => {
+    const list = mockManageBackupList();
+    expect(list).toHaveLength(2);
+    expect(list[0].format).toBe("v1");
+    expect(list[0].restorable).toBe(true);
+    expect(list[1].format).toBe("legacy");
+    expect(list[1].restorable).toBe(false);
+  });
+
+  it("manage_restore_preview：mock 计划含 3 条 entry + 非空 digest", () => {
+    const p = mockManageRestorePreview("C:\\Users\\dev\\.aibox\\backup\\20261122120000\\openclaw", "openclaw");
+    expect(p.plan.entries).toHaveLength(3);
+    expect(p.plan.digest.length).toBeGreaterThan(0);
+    expect(p.plan.fileCount).toBe(2);
+    expect(p.plan.dirCount).toBe(1);
+    // 预览**不写任何东西** → 结果字段为空
+    expect(p.plan.entries.every((e) => typeof e.target === "string" && e.target.length > 0)).toBe(true);
   });
 });
 
@@ -209,5 +235,23 @@ describe("事件总线", () => {
 
   it("mockEvents 暴露活跃 job 集合", () => {
     expect(mockEvents()).toBeInstanceOf(Set);
+  });
+});
+
+// v0.1.20：**走 api.* 的 dispatch 分支**（mock 模式下前端不依赖 Rust 也能跑通还原 UI）
+describe("mock dispatch：还原三条命令", () => {
+  it("manage_backup_list / manage_restore_preview / manage_restore 都能派发", async () => {
+    vi.stubEnv("VITE_AIBOX_MOCK", "1");
+    const list = await api.manageBackupList();
+    expect(list.length).toBeGreaterThan(0);
+
+    const preview = await api.manageRestorePreview(list[0].dir, list[0].appId);
+    expect(preview.plan.entries.length).toBeGreaterThan(0);
+    expect(preview.plan.digest.length).toBeGreaterThan(0);
+
+    const res = await api.manageRestore(list[0].dir, list[0].appId, preview.plan.digest);
+    // mock **不假装写文件**：restored=0 + 一条结构化 skipped
+    expect(res.restored).toBe(0);
+    expect(res.skipped?.[0]?.code).toBeTruthy();
   });
 });

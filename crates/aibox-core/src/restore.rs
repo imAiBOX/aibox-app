@@ -35,11 +35,19 @@
 //! 9. **零提权 / 不删任何东西**：只做「移到保全目录」+「写新文件」。
 //! 10. **备份库与保全目录私有**（Unix 0700 / 0600）：里面是应用凭据明文，
 //!    同机别的账号不该能读（审计 P1-3）。
+//! 11. **只还原本机刚做的备份**（v0.1.20 灰度）：备份的 `createdAt` 超过
+//!    `max_age_hours`（缺省 24h）→ 整体拒绝 `RESTORE_BACKUP_TOO_OLD`；
+//!    清单没写创建时间 → 年龄未知 → **同样拒绝**（fail-closed）。
 //!
 //! 整体拒绝（抛错、**在任何读写之前**）：`RESTORE_NO_MANIFEST` / `RESTORE_HOME_MISMATCH` /
 //! `RESTORE_TOO_LARGE` / `RESTORE_MANIFEST_TOO_LARGE` / `RESTORE_APP_MISMATCH` /
-//! `RESTORE_NO_WHITELIST` / `RESTORE_TARGET_NOT_ALLOWED` / `RESTORE_BAD_BACKUP_DIR`；
-//! 逐条问题只进 `skipped` / `failed` 列表。
+//! `RESTORE_NO_WHITELIST` / `RESTORE_TARGET_NOT_ALLOWED` / `RESTORE_BAD_BACKUP_DIR` /
+//! `RESTORE_BACKUP_TOO_OLD`；逐条问题只进 `skipped` / `failed` 列表。
+//!
+//! **预览 = 执行**（v0.1.20）：[`plan_restore_in_at`]（预览，**不写任何东西**）与
+//! [`restore_backup_in_at`]（执行）走**同一份判定代码**（`prepare_restore`）→ 用户看到的
+//! 清单与真正写下去的完全一致；计划摘要（`RestorePlan::digest`）在执行前再比一次
+//! （清单被改过 → `RESTORE_PLAN_CHANGED`，**不写任何东西**）。
 
 use std::fs;
 use std::io::{self, Read, Write};
@@ -68,6 +76,32 @@ pub const MAX_BACKUP_BYTES: u64 = MAX_RESTORE_BYTES;
 pub const MAX_BACKUP_ENTRIES: usize = MAX_RESTORE_ENTRIES;
 /// 还原清单格式版本（不符 → 拒绝，不猜路径）。
 pub const MANIFEST_SCHEMA: &str = "aibox-restore/v1";
+/// 缺省的最大可还原时长（小时）——registry 可在 1..=168 内声明自己的值。
+pub const DEFAULT_MAX_AGE_HOURS: u32 = 24;
+/// registry 可声明的最大可还原时长下界（小时）。
+pub const MIN_MAX_AGE_HOURS: u32 = 1;
+/// registry 可声明的最大可还原时长上界（小时）。
+pub const MAX_MAX_AGE_HOURS: u32 = 168;
+
+// ── 逐条原因码（固定枚举；UI 必须逐个映射人话文案）────────────────────
+/// 路径上有软链 → 为安全跳过。
+pub const ISSUE_SYMLINK: &str = "symlink";
+/// 载荷内容摘要与清单不符（备份损坏或被改）。
+pub const ISSUE_SHA_MISMATCH: &str = "sha_mismatch";
+/// 目标类型与清单声明不一致（文件 vs 目录）。
+pub const ISSUE_TYPE_CONFLICT: &str = "type_conflict";
+/// 目标落在允许范围之外（白名单外 / 备份库内）→ 禁止写。
+pub const ISSUE_OUTSIDE_BACKUP: &str = "outside_backup";
+/// 备份载荷里找不到这个条目。
+pub const ISSUE_SOURCE_MISSING: &str = "source_missing";
+/// 旧文件挪到保全目录失败 → 为安全跳过（不覆盖）。
+pub const ISSUE_PRESERVE_FAILED: &str = "preserve_failed";
+/// 写入失败。
+pub const ISSUE_WRITE_FAILED: &str = "write_failed";
+/// 写入后校验不一致 → 已回滚。
+pub const ISSUE_VERIFY_FAILED: &str = "verify_failed";
+/// 父路径类型冲突（文件占了目录的位置）。
+pub const ISSUE_PARENT_CONFLICT: &str = "parent_conflict";
 
 /// 还原结果（`restore_backup`；TS: `{restored, restoredPaths?, skipped?, failed?, preservedDir?}`）。
 #[derive(Debug, Clone, Default, Serialize)]
@@ -80,13 +114,99 @@ pub struct RestoreOutcome {
     pub restored_paths: Vec<String>,
     /// 被安全策略跳过（越界 / 软链 / 校验不符 / 类型冲突）
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub skipped: Vec<String>,
+    pub skipped: Vec<RestoreIssue>,
     /// 写入失败（保全失败 / 写后校验不符 / 源缺失）
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub failed: Vec<String>,
+    pub failed: Vec<RestoreIssue>,
     /// 旧数据保全目录（被覆盖的原文件移到这里；空 = 本次没有覆盖任何已有文件）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preserved_dir: Option<String>,
+}
+
+/// 逐条问题（结构化 → UI 才能给「人话原因」）。
+///
+/// `code` 是固定枚举（见本文件的 `ISSUE_*` 常量）；`detail` 只进「技术详情」折叠区。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreIssue {
+    /// 目标绝对路径（与计划里的 `target` 同一口径）
+    pub target: String,
+    /// 原因码（固定枚举）
+    pub code: String,
+    /// 技术细节
+    pub detail: String,
+}
+
+/// 还原计划单条（预览与执行共用同一份判定 → 显示 = 执行）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedEntry {
+    /// 绝对路径（还原到的位置）
+    pub target: String,
+    /// 相对 home 的路径
+    pub rel: String,
+    /// 清单声明的大小（字节）
+    pub size: u64,
+    /// 是目录
+    pub is_dir: bool,
+    /// 目标已存在 → 会被挪到保全目录
+    pub exists: bool,
+    /// 备份载荷是否在（只做 metadata 预检，不读内容）
+    pub payload_present: bool,
+    /// 清单声明的内容摘要
+    pub sha256: String,
+}
+
+/// 还原计划（预览 = 执行前的同一份判定结果）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestorePlan {
+    /// 应用 id
+    pub app_id: String,
+    /// 备份目录（绝对路径）
+    pub backup_dir: String,
+    /// 清单 createdAt（ISO-8601；空 = 清单没写）
+    pub created_at: String,
+    /// 清单 createdAt（unix 毫秒；0 = 未知）
+    pub created_at_ms: u64,
+    /// 逐条计划
+    pub entries: Vec<PlannedEntry>,
+    /// 文件条数
+    pub file_count: usize,
+    /// 目录条数
+    pub dir_count: usize,
+    /// 总字节
+    pub total_bytes: u64,
+    /// 会被挪到保全目录的条数
+    pub would_preserve: usize,
+    /// 计划摘要（sha256：按 target 排序的 "target|size|sha256" 拼接）
+    pub digest: String,
+    /// 允许的最大可还原时长（小时）
+    pub max_age_hours: u32,
+}
+
+/// 备份库里的一个备份（列表页）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupRecord {
+    /// 应用 id（备份目录名）
+    pub app_id: String,
+    /// 备份目录（绝对路径）
+    pub dir: String,
+    /// 创建时间（ISO-8601；空 = 未知）
+    pub created_at: String,
+    /// 创建时间（unix 毫秒；0 = 未知）
+    pub created_at_ms: u64,
+    /// 文件条数（仅 v1 有意义）
+    pub file_count: usize,
+    /// 总字节（仅 v1 有意义）
+    pub total_bytes: u64,
+    /// 备份格式：`"v1"` | `"legacy"` | `"unknown"`
+    pub format: String,
+    /// 是否可还原（v1 + home 指纹一致 + 未超龄）
+    pub restorable: bool,
+    /// 备份年龄（小时，向下取整）
+    pub age_hours: u32,
 }
 
 /// 清单单条（`rel` = 备份内相对路径；`target` = 相对 home 的原路径，**绝不含绝对路径**）。
@@ -102,7 +222,12 @@ struct ManifestEntry {
 /// 还原清单（只解析需要的字段；结构不符 = 清单损坏 → 整体拒绝）。
 #[derive(Debug, Clone)]
 struct Manifest {
+    app_id: String,
     home_hash: String,
+    /// 清单创建时间（ISO-8601 原值；空 = 清单没写）
+    created_at: String,
+    /// 清单创建时间（unix 毫秒；0 = 未知 / 解析不了）
+    created_at_ms: u64,
     entries: Vec<ManifestEntry>,
 }
 
@@ -121,10 +246,10 @@ enum EntryResult {
     Restored(String),
     /// 目录已就绪
     Ready,
-    /// 跳过（原因）——安全策略或校验不符，**未写任何东西**
-    Skip(String),
-    /// 失败（原因）——尽力保全后仍未还原
-    Fail(String),
+    /// 跳过（原因码 + 技术细节）——安全策略或校验不符，**未写任何东西**
+    Skip { code: &'static str, detail: String },
+    /// 失败（原因码 + 技术细节）——尽力保全后仍未还原
+    Fail { code: &'static str, detail: String },
 }
 
 /// home 指纹：canonical home 路径的 sha256（备份与还原必须一致）。
@@ -135,6 +260,7 @@ pub fn home_fingerprint(home: &Path) -> String {
     sha256_str(&canon.to_string_lossy())
 }
 
+/// 从备份目录还原数据到 `home` 下的原路径（备份根固定为 `~/.aibox/backup`）。
 /// 从备份目录还原数据到 `home` 下的原路径（备份根固定为 `~/.aibox/backup`）。
 ///
 /// `data_paths` = **调用方给的可信白名单**（registry manifest 的 `maintenance.dataPaths`，
@@ -150,6 +276,7 @@ pub fn home_fingerprint(home: &Path) -> String {
 /// - `RESTORE_APP_MISMATCH`：清单属于别的应用
 /// - `RESTORE_TARGET_NOT_ALLOWED`：清单里任一条 target 不在白名单内 / 类型冲突 /
 ///   目标落在备份库内
+/// - `RESTORE_BACKUP_TOO_OLD`：备份超过 `max_age_hours`（或清单没写创建时间 → 年龄未知 → 拒绝）
 ///
 /// 逐条问题只进 `skipped` / `failed`（不抛异常、不中断其余条目）。
 pub fn restore_backup_in(
@@ -164,6 +291,31 @@ pub fn restore_backup_in(
         home,
         data_paths,
         &crate::manage::default_backup_root(),
+        DEFAULT_MAX_AGE_HOURS,
+    )
+}
+
+/// 生产入口（**备份根固定**为 `~/.aibox/backup`；调用方不能换根——审计 P2-1）：
+/// 带「最大可还原时长」与「计划摘要校验」。
+///
+/// `expected_digest` = 预览时的计划摘要；**不一致 → `RESTORE_PLAN_CHANGED`（不写任何东西）**
+/// （预览之后清单被改过 → 必须让用户重新确认一次）。
+pub fn restore_backup_verified(
+    backup_dir: &Path,
+    app_id: &str,
+    home: &Path,
+    data_paths: &[String],
+    max_age_hours: u32,
+    expected_digest: &str,
+) -> CoreResult<RestoreOutcome> {
+    run_restore(
+        backup_dir,
+        app_id,
+        home,
+        data_paths,
+        &crate::manage::default_backup_root(),
+        max_age_hours,
+        Some(expected_digest),
     )
 }
 
@@ -175,7 +327,78 @@ pub(crate) fn restore_backup_in_at(
     home: &Path,
     data_paths: &[String],
     backup_root: &Path,
+    max_age_hours: u32,
 ) -> CoreResult<RestoreOutcome> {
+    run_restore(
+        backup_dir,
+        app_id,
+        home,
+        data_paths,
+        backup_root,
+        max_age_hours,
+        None,
+    )
+}
+
+/// 执行还原：**先算计划 → 校验摘要 → 再逐条还原**。
+///
+/// 预览（[`plan_restore_in_at`]）与执行走**同一份判定代码** → 显示 = 执行。
+fn run_restore(
+    backup_dir: &Path,
+    app_id: &str,
+    home: &Path,
+    data_paths: &[String],
+    backup_root: &Path,
+    max_age_hours: u32,
+    expected_digest: Option<&str>,
+) -> CoreResult<RestoreOutcome> {
+    let ctx = prepare_restore(
+        backup_dir,
+        app_id,
+        home,
+        data_paths,
+        backup_root,
+        max_age_hours,
+    )?;
+    let plan = build_plan(&ctx, app_id, max_age_hours);
+    if let Some(expected) = expected_digest {
+        if !expected.trim().eq_ignore_ascii_case(plan.digest.trim()) {
+            return Err(CoreError::new(
+                "RESTORE_PLAN_CHANGED",
+                "The backup changed after it was previewed; refusing to restore (preview it again)",
+            ));
+        }
+    }
+    execute_restore(&ctx, &plan)
+}
+
+/// 还原判定上下文（①–⑦ 全部通过后的状态；执行阶段复用 → 预览与执行同一份判定）。
+struct RestoreContext {
+    /// canonical home
+    home_real: PathBuf,
+    /// canonical 备份根
+    backup_root_real: PathBuf,
+    /// canonical 备份目录
+    backup_dir_real: PathBuf,
+    /// 载荷根（清单所在目录）
+    payload_root: PathBuf,
+    /// 已解析的清单
+    manifest: Manifest,
+    /// 白名单
+    allow: Allowlist,
+}
+
+/// ①–⑦ 判定（**只读不写**）：路径、备份根、白名单、清单、home 指纹、限额、逐条越界、超龄。
+///
+/// 任一条不通过 → 整体拒绝（抛错，**在任何读写之前**）；通过 → 返回上下文（执行阶段复用）。
+fn prepare_restore(
+    backup_dir: &Path,
+    app_id: &str,
+    home: &Path,
+    data_paths: &[String],
+    backup_root: &Path,
+    max_age_hours: u32,
+) -> CoreResult<RestoreContext> {
     crate::registry::validate_id(app_id)?;
 
     // ① home 规范化（解析不了 → fail-closed，绝不猜）
@@ -348,35 +571,408 @@ pub(crate) fn restore_backup_in_at(
         }
     }
 
-    // ⑧ 逐条还原（载荷根 = 清单所在目录；保全根 = 备份根）
+    // ⑧ 超龄（**在 ①–⑦ 之后、任何写入之前**）：越界/限额比「太旧」更严重，先报它们。
+    // 清单没写创建时间 → 年龄未知 → **按超龄拒绝**（fail-closed：拿不准 → 拒绝）。
+    let age_hours = age_hours_since(manifest.created_at_ms);
+    if manifest.created_at_ms == 0 {
+        return Err(CoreError::new(
+            "RESTORE_BACKUP_TOO_OLD",
+            "The backup does not state when it was created (age unknown); refusing to restore",
+        ));
+    }
+    if age_hours > max_age_hours {
+        return Err(CoreError::new(
+            "RESTORE_BACKUP_TOO_OLD",
+            format!(
+                "This backup is {age_hours} hour(s) old (limit {max_age_hours}); refusing to restore"
+            ),
+        ));
+    }
+
+    // 载荷根 = 清单所在目录；保全根 = 备份根
     let payload_root = manifest_path
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| backup_dir_real.clone());
 
-    let mut outcome = RestoreOutcome::default();
-    let mut preserver = Preserver::new(&backup_root_real, app_id);
+    Ok(RestoreContext {
+        home_real,
+        backup_root_real,
+        backup_dir_real,
+        payload_root,
+        manifest,
+        allow,
+    })
+}
 
-    for entry in &manifest.entries {
-        let res = restore_entry(entry, &payload_root, &home_real, &allow, &mut preserver);
+/// 生成还原计划（**不写任何东西**）：走与执行完全相同的 ①–⑦ 判定。
+///
+/// 预览与执行共用同一份判定代码 → **显示 = 执行**（杜绝「预览说能还原、执行却不是那样」）。
+pub fn plan_restore_in_at(
+    backup_dir: &Path,
+    app_id: &str,
+    home: &Path,
+    data_paths: &[String],
+    backup_root: &Path,
+    max_age_hours: u32,
+) -> CoreResult<RestorePlan> {
+    let ctx = prepare_restore(
+        backup_dir,
+        app_id,
+        home,
+        data_paths,
+        backup_root,
+        max_age_hours,
+    )?;
+    Ok(build_plan(&ctx, app_id, max_age_hours))
+}
+
+/// 由判定上下文生成计划（**只做 metadata 预检，不读载荷内容**）。
+fn build_plan(ctx: &RestoreContext, app_id: &str, max_age_hours: u32) -> RestorePlan {
+    let mut entries = Vec::with_capacity(ctx.manifest.entries.len());
+    let mut file_count = 0usize;
+    let mut dir_count = 0usize;
+    let mut total_bytes = 0u64;
+    let mut would_preserve = 0usize;
+    for e in &ctx.manifest.entries {
+        let target_rel = safe_rel(&e.target).unwrap_or_else(|| PathBuf::from(&e.target));
+        let target_abs = ctx.home_real.join(&target_rel);
+        let target_meta = fs::symlink_metadata(&target_abs).ok();
+        let exists = target_meta.is_some();
+        // 只有「目标是已存在的普通文件」才会被挪到保全目录（目录不挪）
+        let will_preserve = !e.is_dir && target_meta.as_ref().map(|m| m.is_file()).unwrap_or(false);
+        let payload_present = match safe_rel(&e.rel) {
+            Some(rel) => {
+                let p = ctx.payload_root.join(&rel);
+                match fs::symlink_metadata(&p) {
+                    Ok(m) => {
+                        if e.is_dir {
+                            m.is_dir()
+                        } else {
+                            m.is_file()
+                        }
+                    }
+                    Err(_) => false,
+                }
+            }
+            None => false,
+        };
+        if e.is_dir {
+            dir_count += 1;
+        } else {
+            file_count += 1;
+            total_bytes = total_bytes.saturating_add(e.size);
+        }
+        if will_preserve {
+            would_preserve += 1;
+        }
+        entries.push(PlannedEntry {
+            target: target_abs.to_string_lossy().into_owned(),
+            rel: target_rel.to_string_lossy().replace('\\', "/"),
+            size: e.size,
+            is_dir: e.is_dir,
+            exists,
+            payload_present,
+            sha256: e.sha256.clone(),
+        });
+    }
+    let digest = plan_digest(&entries);
+    RestorePlan {
+        app_id: app_id.to_string(),
+        backup_dir: ctx.backup_dir_real.to_string_lossy().into_owned(),
+        created_at: ctx.manifest.created_at.clone(),
+        created_at_ms: ctx.manifest.created_at_ms,
+        entries,
+        file_count,
+        dir_count,
+        total_bytes,
+        would_preserve,
+        digest,
+        max_age_hours,
+    }
+}
+
+/// 计划摘要：entries 按 `target` 排序 → 拼 `"{target}|{size}|{sha256}\n"` → sha256。
+///
+/// 摘要只由**清单**决定（不读载荷）→ 预览与执行之间清单被改 → 摘要变了 → 拒绝执行。
+fn plan_digest(entries: &[PlannedEntry]) -> String {
+    let mut sorted: Vec<(&str, u64, &str)> = entries
+        .iter()
+        .map(|e| (e.target.as_str(), e.size, e.sha256.as_str()))
+        .collect();
+    sorted.sort_by(|a, b| a.0.cmp(b.0));
+    let mut buf = String::new();
+    for (target, size, sha) in sorted {
+        buf.push_str(target);
+        buf.push('|');
+        buf.push_str(&size.to_string());
+        buf.push('|');
+        buf.push_str(sha);
+        buf.push('\n');
+    }
+    sha256_str(&buf)
+}
+
+/// 逐条还原（⑧）：用**计划里的同一份判定**执行 → 预览与执行一致。
+fn execute_restore(ctx: &RestoreContext, plan: &RestorePlan) -> CoreResult<RestoreOutcome> {
+    let mut outcome = RestoreOutcome::default();
+    let mut preserver = Preserver::new(&ctx.backup_root_real, &ctx.manifest.app_id);
+
+    for (i, entry) in ctx.manifest.entries.iter().enumerate() {
+        let planned = &plan.entries[i];
+        let res = restore_entry(entry, ctx, &mut preserver);
         match res {
             EntryResult::Restored(p) => {
                 outcome.restored += 1;
                 outcome.restored_paths.push(p);
             }
             EntryResult::Ready => {}
-            EntryResult::Skip(reason) => {
-                outcome.skipped.push(format!("{}: {reason}", entry.target));
+            EntryResult::Skip { code, detail } => {
+                outcome.skipped.push(RestoreIssue {
+                    target: planned.target.clone(),
+                    code: code.to_string(),
+                    detail,
+                });
             }
-            EntryResult::Fail(reason) => {
-                outcome.failed.push(format!("{}: {reason}", entry.target));
+            EntryResult::Fail { code, detail } => {
+                outcome.failed.push(RestoreIssue {
+                    target: planned.target.clone(),
+                    code: code.to_string(),
+                    detail,
+                });
             }
         }
     }
-    outcome.preserved_dir = preserver.current().map(|p| p.to_string_lossy().into_owned());
+    outcome.preserved_dir = preserver
+        .current()
+        .map(|p| p.to_string_lossy().into_owned());
     Ok(outcome)
 }
 
+/// 列出备份库里的备份（`<backup_root>/<ts>/<appId>/`；**跳过 `pre-restore-*` 保全目录**）。
+///
+/// - `format = "v1"`：清单 schema 匹配 → 统计文件数/字节、读创建时间；
+/// - `format = "legacy"`：有清单但 schema 不符（旧格式 `data.zip`）→ **不可还原**；
+/// - `format = "unknown"`：没有清单 → **不可还原**。
+///
+/// `restorable` = v1 + home 指纹一致 + 创建时间已知 + 未超龄。
+pub fn list_backups_in(
+    backup_root: &Path,
+    home: &Path,
+    max_age_hours: u32,
+) -> CoreResult<Vec<BackupRecord>> {
+    let home_real = fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
+    let home_hash = home_fingerprint(&home_real);
+    let Ok(rd) = fs::read_dir(backup_root) else {
+        // 备份库还不存在 → 空列表（不是错误）
+        return Ok(Vec::new());
+    };
+    let mut out: Vec<BackupRecord> = Vec::new();
+    for ts_entry in rd.flatten() {
+        let ts_dir = ts_entry.path();
+        if !ts_dir.is_dir() {
+            continue;
+        }
+        let ts_name = ts_entry.file_name().to_string_lossy().into_owned();
+        // 保全目录不是备份（那是「被覆盖的旧数据」，不能拿去还原）
+        if ts_name.starts_with("pre-restore-") {
+            continue;
+        }
+        let Ok(app_rd) = fs::read_dir(&ts_dir) else {
+            continue;
+        };
+        for app_entry in app_rd.flatten() {
+            let app_dir = app_entry.path();
+            if !app_dir.is_dir() {
+                continue;
+            }
+            let app_id = app_entry.file_name().to_string_lossy().into_owned();
+            out.push(read_backup_record(
+                &app_dir,
+                &app_id,
+                &home_hash,
+                max_age_hours,
+            ));
+        }
+    }
+    // 新的在前（同毫秒则按 app id 稳定排序）
+    out.sort_by(|a, b| {
+        b.created_at_ms
+            .cmp(&a.created_at_ms)
+            .then_with(|| a.app_id.cmp(&b.app_id))
+    });
+    Ok(out)
+}
+
+/// 读一个备份目录 → 列表条目（**只读元数据**；不碰载荷内容）。
+fn read_backup_record(
+    app_dir: &Path,
+    app_id: &str,
+    home_hash: &str,
+    max_age_hours: u32,
+) -> BackupRecord {
+    let mut rec = BackupRecord {
+        app_id: app_id.to_string(),
+        dir: app_dir.to_string_lossy().into_owned(),
+        created_at: String::new(),
+        created_at_ms: 0,
+        file_count: 0,
+        total_bytes: 0,
+        format: "unknown".to_string(),
+        restorable: false,
+        age_hours: 0,
+    };
+    let manifest_path = app_dir.join("manifest.json");
+    if !manifest_path.is_file() {
+        // 没有清单 → unknown（旧备份是 data.zip，没有可核对的映射表）
+        return rec;
+    }
+    let Ok(text) = read_manifest_bounded(&manifest_path) else {
+        rec.format = "legacy".to_string();
+        return rec;
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&text) else {
+        rec.format = "legacy".to_string();
+        return rec;
+    };
+    let created_at = value
+        .get("createdAt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let created_at_ms = parse_iso8601_ms(&created_at).unwrap_or(0);
+    let age_hours = age_hours_since(created_at_ms);
+    rec.created_at = created_at;
+    rec.created_at_ms = created_at_ms;
+    rec.age_hours = age_hours;
+    let schema = value.get("schema").and_then(|v| v.as_str()).unwrap_or("");
+    if schema != MANIFEST_SCHEMA {
+        // 有清单但不是本格式（旧备份）→ 明确标出来，UI 提示「请手动恢复」
+        rec.format = "legacy".to_string();
+        return rec;
+    }
+    let (file_count, total_bytes) = value
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            let mut files = 0usize;
+            let mut bytes = 0u64;
+            for e in arr {
+                let is_dir = e.get("isDir").and_then(|v| v.as_bool()).unwrap_or(false);
+                if is_dir {
+                    continue;
+                }
+                files += 1;
+                bytes = bytes.saturating_add(e.get("size").and_then(|v| v.as_u64()).unwrap_or(0));
+            }
+            (files, bytes)
+        })
+        .unwrap_or((0, 0));
+    let home_ok = value
+        .get("homeHash")
+        .and_then(|v| v.as_str())
+        .map(|h| h.eq_ignore_ascii_case(home_hash))
+        .unwrap_or(false);
+    rec.format = "v1".to_string();
+    rec.file_count = file_count;
+    rec.total_bytes = total_bytes;
+    // 可还原 = v1 + home 指纹一致 + 创建时间已知 + 未超龄
+    rec.restorable = home_ok && created_at_ms > 0 && age_hours <= max_age_hours;
+    rec
+}
+
+/// 当前 unix 毫秒。
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// 备份年龄（小时，向下取整）；`created_at_ms == 0`（时间未知）→ 0
+/// （调用方按「年龄未知 → 拒绝」另行处理）。
+fn age_hours_since(created_at_ms: u64) -> u32 {
+    if created_at_ms == 0 {
+        return 0;
+    }
+    let ms = now_ms().saturating_sub(created_at_ms);
+    (ms / 3_600_000).min(u32::MAX as u64) as u32
+}
+
+/// ISO-8601（`YYYY-MM-DDTHH:MM:SS[.fff]Z`，UTC）→ unix 毫秒；解析不了 → `None`。
+///
+/// **只认 UTC**（`Z`）：别的时区不猜（猜错年龄 = 放行过期备份）→ fail-closed。
+fn parse_iso8601_ms(raw: &str) -> Option<u64> {
+    let s = raw.trim();
+    let b = s.as_bytes();
+    if b.len() < 20 {
+        return None;
+    }
+    let year: i64 = s.get(0..4)?.parse().ok()?;
+    if b[4] != b'-' {
+        return None;
+    }
+    let month: i64 = s.get(5..7)?.parse().ok()?;
+    if b[7] != b'-' {
+        return None;
+    }
+    let day: i64 = s.get(8..10)?.parse().ok()?;
+    if b[10] != b'T' && b[10] != b' ' {
+        return None;
+    }
+    let hour: i64 = s.get(11..13)?.parse().ok()?;
+    if b[13] != b':' {
+        return None;
+    }
+    let minute: i64 = s.get(14..16)?.parse().ok()?;
+    if b[16] != b':' {
+        return None;
+    }
+    let second: i64 = s.get(17..19)?.parse().ok()?;
+    // 尾部：可选小数秒 + 'Z'（其它时区 → 不认）
+    let mut rest = &s[19..];
+    let mut millis: u64 = 0;
+    if let Some(stripped) = rest.strip_prefix('.') {
+        let digits: String = stripped
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        // 只取前三位（毫秒）；多余的位数丢弃（备份清单的时间精度只到毫秒）
+        let mut three = digits.clone();
+        three.truncate(3);
+        while three.len() < 3 {
+            three.push('0');
+        }
+        millis = three.parse().unwrap_or(0);
+        rest = &stripped[digits.len()..];
+    }
+    if rest != "Z" && rest != "z" {
+        return None;
+    }
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    if hour > 23 || minute > 59 || second > 60 {
+        return None;
+    }
+    let days = days_from_civil(year, month, day);
+    let secs = days * 86_400 + hour * 3600 + minute * 60 + second;
+    if secs < 0 {
+        return None;
+    }
+    Some(secs as u64 * 1000 + millis)
+}
+
+/// 公历 → unix 天数（Howard Hinnett 算法；不依赖外部 crate）。
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
 /// 定位清单：`<backup_dir>/manifest.json` 或 `<backup_dir>/<appId>/manifest.json`。
 fn locate_manifest(backup_dir: &Path, app_id: &str) -> Option<PathBuf> {
     let direct = backup_dir.join("manifest.json");
@@ -479,6 +1075,13 @@ fn parse_manifest(value: &Value, app_id: &str) -> CoreResult<Manifest> {
     if !is_hex64(home_hash) {
         return Err(damaged("homeHash is not a 64-hex sha256"));
     }
+    // 创建时间：v1 清单必写；缺失/解析不了 → `created_at_ms = 0`（年龄未知 → 还原时拒绝）
+    let created_at = obj
+        .get("createdAt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let created_at_ms = parse_iso8601_ms(&created_at).unwrap_or(0);
     let arr = obj
         .get("entries")
         .and_then(|v| v.as_array())
@@ -525,7 +1128,10 @@ fn parse_manifest(value: &Value, app_id: &str) -> CoreResult<Manifest> {
         });
     }
     Ok(Manifest {
+        app_id: app_id.to_string(),
         home_hash: home_hash.to_ascii_lowercase(),
+        created_at,
+        created_at_ms,
         entries,
     })
 }
@@ -636,66 +1242,95 @@ impl<'a> Preserver<'a> {
     }
 }
 
-/// 单条还原。
+/// 单条还原（执行期复核：软链 / 摘要 / 类型 / 父路径 —— 计划阶段只做 metadata 预检）。
 fn restore_entry(
     entry: &ManifestEntry,
-    payload_root: &Path,
-    home_real: &Path,
-    allow: &Allowlist,
+    ctx: &RestoreContext,
     preserver: &mut Preserver,
 ) -> EntryResult {
     // ── 不变式 1：白名单（调用方给的 dataPaths）——清单自述路径不可信 ──
     let Some(target_rel) = safe_rel(&entry.target) else {
-        return EntryResult::Skip(format!(
-            "target path '{}' is not a safe relative path",
-            entry.target
-        ));
+        return EntryResult::Skip {
+            code: ISSUE_OUTSIDE_BACKUP,
+            detail: format!("target path '{}' is not a safe relative path", entry.target),
+        };
     };
-    if !allow_allows(allow, &target_rel) {
-        return EntryResult::Skip("target is outside the declared data paths".into());
+    if !allow_allows(&ctx.allow, &target_rel) {
+        return EntryResult::Skip {
+            code: ISSUE_OUTSIDE_BACKUP,
+            detail: "target is outside the declared data paths".into(),
+        };
     }
     let Some(rel) = safe_rel(&entry.rel) else {
-        return EntryResult::Skip(format!(
-            "backup path '{}' is not a safe relative path",
-            entry.rel
-        ));
+        return EntryResult::Skip {
+            code: ISSUE_SOURCE_MISSING,
+            detail: format!("backup path '{}' is not a safe relative path", entry.rel),
+        };
     };
+    let home_real = &ctx.home_real;
     let target_abs = home_real.join(&target_rel);
-    let source = payload_root.join(&rel);
+    let source = ctx.payload_root.join(&rel);
 
-    // ── 不变式 3：拼回 home 后必须仍在 home 内（软链逃逸兜底） ──
-    if !canonical_within(&target_abs, home_real) {
-        return EntryResult::Skip("resolved target escapes the home directory".into());
+    // ── 不变式 2（续）：还原目标不得落在备份库内（整体判定已拦，这里纵深防御）──
+    if target_inside_backup_root(&target_rel, home_real, &ctx.backup_root_real) {
+        return EntryResult::Skip {
+            code: ISSUE_OUTSIDE_BACKUP,
+            detail: "target is inside the backup library".into(),
+        };
     }
-    // ── 不变式 3（续）：链接防护（目标侧：任一组件是软链 → 跳过，绝不穿链写） ──
+    // ── 不变式 3：拼回 home 后必须仍在 home 内（软链逃逸兜底） ──
+    // 链接防护**先于**越界判定：路径上有软链时，原因码报 `symlink`（更贴近人话）
+    //（两者都是「跳过、不写」，先判谁不影响安全性）。
     if let Some(link) = symlink_component(&target_abs, home_real) {
-        return EntryResult::Skip(format!(
-            "target path traverses a symlink ({})",
-            link.display()
-        ));
+        return EntryResult::Skip {
+            code: ISSUE_SYMLINK,
+            detail: format!("target path traverses a symlink ({})", link.display()),
+        };
     }
     // ── 不变式 3（续）：链接防护（备份源侧） ──
-    if let Some(link) = symlink_component(&source, payload_root) {
-        return EntryResult::Skip(format!(
-            "backup source traverses a symlink ({})",
-            link.display()
-        ));
+    if let Some(link) = symlink_component(&source, &ctx.payload_root) {
+        return EntryResult::Skip {
+            code: ISSUE_SYMLINK,
+            detail: format!("backup source traverses a symlink ({})", link.display()),
+        };
+    }
+    if !canonical_within(&target_abs, home_real) {
+        return EntryResult::Skip {
+            code: ISSUE_OUTSIDE_BACKUP,
+            detail: "resolved target escapes the home directory".into(),
+        };
     }
 
     // 类型冲突：清单说文件但原位是目录（或反之）→ 跳过，不动原数据
     let target_meta = fs::symlink_metadata(&target_abs);
     match &target_meta {
         Ok(m) if entry.is_dir && !m.is_dir() => {
-            return EntryResult::Skip("target exists as a file".into())
+            return EntryResult::Skip {
+                code: ISSUE_TYPE_CONFLICT,
+                detail: "target exists as a file".into(),
+            }
         }
         Ok(m) if !entry.is_dir && m.is_dir() => {
-            return EntryResult::Skip("target exists as a directory".into())
+            return EntryResult::Skip {
+                code: ISSUE_TYPE_CONFLICT,
+                detail: "target exists as a directory".into(),
+            }
         }
         _ => {}
     }
 
     if entry.is_dir {
         return restore_dir(&target_abs);
+    }
+    // 父路径类型冲突（文件占了目录的位置）→ 跳过（不硬写、不覆盖）
+    if let Some(blocker) = parent_conflict(&target_abs, home_real) {
+        return EntryResult::Skip {
+            code: ISSUE_PARENT_CONFLICT,
+            detail: format!(
+                "a file already occupies the parent path ({})",
+                blocker.display()
+            ),
+        };
     }
     restore_file(entry, &source, &target_abs, &target_rel, preserver)
 }
@@ -704,22 +1339,37 @@ fn restore_entry(
 fn restore_dir(target_abs: &Path) -> EntryResult {
     match fs::symlink_metadata(target_abs) {
         Ok(m) if m.is_dir() => EntryResult::Ready,
-        Ok(_) => EntryResult::Skip("target exists as a file".into()),
+        Ok(_) => EntryResult::Skip {
+            code: ISSUE_TYPE_CONFLICT,
+            detail: "target exists as a file".into(),
+        },
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             if let Err(e) = fs::create_dir_all(target_abs) {
-                return EntryResult::Fail(format!("cannot create directory: {e}"));
+                return EntryResult::Fail {
+                    code: ISSUE_WRITE_FAILED,
+                    detail: format!("cannot create directory: {e}"),
+                };
             }
             // 建完再确认不是软链（fail-closed）
             match fs::symlink_metadata(target_abs) {
                 Ok(m) if m.file_type().is_symlink() => {
                     let _ = fs::remove_dir(target_abs);
-                    EntryResult::Fail("created path turned out to be a symlink".into())
+                    EntryResult::Skip {
+                        code: ISSUE_SYMLINK,
+                        detail: "created path turned out to be a symlink".into(),
+                    }
                 }
                 Ok(_) => EntryResult::Ready,
-                Err(e) => EntryResult::Fail(format!("cannot inspect created directory: {e}")),
+                Err(e) => EntryResult::Fail {
+                    code: ISSUE_WRITE_FAILED,
+                    detail: format!("cannot inspect created directory: {e}"),
+                },
             }
         }
-        Err(e) => EntryResult::Fail(format!("cannot inspect target: {e}")),
+        Err(e) => EntryResult::Fail {
+            code: ISSUE_WRITE_FAILED,
+            detail: format!("cannot inspect target: {e}"),
+        },
     }
 }
 
@@ -734,29 +1384,54 @@ fn restore_file(
     // 源必须是普通文件（缺失 = 备份不完整；软链已在上面拦掉）
     let meta = match fs::symlink_metadata(source) {
         Ok(m) => m,
-        Err(e) => return EntryResult::Fail(format!("backup source unreadable: {e}")),
+        Err(e) => {
+            return EntryResult::Fail {
+                code: ISSUE_SOURCE_MISSING,
+                detail: format!("backup source is missing or unreadable: {e}"),
+            }
+        }
     };
+    if meta.file_type().is_symlink() {
+        return EntryResult::Skip {
+            code: ISSUE_SYMLINK,
+            detail: "backup source is a symlink".into(),
+        };
+    }
     if !meta.is_file() {
-        return EntryResult::Skip("backup source is not a regular file".into());
+        return EntryResult::Skip {
+            code: ISSUE_TYPE_CONFLICT,
+            detail: "backup source is not a regular file".into(),
+        };
     }
     if meta.len() != entry.size {
-        return EntryResult::Skip(format!(
-            "backup source size {} does not match the manifest ({})",
-            meta.len(),
-            entry.size
-        ));
+        return EntryResult::Skip {
+            code: ISSUE_SHA_MISMATCH,
+            detail: format!(
+                "backup source size {} does not match the manifest ({})",
+                meta.len(),
+                entry.size
+            ),
+        };
     }
 
     // ── 不变式 4：校验后替换（备份源被改过 → 跳过，绝不写） ──
     let actual = match sha256_file_pinned(source) {
         Ok(h) => h,
-        Err(e) => return EntryResult::Fail(format!("cannot hash backup source: {e}")),
+        Err(e) => {
+            return EntryResult::Fail {
+                code: ISSUE_SOURCE_MISSING,
+                detail: format!("cannot hash backup source: {e}"),
+            }
+        }
     };
     if !actual.eq_ignore_ascii_case(&entry.sha256) {
-        return EntryResult::Skip(format!(
-            "checksum mismatch (backup file was modified: expected {}, got {actual})",
-            entry.sha256
-        ));
+        return EntryResult::Skip {
+            code: ISSUE_SHA_MISMATCH,
+            detail: format!(
+                "checksum mismatch (backup file was modified: expected {}, got {actual})",
+                entry.sha256
+            ),
+        };
     }
 
     // ── 不变式 5：现有数据先保全（移走，不是删除） ──
@@ -769,7 +1444,11 @@ fn restore_file(
             Ok(Some(dest)) => preserved = Some(dest),
             Ok(None) => {}
             Err(e) => {
-                return EntryResult::Fail(format!("cannot preserve existing data: {e}"));
+                // 保全失败 → **为安全跳过**（不覆盖旧数据；规格：preserve_failed → skipped）
+                return EntryResult::Skip {
+                    code: ISSUE_PRESERVE_FAILED,
+                    detail: format!("cannot preserve existing data: {e}"),
+                };
             }
         }
     }
@@ -777,15 +1456,22 @@ fn restore_file(
     // ── 不变式 6：原子写 + 写后校验 ──
     match write_verified(source, target_abs, &entry.sha256) {
         Ok(()) => EntryResult::Restored(target_abs.to_string_lossy().into_owned()),
-        Err(e) => {
+        Err(f) => {
             // 写失败 → 把保全的旧数据放回原位（用户仍拿到旧内容）
-            let mut note = e.to_string();
+            let mut detail = f.detail;
             if let Some(dest) = preserved {
                 if let Err(rb) = move_back(&dest, target_abs) {
-                    note.push_str(&format!("; rollback failed: {rb}"));
+                    detail.push_str(&format!("; rollback failed: {rb}"));
                 }
             }
-            EntryResult::Fail(note)
+            EntryResult::Fail {
+                code: if f.verify {
+                    ISSUE_VERIFY_FAILED
+                } else {
+                    ISSUE_WRITE_FAILED
+                },
+                detail,
+            }
         }
     }
 }
@@ -840,15 +1526,30 @@ fn move_back(preserved: &Path, target_abs: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// 写入失败（区分「写后校验不符」与普通写失败 → UI 给不同的人话原因）。
+struct WriteFailure {
+    /// true = 写后校验不符（已回滚）
+    verify: bool,
+    detail: String,
+}
+
 /// 原子写 + 写后校验：同目录临时文件 → 写完重算 sha256 → 一致才 rename 到位。
 ///
 /// 临时文件名固定（`.<name>.aibox-restore.<pid>.tmp`）且**独占创建**
 /// （`create_new`）——同名已存在 → 换名重试（不覆盖别人的文件，也不静默复用）。
-fn write_verified(source: &Path, target_abs: &Path, expected_sha: &str) -> io::Result<()> {
-    let dir = target_abs
-        .parent()
-        .ok_or_else(|| io::Error::other("target has no parent directory"))?;
-    fs::create_dir_all(dir)?;
+fn write_verified(
+    source: &Path,
+    target_abs: &Path,
+    expected_sha: &str,
+) -> Result<(), WriteFailure> {
+    let dir = target_abs.parent().ok_or_else(|| WriteFailure {
+        verify: false,
+        detail: "target has no parent directory".into(),
+    })?;
+    fs::create_dir_all(dir).map_err(|e| WriteFailure {
+        verify: false,
+        detail: format!("cannot create the parent directory: {e}"),
+    })?;
     let name = target_abs
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
@@ -862,8 +1563,11 @@ fn write_verified(source: &Path, target_abs: &Path, expected_sha: &str) -> io::R
             let _ = fs::remove_file(&stale);
         }
     }
-    let (tmp, mut output) = fsops::create_exclusive_tmp(dir, &base, ".tmp")
-        .map_err(|e| io::Error::other(e.human))?;
+    let (tmp, mut output) =
+        fsops::create_exclusive_tmp(dir, &base, ".tmp").map_err(|e| WriteFailure {
+            verify: false,
+            detail: e.human,
+        })?;
     // 写（流式；同时算出写入内容的 sha256）
     let write_result = (|| -> io::Result<()> {
         let mut input = fs::File::open(source)?;
@@ -881,7 +1585,10 @@ fn write_verified(source: &Path, target_abs: &Path, expected_sha: &str) -> io::R
     })();
     if let Err(e) = write_result {
         let _ = fs::remove_file(&tmp);
-        return Err(e);
+        return Err(WriteFailure {
+            verify: false,
+            detail: format!("cannot write the restored file: {e}"),
+        });
     }
     drop(output);
     // 写后校验：重新从磁盘读回重算 sha256
@@ -889,19 +1596,26 @@ fn write_verified(source: &Path, target_abs: &Path, expected_sha: &str) -> io::R
         Ok(h) => h,
         Err(e) => {
             let _ = fs::remove_file(&tmp);
-            return Err(e);
+            return Err(WriteFailure {
+                verify: false,
+                detail: format!("cannot verify the restored file: {e}"),
+            });
         }
     };
     if !actual.eq_ignore_ascii_case(expected_sha) {
         let _ = fs::remove_file(&tmp);
-        return Err(io::Error::other(format!(
-            "write-back checksum mismatch (expected {expected_sha}, got {actual})"
-        )));
+        return Err(WriteFailure {
+            verify: true,
+            detail: format!("write-back checksum mismatch (expected {expected_sha}, got {actual})"),
+        });
     }
     // 到位（目标此刻应为空——旧数据已被移入保全目录）
     if let Err(e) = fs::rename(&tmp, target_abs) {
         let _ = fs::remove_file(&tmp);
-        return Err(e);
+        return Err(WriteFailure {
+            verify: false,
+            detail: format!("cannot place the restored file: {e}"),
+        });
     }
     Ok(())
 }
@@ -973,6 +1687,29 @@ fn canonical_within(path: &Path, home_real: &Path) -> bool {
                     return false;
                 }
             }
+        }
+    }
+}
+
+/// 父路径类型冲突：目标的父链上有个**文件**占了目录的位置
+/// （`appdata` 是文件，却要写 `appdata/x.txt`）→ 返回那个文件路径。
+///
+/// 找不到冲突 → `None`（正常路径）。
+fn parent_conflict(target_abs: &Path, home_real: &Path) -> Option<PathBuf> {
+    let mut p = target_abs.parent()?.to_path_buf();
+    loop {
+        if let Ok(m) = fs::symlink_metadata(&p) {
+            // 软链不算冲突（上面已经按软链跳过）；只认「普通文件占位」
+            if m.is_file() {
+                return Some(p);
+            }
+        }
+        if p == *home_real {
+            return None;
+        }
+        match p.parent() {
+            Some(parent) if parent.starts_with(home_real) => p = parent.to_path_buf(),
+            _ => return None,
         }
     }
 }
@@ -1060,6 +1797,9 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     static SEQ: AtomicU32 = AtomicU32::new(0);
+
+    /// 测试夹具的备份是「固定时间戳的旧备份」→ 这些用例测的不是年龄 → 放开年龄闸门。
+    const AGE_UNLIMITED: u32 = u32::MAX;
 
     fn tmpdir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!(
@@ -1156,6 +1896,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 2, "{out:?}");
@@ -1196,6 +1937,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(
@@ -1244,6 +1986,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_TARGET_NOT_ALLOWED", "{err:?}");
@@ -1295,6 +2038,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 0, "{out:?}");
@@ -1330,6 +2074,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 0, "{out:?}");
@@ -1370,6 +2115,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 0, "{out:?}");
@@ -1400,6 +2146,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 1, "{out:?}");
@@ -1447,6 +2194,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 0, "{out:?}");
@@ -1477,6 +2225,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_NO_MANIFEST");
@@ -1509,6 +2258,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_NO_MANIFEST");
@@ -1521,6 +2271,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_NO_MANIFEST");
@@ -1554,6 +2305,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_NO_MANIFEST");
@@ -1594,6 +2346,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_NO_MANIFEST");
@@ -1630,6 +2383,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_HOME_MISMATCH");
@@ -1679,6 +2433,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_TOO_LARGE");
@@ -1706,6 +2461,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_TOO_LARGE");
@@ -1732,6 +2488,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_APP_MISMATCH");
@@ -1772,6 +2529,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 1, "{out:?}");
@@ -1814,6 +2572,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(r.restored, 2, "{r:?}");
@@ -1859,6 +2618,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_TARGET_NOT_ALLOWED", "{err:?}");
@@ -1903,6 +2663,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 1, "{out:?}");
@@ -1954,6 +2715,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_TARGET_NOT_ALLOWED", "{err:?}");
@@ -1988,7 +2750,8 @@ mod tests {
         let (dir, _) = make_backup(&backup_root, &home, "demo", &[("appdata/x.txt", "x")]);
         write(&home.join("keep.txt"), "keep");
 
-        let err = restore_backup_in_at(&dir, "demo", &home, &[], &backup_root).unwrap_err();
+        let err = restore_backup_in_at(&dir, "demo", &home, &[], &backup_root, AGE_UNLIMITED)
+            .unwrap_err();
         assert_eq!(err.code, "RESTORE_NO_WHITELIST", "{err:?}");
         assert_eq!(fs::read_dir(&home).unwrap().count(), 1, "must not touch home");
         assert_eq!(fs::read_to_string(home.join("keep.txt")).unwrap(), "keep");
@@ -2013,6 +2776,7 @@ mod tests {
             &home,
             &[outside.to_string_lossy().into_owned()],
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_NO_WHITELIST", "{err:?}");
@@ -2055,6 +2819,7 @@ mod tests {
             &home,
             &wl(&home, "cfg.json"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_TARGET_NOT_ALLOWED", "{err:?}");
@@ -2089,6 +2854,7 @@ mod tests {
             &home,
             &["~/.config/openclaw".to_string()],
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 1, "{out:?}");
@@ -2124,6 +2890,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_TARGET_NOT_ALLOWED", "{err:?}");
@@ -2168,8 +2935,15 @@ mod tests {
             } else {
                 spelling.to_string()
             };
-            let err = restore_backup_in_at(&dir, "demo", &home, &[raw.clone()], &backup_root)
-                .unwrap_err();
+            let err = restore_backup_in_at(
+                &dir,
+                "demo",
+                &home,
+                &[raw.clone()],
+                &backup_root,
+                AGE_UNLIMITED,
+            )
+            .unwrap_err();
             assert_eq!(err.code, "RESTORE_NO_WHITELIST", "{raw}: {err:?}");
             assert_eq!(
                 fs::read_to_string(home.join(".ssh/authorized_keys")).unwrap(),
@@ -2202,6 +2976,7 @@ mod tests {
         let manifest = serde_json::json!({
             "schema": MANIFEST_SCHEMA,
             "appId": "demo",
+            "createdAt": "2026-01-01T00:00:00Z",
             "homeHash": home_fingerprint(&home),
             "entries": [json_entry("payload.txt", "appdata/x.txt", body.len() as u64, &sha256_str(body), false)],
         });
@@ -2219,6 +2994,7 @@ mod tests {
                 home.join("appdata").to_string_lossy().into_owned(),
             ],
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 1, "{out:?}");
@@ -2318,6 +3094,7 @@ mod tests {
             &home,
             &[home.join("appdata").to_string_lossy().into_owned()],
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(r.restored, 1, "{r:?}");
@@ -2358,6 +3135,7 @@ mod tests {
         let manifest = serde_json::json!({
             "schema": MANIFEST_SCHEMA,
             "appId": "demo",
+            "createdAt": "2026-01-01T00:00:00Z",
             "homeHash": home_fingerprint(&home),
             "entries": [json_entry("payload.txt", "cfg.json/evil.txt", body.len() as u64, &sha256_str(body), false)],
         });
@@ -2371,6 +3149,7 @@ mod tests {
             &home,
             &wl(&home, "cfg.json"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_TARGET_NOT_ALLOWED", "{err:?}");
@@ -2380,6 +3159,7 @@ mod tests {
         let manifest = serde_json::json!({
             "schema": MANIFEST_SCHEMA,
             "appId": "demo",
+            "createdAt": "2026-01-01T00:00:00Z",
             "homeHash": home_fingerprint(&home),
             "entries": [json_entry("payload.txt", "cfg.json", body.len() as u64, &sha256_str(body), false)],
         });
@@ -2393,6 +3173,7 @@ mod tests {
             &home,
             &wl(&home, "cfg.json"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 1, "{out:?}");
@@ -2428,6 +3209,7 @@ mod tests {
             &home,
             &wl(&home, "cfg.json"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_TARGET_NOT_ALLOWED", "{err:?}");
@@ -2467,6 +3249,7 @@ mod tests {
             &home,
             &[home.join(".aibox").to_string_lossy().into_owned()],
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_TARGET_NOT_ALLOWED", "{err:?}");
@@ -2530,6 +3313,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_BAD_BACKUP_DIR", "{err:?}");
@@ -2560,6 +3344,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         let preserved = PathBuf::from(out.preserved_dir.expect("preserved dir"));
@@ -2605,6 +3390,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap();
         assert_eq!(out.restored, 2, "{out:?}");
@@ -2665,6 +3451,7 @@ mod tests {
             &home,
             &wl(&home, "appdata"),
             &backup_root,
+            AGE_UNLIMITED,
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_MANIFEST_TOO_LARGE", "{err:?}");
@@ -2672,5 +3459,580 @@ mod tests {
         assert_eq!(fs::read_dir(&home).unwrap().count(), 0);
     }
 
+    /// ISO-8601 解析：UTC 准；非 UTC / 坏格式 → `None`（年龄未知 → 拒绝）。
+    #[test]
+    fn parses_iso8601_utc_only() {
+        assert_eq!(
+            parse_iso8601_ms("2026-01-01T00:00:00Z"),
+            Some(1_767_225_600_000)
+        );
+        // 小数秒也算 UTC
+        assert_eq!(
+            parse_iso8601_ms("2026-01-01T00:00:00.250Z"),
+            Some(1_767_225_600_250)
+        );
+        // 非 UTC → 不猜（fail-closed：猜错年龄 = 放行过期备份）
+        assert_eq!(parse_iso8601_ms("2026-01-01T00:00:00+08:00"), None);
+        assert_eq!(parse_iso8601_ms("2026-01-01T00:00:00"), None);
+        assert_eq!(parse_iso8601_ms("not-a-time"), None);
+        assert_eq!(parse_iso8601_ms(""), None);
+        assert_eq!(parse_iso8601_ms("2026-13-01T00:00:00Z"), None);
+    }
+
+    /// 备份年龄：小时向下取整；未知时间 → 0。
+    #[test]
+    fn computes_backup_age_in_hours() {
+        let two_hours_ago = now_ms().saturating_sub(2 * 3_600_000);
+        assert_eq!(age_hours_since(two_hours_ago), 2);
+        assert_eq!(age_hours_since(0), 0);
+        // 未来时间（时钟回拨）→ 不为负
+        assert_eq!(age_hours_since(now_ms() + 3_600_000), 0);
+    }
+
+    // ── v0.1.20：预览（计划）+ 执行共用同一份判定 ────────────────────────
+
+    /// 造一个**指定创建时间**的备份（清单 + 载荷）→ 返回备份目录。
+    fn make_backup_at(
+        root: &Path,
+        home: &Path,
+        app_id: &str,
+        created_at: &str,
+        files: &[(&str, &str)],
+    ) -> PathBuf {
+        let dir = root.join("20260101000000").join(app_id);
+        fs::create_dir_all(&dir).unwrap();
+        let mut entries = Vec::new();
+        for (rel, body) in files {
+            let dest = dir.join(rel);
+            write(&dest, body);
+            entries.push(json_entry(
+                rel,
+                rel,
+                body.len() as u64,
+                &sha256_str(body),
+                false,
+            ));
+        }
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": app_id,
+            "createdAt": created_at,
+            "homeHash": home_fingerprint(home),
+            "entries": entries,
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        dir
+    }
+
+    /// ① 白名单为空 → 拒绝（预览与执行都是 `RESTORE_NO_WHITELIST`，且不读不写）。
+    #[test]
+    fn plan_and_restore_refuse_empty_whitelist() {
+        let root = tmpdir("plan-no-wl");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = make_backup_at(
+            &backup_root,
+            &home,
+            "demo",
+            &crate::fsops::now_iso8601(),
+            &[("appdata/x.txt", "x")],
+        );
+
+        let err = plan_restore_in_at(&dir, "demo", &home, &[], &backup_root, 24).unwrap_err();
+        assert_eq!(err.code, "RESTORE_NO_WHITELIST", "{err:?}");
+        let err = restore_backup_in_at(&dir, "demo", &home, &[], &backup_root, 24).unwrap_err();
+        assert_eq!(err.code, "RESTORE_NO_WHITELIST", "{err:?}");
+        assert_eq!(
+            fs::read_dir(&home).unwrap().count(),
+            1,
+            "must not touch home"
+        );
+    }
+
+    /// ② 清单 target 越界 → **整体拒绝**（预览与执行一致；不写任何东西）。
+    #[test]
+    fn plan_and_restore_refuse_escaping_target() {
+        let root = tmpdir("plan-escape");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+        let body = "pwn";
+        write(&dir.join("payload.txt"), body);
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [json_entry("payload.txt", "../escaped.txt", body.len() as u64, &sha256_str(body), false)],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+
+        let err = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap_err();
+        assert_eq!(err.code, "RESTORE_TARGET_NOT_ALLOWED", "{err:?}");
+        let err =
+            restore_backup_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+                .unwrap_err();
+        assert_eq!(err.code, "RESTORE_TARGET_NOT_ALLOWED", "{err:?}");
+        assert!(!root.join("escaped.txt").exists(), "must not escape home");
+        assert_eq!(
+            fs::read_dir(&home).unwrap().count(),
+            1,
+            "a rejected manifest must not touch home"
+        );
+    }
+
+    /// ③ home 指纹不符 → 拒绝（预览与执行一致；不写任何东西）。
+    #[test]
+    fn plan_and_restore_refuse_foreign_home() {
+        let root = tmpdir("plan-home");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+        let body = "x";
+        write(&dir.join("payload.txt"), body);
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": sha256_str("some-other-home"),
+            "entries": [json_entry("payload.txt", "appdata/x.txt", body.len() as u64, &sha256_str(body), false)],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+
+        let err = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap_err();
+        assert_eq!(err.code, "RESTORE_HOME_MISMATCH", "{err:?}");
+        let err =
+            restore_backup_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+                .unwrap_err();
+        assert_eq!(err.code, "RESTORE_HOME_MISMATCH", "{err:?}");
+        assert_eq!(
+            fs::read_dir(&home).unwrap().count(),
+            1,
+            "must not touch home"
+        );
+    }
+
+    /// ④ 超龄备份 → `RESTORE_BACKUP_TOO_OLD`（预览与执行一致；不写任何东西）。
+    #[test]
+    fn refuses_backup_older_than_max_age() {
+        let root = tmpdir("plan-too-old");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        // 3 天前的备份
+        let dir = make_backup_at(
+            &backup_root,
+            &home,
+            "demo",
+            "2026-01-01T00:00:00Z",
+            &[("appdata/x.txt", "OLD")],
+        );
+
+        let err = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
+        let err =
+            restore_backup_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+                .unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
+        assert!(!home.join("appdata/x.txt").exists(), "must not touch home");
+
+        // 刚做的备份 → 允许（24h 窗口内）
+        let fresh = make_backup_at(
+            &backup_root,
+            &home,
+            "fresh",
+            &crate::fsops::now_iso8601(),
+            &[("appdata/y.txt", "NEW")],
+        );
+        let plan = plan_restore_in_at(
+            &fresh,
+            "fresh",
+            &home,
+            &wl(&home, "appdata"),
+            &backup_root,
+            24,
+        )
+        .unwrap();
+        assert_eq!(plan.entries.len(), 1, "{plan:?}");
+        assert_eq!(plan.max_age_hours, 24);
+    }
+
+    /// 清单没写创建时间 → 年龄未知 → **按超龄拒绝**（fail-closed）。
+    #[test]
+    fn refuses_backup_without_creation_time() {
+        let root = tmpdir("plan-no-time");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+        let body = "x";
+        write(&dir.join("payload.txt"), body);
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "homeHash": home_fingerprint(&home),
+            "entries": [json_entry("payload.txt", "appdata/x.txt", body.len() as u64, &sha256_str(body), false)],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        let err =
+            restore_backup_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+                .unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
+        assert!(!home.join("appdata/x.txt").exists());
+    }
+
+    /// ⑥ 计划摘要稳定：同输入 → 同 digest；输入变了 → digest 变了。
+    #[test]
+    fn plan_digest_is_stable_and_input_sensitive() {
+        let root = tmpdir("plan-digest");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = make_backup_at(
+            &backup_root,
+            &home,
+            "demo",
+            &crate::fsops::now_iso8601(),
+            &[("appdata/x.txt", "x")],
+        );
+
+        let p1 = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap();
+        let p2 = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap();
+        assert_eq!(
+            p1.digest, p2.digest,
+            "same input must yield the same digest"
+        );
+        assert_eq!(p1.digest.len(), 64, "digest must be a sha256 hex");
+
+        // 载荷换了 → 清单摘要变了 → digest 变了
+        write(&dir.join("appdata/x.txt"), "y");
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [json_entry("appdata/x.txt", "appdata/x.txt", 1, &sha256_str("y"), false)],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        let p3 = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap();
+        assert_ne!(
+            p1.digest, p3.digest,
+            "a changed manifest must change the digest"
+        );
+    }
+
+    /// 摘要不符 → `RESTORE_PLAN_CHANGED`（**不写任何东西**；预览后清单被改过）。
+    #[test]
+    fn refuses_when_plan_digest_changed() {
+        let root = tmpdir("plan-changed");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = make_backup_at(
+            &backup_root,
+            &home,
+            "demo",
+            &crate::fsops::now_iso8601(),
+            &[("appdata/x.txt", "x")],
+        );
+        let err = run_restore(
+            &dir,
+            "demo",
+            &home,
+            &wl(&home, "appdata"),
+            &backup_root,
+            24,
+            Some("0000000000000000000000000000000000000000000000000000000000000000"),
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "RESTORE_PLAN_CHANGED", "{err:?}");
+        assert!(
+            !home.join("appdata/x.txt").exists(),
+            "a changed plan must not write anything"
+        );
+    }
+
+    /// ⑦ 备份列表：v1 / legacy / unknown 三种格式 + `restorable` 判定。
+    #[test]
+    fn lists_backups_with_format_and_restorable_flag() {
+        let root = tmpdir("plan-list");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+
+        // v1（新鲜 + home 指纹一致）→ 可还原
+        let v1 = make_backup_at(
+            &backup_root,
+            &home,
+            "v1app",
+            &crate::fsops::now_iso8601(),
+            &[("appdata/x.txt", "x")],
+        );
+        // v1（别的 home）→ 不可还原
+        let other = backup_root.join("20260101000000/otherhome");
+        fs::create_dir_all(&other).unwrap();
+        write(&other.join("payload.txt"), "x");
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "otherhome",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": sha256_str("another-home"),
+            "entries": [json_entry("payload.txt", "appdata/x.txt", 1, &sha256_str("x"), false)],
+        });
+        write(
+            &other.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        // legacy（旧 schema 的清单）→ 不可还原
+        let legacy = backup_root.join("20260101000000/legacyapp");
+        fs::create_dir_all(&legacy).unwrap();
+        write(&legacy.join("data.zip"), "old zip");
+        write(
+            &legacy.join("manifest.json"),
+            r#"{"schema":"aibox-backup/v1","appId":"legacyapp","entries":[]}"#,
+        );
+        // unknown（没有清单）→ 不可还原
+        let unknown = backup_root.join("20260101000000/unknownapp");
+        fs::create_dir_all(&unknown).unwrap();
+        write(&unknown.join("data.zip"), "old zip");
+        // 保全目录不是备份 → 不该出现在列表里
+        let pres = backup_root.join("pre-restore-20260101000000/v1app");
+        fs::create_dir_all(&pres).unwrap();
+
+        let list = list_backups_in(&backup_root, &home, 24).unwrap();
+        let by_app = |id: &str| list.iter().find(|r| r.app_id == id).cloned();
+        let v1rec = by_app("v1app").expect("v1 backup must be listed");
+        assert_eq!(v1rec.format, "v1");
+        assert!(v1rec.restorable, "{v1rec:?}");
+        assert_eq!(v1rec.file_count, 1);
+        assert_eq!(v1rec.total_bytes, 1);
+        assert_eq!(v1rec.dir, v1.to_string_lossy());
+        assert!(v1rec.age_hours < 24, "{v1rec:?}");
+
+        let otherrec = by_app("otherhome").expect("foreign-home backup must be listed");
+        assert_eq!(otherrec.format, "v1");
+        assert!(
+            !otherrec.restorable,
+            "a foreign home must not be restorable"
+        );
+
+        let legacyrec = by_app("legacyapp").expect("legacy backup must be listed");
+        assert_eq!(legacyrec.format, "legacy");
+        assert!(
+            !legacyrec.restorable,
+            "a legacy backup must not be restorable"
+        );
+        assert_eq!(legacyrec.file_count, 0);
+
+        let unknownrec = by_app("unknownapp").expect("unknown backup must be listed");
+        assert_eq!(unknownrec.format, "unknown");
+        assert!(
+            !unknownrec.restorable,
+            "an unknown backup must not be restorable"
+        );
+
+        // 保全目录不得出现在列表里（它不是备份）
+        assert!(
+            !list.iter().any(|r| r.dir.contains("pre-restore-")),
+            "{list:?}"
+        );
+    }
+
+    /// ⑦（续）超龄的 v1 备份 → `restorable = false`。
+    #[test]
+    fn list_marks_outdated_backup_as_not_restorable() {
+        let root = tmpdir("plan-list-old");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        make_backup_at(
+            &backup_root,
+            &home,
+            "oldapp",
+            "2026-01-01T00:00:00Z",
+            &[("appdata/x.txt", "x")],
+        );
+        let list = list_backups_in(&backup_root, &home, 24).unwrap();
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(list[0].format, "v1");
+        assert!(!list[0].restorable, "{list:?}");
+        assert!(list[0].age_hours > 24, "{list:?}");
+    }
+
+    /// ⑧ 预览与执行**同一份判定**：计划里的 target 集合 == 执行处理到的 target 集合。
+    #[test]
+    fn plan_and_restore_agree_on_targets() {
+        let root = tmpdir("plan-same");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        // 一个好文件 + 一个载荷缺失的文件（执行期会被跳过）
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+        let good = "GOOD";
+        write(&dir.join("good.txt"), good);
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [
+                json_entry("good.txt", "appdata/good.txt", good.len() as u64, &sha256_str(good), false),
+                json_entry("missing.txt", "appdata/missing.txt", 3, &sha256_str("abc"), false),
+            ],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+
+        let plan = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap();
+        let out =
+            restore_backup_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+                .unwrap();
+
+        let planned: std::collections::BTreeSet<String> = plan
+            .entries
+            .iter()
+            .filter(|e| !e.is_dir)
+            .map(|e| e.target.clone())
+            .collect();
+        let mut touched: std::collections::BTreeSet<String> =
+            out.restored_paths.iter().cloned().collect();
+        for issue in out.skipped.iter().chain(out.failed.iter()) {
+            touched.insert(issue.target.clone());
+        }
+        assert_eq!(
+            planned, touched,
+            "preview and execution must see the same targets"
+        );
+        assert_eq!(out.restored, 1, "{out:?}");
+        assert_eq!(out.failed.len(), 1, "{out:?}");
+        assert_eq!(out.failed[0].code, ISSUE_SOURCE_MISSING, "{out:?}");
+        assert_eq!(
+            out.failed[0].target,
+            home.join("appdata/missing.txt").to_string_lossy()
+        );
+    }
+
+    /// 逐条原因码：软链 / 摘要不符 / 类型冲突 / 父路径冲突（固定枚举，UI 逐个映射）。
+    #[test]
+    fn per_entry_issue_codes_are_fixed() {
+        use std::os::unix::fs::symlink;
+
+        let root = tmpdir("plan-codes");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+
+        // ① 摘要不符（载荷被改）
+        write(&dir.join("tampered.txt"), "TAMPERED");
+        // ② 父路径冲突（appdata/conflict 是文件，却要写 appdata/conflict/x.txt）
+        write(&home.join("appdata/conflict"), "I AM A FILE");
+        // ③ 目标路径上有软链
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, home.join("appdata/link")).unwrap();
+
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [
+                // 清单声明的摘要是「原始内容」的 → 载荷被改过 → sha_mismatch
+                json_entry("tampered.txt", "appdata/tampered.txt", 8, &sha256_str("ORIGINAL"), false),
+                json_entry("tampered.txt", "appdata/conflict/x.txt", 8, &sha256_str("ORIGINAL"), false),
+                json_entry("tampered.txt", "appdata/link/leak.txt", 8, &sha256_str("ORIGINAL"), false),
+            ],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+
+        let out =
+            restore_backup_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+                .unwrap();
+        assert_eq!(out.restored, 0, "{out:?}");
+        let mut codes: Vec<&str> = out
+            .skipped
+            .iter()
+            .chain(out.failed.iter())
+            .map(|i| i.code.as_str())
+            .collect();
+        codes.sort();
+        assert_eq!(
+            codes,
+            vec![ISSUE_PARENT_CONFLICT, ISSUE_SHA_MISMATCH, ISSUE_SYMLINK,],
+            "{out:?}"
+        );
+        assert!(
+            !outside.join("leak.txt").exists(),
+            "must not write through the symlink"
+        );
+    }
     // ── 备份侧：junction / 越界目录 + 限额（manage.rs 里断言） ──────────
 }
