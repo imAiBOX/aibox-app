@@ -4229,6 +4229,7 @@ mod tests {
     }
 
     /// 逐条原因码：软链 / 摘要不符 / 类型冲突 / 父路径冲突（固定枚举，UI 逐个映射）。
+    #[cfg(unix)]
     #[test]
     fn per_entry_issue_codes_are_fixed() {
         use std::os::unix::fs::symlink;
