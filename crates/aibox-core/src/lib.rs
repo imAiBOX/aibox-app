@@ -34,6 +34,8 @@ pub mod download;
 pub mod exec;
 pub mod fsops;
 pub mod manage;
+mod manage_paths;
+pub mod manage_policy;
 pub mod matrix;
 pub mod paths;
 pub mod prefetch;

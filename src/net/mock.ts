@@ -21,7 +21,6 @@ import type {
   UpdateInfo,
   VerifyInput,
   ManageBackupResult,
-  ManageRemoveResult,
   ManageRestoreResult,
   ManifestEntry,
   BackupRecord,
@@ -531,25 +530,10 @@ export function mockManageBackup(appId: string, dataPaths: string[]): ManageBack
   };
 }
 
-export function mockManageRemove(input: {
-  appId: string;
-  residualPaths: string[];
-  dataPaths: string[];
-  steps: string[];
-  backup?: boolean;
-}): ManageRemoveResult {
-  void input.steps;
-  const backup = input.backup !== false;
-  const skipped = input.residualPaths
-    .filter((p) => p.includes("ghost"))
-    .map((p) => ({ path: p, reason: "not found" }));
-  const removed = input.residualPaths.filter((p) => !p.includes("ghost"));
-  return {
-    ...(backup
-      ? { backupDir: `C:\\Users\\dev\\.aibox\\backup\\20261113170000\\${input.appId}` }
-      : {}),
-    removed,
-    skipped,
+export function mockManageRemove(): never {
+  throw {
+    code: "MANAGE_REMOVE_PAUSED",
+    human: "Automatic uninstall is paused. See the manual uninstall guide",
   };
 }
 

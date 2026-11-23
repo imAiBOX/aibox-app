@@ -330,6 +330,16 @@ export function manageReduce(state: ManageState, event: ManageEvent): ManageStat
  */
 export const MANAGE_ERROR_KEYS: Record<string, string> = {
   MANAGE_NO_MANIFEST: "s8.errNoManifest",
+  MANAGE_REMOVE_PAUSED: "s8.errRemovePaused",
+  MANAGE_POLICY_CHANGED: "s8.errMaintenanceChanged",
+  MANAGE_PATH_CHANGED: "s8.errMaintenanceChanged",
+  MANAGE_REGISTRY_UNVERIFIED: "s8.errMaintenanceUnverified",
+  MANAGE_POLICY_INVALID: "s8.errMaintenanceInvalid",
+  REGISTRY_MISMATCH: "s8.errMaintenanceInvalid",
+  REGISTRY_INTEGRITY: "s8.errMaintenanceInvalid",
+  REGISTRY_BAD_JSON: "s8.errMaintenanceInvalid",
+  REGISTRY_BAD_ID: "s8.errMaintenanceInvalid",
+  MANAGE_UNSAFE_PATH: "s8.errOutOfScope",
   MANAGE_PROTECTED: "s8.errProtected",
   MANAGE_OUT_OF_SCOPE: "s8.errOutOfScope",
   MANAGE_SYMLINK_ESCAPE: "s8.errSymlinkEscape",
@@ -350,6 +360,7 @@ export const MANAGE_ERROR_KEYS: Record<string, string> = {
   // 全部是「整体拒绝」：什么都没改动，且**不可重试**（重试同一个备份结果一样）。
   RESTORE_REGISTRY_UNVERIFIED: "s8.errRestoreRegistryUnverified",
   RESTORE_UNSUPPORTED: "s8.errRestoreUnsupported",
+  RESTORE_AUTOMATIC_PAUSED: "s8.errRestorePaused",
   RESTORE_BACKUP_TOO_OLD: "s8.errRestoreTooOld",
   RESTORE_PLAN_CHANGED: "s8.errRestorePlanChanged",
 };

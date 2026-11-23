@@ -534,7 +534,7 @@ function mockDispatch<T>(cmd: string, a?: unknown): T {
         ((a as { dataPaths?: string[] })?.dataPaths ?? []) as string[],
       ) as T;
     case "manage_remove":
-      return mockManageRemove(a as Parameters<typeof mockManageRemove>[0]) as T;
+      return mockManageRemove();
     case "manage_backup_list":
       return mockManageBackupList() as T;
     case "manage_restore_preview":

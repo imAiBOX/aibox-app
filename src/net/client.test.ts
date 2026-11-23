@@ -239,7 +239,18 @@ describe("事件总线", () => {
 });
 
 // v0.1.20：**走 api.* 的 dispatch 分支**（mock 模式下前端不依赖 Rust 也能跑通还原 UI）
-describe("mock dispatch：还原三条命令", () => {
+describe("mock dispatch：维护命令", () => {
+  it("卸载 mock 在保护版本中失败关闭", async () => {
+    vi.stubEnv("VITE_AIBOX_MOCK", "1");
+    await expect(api.manageRemove({
+      appId: "openclaw",
+      residualPaths: ["~/app"],
+      dataPaths: ["~/.config/openclaw"],
+      steps: ["manual step"],
+      backup: true,
+    })).rejects.toMatchObject({ code: "MANAGE_REMOVE_PAUSED" });
+  });
+
   it("manage_backup_list / manage_restore_preview / manage_restore 都能派发", async () => {
     vi.stubEnv("VITE_AIBOX_MOCK", "1");
     const list = await api.manageBackupList();

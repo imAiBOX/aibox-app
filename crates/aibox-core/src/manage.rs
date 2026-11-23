@@ -5,8 +5,8 @@
 //!   `~/.aibox/backup/<ts>/<appId>/`（**原相对路径树** + `manifest.json` 还原清单：
 //!   条目→原路径映射 + 每个文件的 sha256 + home 指纹）；
 //!   **只读声明路径，绝不越界收集**。
-//! - 卸载：只删清单内路径（`residualPaths` ∪ `dataPaths` 白名单，越界 → `MANAGE_OUT_OF_SCOPE` 拒绝）；
-//!   删除前默认自动备份（`backupFirst`，可显式关闭）；失败收集不中断；零提权。
+//! - 卸载：全量预检 `residualPaths` 和 `dataPaths`，任何受保护或不安全路径整批拒绝。
+//!   默认先备份 `dataPaths`，再删除 `residualPaths`。执行时的单条 I/O 失败单独记录。
 //! - `steps` 是 registry 的人话指引文本，**只写任务日志，绝不作为命令执行**。
 //!
 //! 还原在 [`crate::restore`]（manifest 驱动；**白名单来自调用方给的 dataPaths**，
@@ -25,6 +25,9 @@ use serde_json::{json, Value};
 
 use crate::err::{io_err, CoreError, CoreResult};
 use crate::fsops;
+use crate::manage_paths::{
+    checked_path, inspect_components, is_link_or_reparse, preflight_target, ProtectedPaths,
+};
 use crate::paths;
 
 /// 备份结果（TS: `{backupDir, files}`；backupDir 空串 = 无数据可备份）。
@@ -172,7 +175,12 @@ fn walk_tree(
                 continue;
             }
         };
-        // ── 每一层目录的越界校验（junction / 越界目录 → failed，不跟随） ──
+        #[cfg(windows)]
+        if is_link_or_reparse(&meta) {
+            errors.push(format!("{} (link or reparse point)", p.display()));
+            continue;
+        }
+        // ── 每一层目录的越界校验（越界目录 → failed，不跟随） ──
         match fs::canonicalize(&p) {
             Ok(c) => {
                 if !(c.starts_with(root_real) && c.starts_with(home_real)) {
@@ -196,7 +204,7 @@ fn walk_tree(
                 continue;
             }
         }
-        if meta.file_type().is_symlink() {
+        if is_link_or_reparse(&meta) {
             // 链接不进包（还原侧也会再拦一次）
             skipped.push(format!("{} (symlink)", p.display()));
             continue;
@@ -253,6 +261,17 @@ pub fn backup_app_in(
     backup_into(app_id, data_paths, &dir, backup_root, home)
 }
 
+fn expand_maintenance_path(raw: &str, home: &Path) -> PathBuf {
+    let raw = raw.trim();
+    if raw == "~" {
+        return home.to_path_buf();
+    }
+    if let Some(rest) = raw.strip_prefix("~/").or_else(|| raw.strip_prefix("~\\")) {
+        return home.join(rest);
+    }
+    paths::expand(raw)
+}
+
 /// 备份到指定目录（内部实现；测试可注入目录 → 覆盖 manifest 写失败等分支）。
 fn backup_into(
     app_id: &str,
@@ -270,8 +289,19 @@ fn backup_into(
     let mut skipped: Vec<String> = Vec::new();
     let mut refused: Vec<String> = Vec::new();
     let mut failed: Vec<String> = Vec::new();
+    let protected = ProtectedPaths::new(&home, backup_root);
 
     for raw in data_paths {
+        let expanded = expand_maintenance_path(raw, &home);
+        // Keep dataPaths resolution consistent with removal, including the alias policy.
+        let check = checked_path(&expanded).and_then(|path| {
+            inspect_components(&path)?;
+            protected.check(&path)
+        });
+        if let Err(e) = check {
+            refused.push(format!("{raw} ({})", e.human));
+            continue;
+        }
         // **统一判定**（与还原侧共用 [`crate::datapaths`]）：
         // home 本身（`~` / `~/.` / home 绝对路径）→ **拒绝**（否则整个 home 被拷进备份库；
         // 审计 P1-1/P1-2）；home 之外 / 软链根 → 拒绝；不存在 → 跳过（没有数据可丢）。
@@ -292,6 +322,10 @@ fn backup_into(
             continue;
         }
         let root = home_real.join(&entry.rel);
+        if let Err(e) = inspect_components(&root) {
+            refused.push(format!("{raw} ({})", e.human));
+            continue;
+        }
         // 声明根本身是链接 → 拒绝（避免被换成任意目标，审计 P1）
         let meta = match fs::symlink_metadata(&root) {
             Ok(m) => m,
@@ -300,7 +334,7 @@ fn backup_into(
                 continue;
             }
         };
-        if meta.file_type().is_symlink() {
+        if is_link_or_reparse(&meta) {
             refused.push(raw.clone());
             continue;
         }
@@ -362,6 +396,7 @@ fn backup_into(
     }
     // **备份根私有**（Unix 0700；已有且更宽 → 收紧）：备份内容是应用凭据明文，
     // 同机别的账号不该能读（审计 P1-3）。只管备份库，**不动用户原始数据目录**。
+    inspect_components(&checked_path(dir)?)?;
     fsops::ensure_private_dir(backup_root)
         .map_err(|e| io_err("create backup root", e))?;
     // 备份负载目录同样私有（0700）
@@ -376,6 +411,10 @@ fn backup_into(
             continue;
         }
         let dest = dir.join(&e.rel);
+        if let Err(e) = checked_path(&dest).and_then(|p| inspect_components(&p)) {
+            failed.push(format!("{} ({})", dest.display(), e.human));
+            continue;
+        }
         match fsops::ensure_private_dir(&dest) {
             Ok(()) => manifest_entries.push(json!({
                 "rel": e.rel,
@@ -405,8 +444,9 @@ fn backup_into(
             continue;
         }
         let dest = dir.join(&e.rel);
-        if let Some(p) = dest.parent() {
-            let _ = fsops::ensure_private_dir(p);
+        if let Err(e) = checked_path(&dest).and_then(|p| inspect_components(&p)) {
+            failed.push(format!("{} ({})", dest.display(), e.human));
+            continue;
         }
         // **配额在拷贝过程中判定**（源在拷贝中变大 → 立即停，不超限落盘；审计 P2-6）
         let budget = crate::restore::MAX_BACKUP_BYTES.saturating_sub(total_bytes);
@@ -472,32 +512,8 @@ pub enum DeleteOutcome {
     NotFound,
 }
 
-/// 保护路径：home 本身 / home 或 `~/.aibox` 的祖先 / 文件系统根——任何清单都不许删。
-fn is_protected(target: &Path, home: &Path) -> bool {
-    let ab = paths::aibox_root();
-    target.parent().is_none() || home.starts_with(target) || ab.starts_with(target)
-}
-
-/// 词法规范化：去掉 `.` 段、解析 `..`（不触碰文件系统，symlink 不解析——
-/// 越界判定用声明路径词法比较即可）。
-fn normalize(p: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for c in p.components() {
-        match c {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
-}
-
-/// 白名单内删除：target 必须等于 allow 之一或在其之下，且非保护路径。
-/// **路径上任何组件是 symlink 都拒绝**：词法边界不解析链接，`remove_dir_all`
-/// 可能顺着声明目录内的链接删到外部（审计 P1：symlink 越界）。
-/// `deleter` 注入（单测模拟失败收集；生产传 `fs_delete`）。
+/// Validate the target against the allowlist and filesystem protections before deletion.
+/// The injected `deleter` lets tests exercise the boundary without touching user files.
 pub fn delete_within<F>(
     allow: &[PathBuf],
     target: &Path,
@@ -506,76 +522,36 @@ pub fn delete_within<F>(
 where
     F: FnMut(&Path) -> io::Result<()>,
 {
-    let home = paths::home_dir();
-    let t = normalize(target);
-    if is_protected(&t, &home) {
-        return Err(CoreError::new(
-            "MANAGE_PROTECTED",
-            format!("refusing to delete protected path {}", target.display()),
-        ));
+    let protected = ProtectedPaths::new(&paths::home_dir(), &default_backup_root());
+    let allow = allow.iter().map(|a| checked_path(a)).collect::<CoreResult<Vec<_>>>()?;
+    delete_preflighted(&allow, &checked_path(target)?, &protected, deleter)
+}
+
+fn delete_preflighted<F>(
+    allow: &[PathBuf],
+    target: &Path,
+    protected: &ProtectedPaths,
+    deleter: &mut F,
+) -> CoreResult<DeleteOutcome>
+where
+    F: FnMut(&Path) -> io::Result<()>,
+{
+    // Repeat the path checks immediately before use. These checks aren't a filesystem lock.
+    if !preflight_target(allow, target, protected)? {
+        return Ok(DeleteOutcome::NotFound);
     }
-    let in_allow = allow.iter().any(|a| {
-        let a = normalize(a);
-        t == a || t.starts_with(&a)
-    });
-    if !in_allow {
-        return Err(CoreError::new(
-            "MANAGE_OUT_OF_SCOPE",
-            format!("path not in declared list: {}", target.display()),
-        ));
-    }
-    // 逐段拒绝 symlink：target 自身与其每个祖先（直到 allow 根）都不得是链接，
-    // 否则删除可能经链接落到白名单之外。
-    if has_symlink_component(&t, allow) {
-        return Err(CoreError::new(
-            "MANAGE_SYMLINK_ESCAPE",
-            format!("path traverses a symlink: {}", target.display()),
-        ));
-    }
-    match fs::symlink_metadata(&t) {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(DeleteOutcome::NotFound)
-        }
-        Err(e) => {
-            // 权限等错误 ≠ 不存在：必须报失败，不能静默记为"已不存在"
-            return Err(CoreError::new(
-                "MANAGE_DELETE_FAILED",
-                format!("cannot inspect {}: {e}", t.display()),
-            ));
-        }
-    }
-    deleter(&t).map_err(|e| {
-        CoreError::new("MANAGE_DELETE_FAILED", format!("{}: {e}", t.display()))
+    deleter(target).map_err(|e| {
+        CoreError::new("MANAGE_DELETE_FAILED", format!("{}: {e}", target.display()))
     })?;
     Ok(DeleteOutcome::Deleted)
 }
 
-/// target 自身或其到 allow 根的祖先链上是否存在 symlink。
-fn has_symlink_component(target: &Path, allow: &[PathBuf]) -> bool {
-    if fs::symlink_metadata(target).is_ok_and(|m| m.file_type().is_symlink()) {
-        return true;
-    }
-    // 沿 target 的每个前缀向上查到匹配的 allow 根为止
-    let mut cur = target.parent();
-    while let Some(p) = cur {
-        if allow.iter().any(|a| normalize(a) == p || p.starts_with(&normalize(a))) {
-            // p 在某 allow 内/即其根——继续查 p 自身是否链接（根也可能是指向外部的链接）
-            if fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink()) {
-                return true;
-            }
-        }
-        if fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink()) {
-            return true;
-        }
-        cur = p.parent();
-    }
-    false
-}
-
-/// 真实删除：目录 → remove_dir_all（symlink/文件 → remove_file，不跟随链接）。
+/// 真实删除：目录 → remove_dir_all，文件 → remove_file；拒绝链接和重解析点。
 fn fs_delete(p: &Path) -> io::Result<()> {
     let meta = fs::symlink_metadata(p)?;
+    if is_link_or_reparse(&meta) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "refusing link or reparse point"));
+    }
     if meta.is_dir() {
         fs::remove_dir_all(p)
     } else {
@@ -607,14 +583,9 @@ pub fn backup_incomplete_error(out: &BackupOutcome) -> Option<CoreError> {
     None
 }
 
-/// 按清单卸载：备份（backupFirst）→ 白名单内删除 → 成功后注销 install-manifest。
-///
-/// - `allow` = `residualPaths` ∪ `dataPaths`（均展开）；目标不在其内 → `MANAGE_OUT_OF_SCOPE` 拒绝；
-/// - `backup=false` 仅在风险卡「不备份」二次确认后由 TS 传入（默认 true = 硬规则①）；
-/// - 备份失败 → **中止删除**（不许无备份删数据）；
-/// - 单条删除失败收集进 `skipped`，继续处理其余。
-/// - **不写 install-manifest**（清单注销由 TS 在删除成功后调 `install_forget`，
-///   避免本纯函数在单测里碰真实 manifest）。
+/// 按清单卸载：全量预检 → 可选备份 → 删除 `residualPaths`。
+/// 安全预检或备份失败会中止操作。执行阶段的单条删除失败收集进 `skipped`。
+/// 已装登记由命令层在删除成功后注销。
 pub fn remove_app(
     app_id: &str,
     residual_paths: &[String],
@@ -646,23 +617,38 @@ pub fn remove_app_in(
 ) -> CoreResult<RemoveOutcome> {
     crate::registry::validate_id(app_id)?;
 
-    // 人话指引 → 任务日志（绝不执行）
-    for (i, s) in steps.iter().enumerate() {
-        let _ = crate::tasklog::append(
-            app_id,
-            "uninstall",
-            &format!("manual step {}: {s}", i + 1),
-        );
+    let protected = ProtectedPaths::new(home, backup_root);
+    let expand = |raw: &str| checked_path(&expand_maintenance_path(raw, home));
+    let residual = residual_paths
+        .iter()
+        .map(|raw| expand(raw))
+        .collect::<CoreResult<Vec<_>>>()?;
+    let data = data_paths
+        .iter()
+        .map(|raw| expand(raw))
+        .collect::<CoreResult<Vec<_>>>()?;
+    let allow: Vec<_> = residual.iter().chain(&data).cloned().collect();
+
+    // 全量安全预检：任一路径不通过，整批停止（不创建备份、不删除、不写操作日志）。
+    let preflight_residual = || {
+        residual
+            .iter()
+            .map(|path| preflight_target(&allow, path, &protected))
+            .collect::<CoreResult<Vec<_>>>()
+    };
+    let present = preflight_residual()?;
+    for path in &data {
+        inspect_components(path)?;
+        protected.check(path)?;
     }
 
-    // 白名单（声明路径展开）
-    let mut allow: Vec<PathBuf> = Vec::new();
-    for raw in residual_paths.iter().chain(data_paths.iter()) {
-        let p = paths::expand(raw);
-        if !allow.contains(&p) {
-            allow.push(p);
-        }
+    // 人话指引只写任务日志。测试入口不接触真实任务日志。
+    #[cfg(not(test))]
+    for (i, s) in steps.iter().enumerate() {
+        let _ = crate::tasklog::append(app_id, "uninstall", &format!("manual step {}: {s}", i + 1));
     }
+    #[cfg(test)]
+    let _ = steps;
 
     // 备份（硬规则①；失败中止）
     let mut backup_dir: Option<String> = None;
@@ -686,12 +672,24 @@ pub fn remove_app_in(
         }
     }
 
+    // 备份可能耗时。先重新检查整批目标，再开始逐条删除。
+    if backup_dir.is_some() && preflight_residual()? != present {
+        return Err(CoreError::new(
+            "MANAGE_PATH_CHANGED",
+            "Maintenance paths changed while backing up; review them again",
+        ));
+    }
+
     // 删除（白名单内；失败收集不中断）
     let mut removed = Vec::new();
     let mut skipped: Vec<SkippedPath> = Vec::new();
-    for raw in residual_paths {
-        let target = paths::expand(raw);
-        match delete_within(&allow, &target, &mut fs_delete) {
+    for ((raw, target), existed) in residual_paths.iter().zip(&residual).zip(present) {
+        let result = if existed {
+            delete_preflighted(&allow, target, &protected, &mut fs_delete)
+        } else {
+            Ok(DeleteOutcome::NotFound)
+        };
+        match result {
             Ok(DeleteOutcome::Deleted) => removed.push(raw.clone()),
             Ok(DeleteOutcome::NotFound) => skipped.push(SkippedPath {
                 path: raw.clone(),
@@ -704,7 +702,7 @@ pub fn remove_app_in(
         }
     }
 
-    // 单测安全：不触碰真实 install-manifest（注销由 TS 命令层负责）
+    // 已装登记的注销由 Rust 命令层负责。
 
     Ok(RemoveOutcome {
         backup_dir,
@@ -766,7 +764,7 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
-        d
+        fs::canonicalize(d).unwrap()
     }
 
     fn write(p: &Path, body: &str) {
@@ -1028,6 +1026,36 @@ mod tests {
         assert!(outside.exists(), "未声明路径必须原样保留");
     }
 
+    #[test]
+    fn remove_preflights_all_targets_before_backup_or_deletion() {
+        let home = tmpdir("shared-preflight");
+        let data = home.join("fixture/data.txt");
+        write(&data, "keep");
+        let app_root = home.join(crate::AIBOX_DIR);
+        let backup_root = app_root.join("backup");
+        let data_paths = vec![data.to_string_lossy().into_owned()];
+        for blocked in [
+            app_root.clone(),
+            backup_root.clone(),
+            backup_root.join("old/other"),
+            app_root.join("prefix"),
+            app_root.join("prefix/lib/other"),
+        ] {
+            let residuals = vec![data_paths[0].clone(), blocked.to_string_lossy().into_owned()];
+            for backup in [false, true] {
+                let err = remove_app_in("fixture", &residuals, &data_paths, &[], backup, &backup_root, &home)
+                    .unwrap_err();
+                assert_eq!(err.code, "MANAGE_PROTECTED", "{}", err.human);
+                assert!(data.exists());
+                assert!(!backup_root.exists());
+            }
+        }
+        let out = backup_app_in("fixture", &[app_root.join("prefix").to_string_lossy().into_owned()], &backup_root, &home)
+            .unwrap();
+        assert_eq!(out.refused.len(), 1);
+        assert!(!backup_root.exists());
+    }
+
     /// remove_app：backup=true 但备份失败 → 中止删除（不许无备份删数据）。
     #[test]
     fn remove_aborts_when_backup_fails() {
@@ -1209,7 +1237,7 @@ mod tests {
             &home,
         )
         .unwrap_err();
-        assert_eq!(err.code, "MANAGE_BACKUP_INCOMPLETE");
+        assert_eq!(err.code, "MANAGE_SYMLINK_ESCAPE");
         assert!(outside.join("precious.txt").exists(), "must not delete without a backup");
     }
 

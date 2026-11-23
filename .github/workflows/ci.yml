@@ -13,7 +13,6 @@ permissions:
 jobs:
   # ── 常规：Linux 跑 Rust 原语单测 + 前端 typecheck/build ──
   test-linux:
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,7 +52,6 @@ jobs:
 
   # ── 壳（src-tauri）Rust 编译检查：Linux + GTK/WebKit 系统库（tauri v2 官方依赖表）──
   tauri-check:
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +80,6 @@ jobs:
 
   # ── 壳的 cfg(windows) 分支（winreg/windows-sys/netstat 路径）必须也被编译验证 ──
   tauri-check-windows:
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,13 +95,13 @@ jobs:
         run: |
           mkdir -p dist
           cargo check -p aibox-app
+          cargo test -p aibox-core manage_paths::tests
+          cargo test -p aibox-app maintenance_pause_tests
 
-  # ── 打 tag v*：Windows 出 portable 单文件 exe → GitHub Release ──
+  # ── Stage the Windows artifact; only the final job may publish. ──
   release-windows:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: windows-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -164,19 +161,18 @@ jobs:
           echo "ASSET_NAME=$DST" >> "$GITHUB_ENV"
           ls -la "$DST"
 
-      - name: Publish GitHub Release (tag = release)
-        uses: softprops/action-gh-release@v2
+      - name: Stage Windows artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: ${{ env.ASSET_NAME }}
-          generate_release_notes: true
+          name: release-windows
+          path: ${{ env.ASSET_NAME }}
+          if-no-files-found: error
+          retention-days: 3
 
-
-  # ── 打 tag v*：macOS 出 Universal dmg（ad-hoc 签名，暂不公证）→ 挂到同一 GitHub Release ──
+  # ── Stage the macOS Universal dmg (ad-hoc signed). ──
   release-macos:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: macos-latest
-    permissions:
-      contents: write
     env:
       # 无 Apple 开发者证书 → ad-hoc 签名（Tauri 默认）；显式声明避免身份探测挂起
       APPLE_SIGNING_IDENTITY: "-"
@@ -230,27 +226,55 @@ jobs:
           echo "ASSET_NAME=$DST" >> "$GITHUB_ENV"
           ls -la "$DST"
 
-      # 并行建 release 有竞态：release-windows 优先创建，这里等它出现再挂载；
-      # 超时（windows job 已挂）才自建，create 撞 422 → 回落查看已有 release
-      - name: Attach to GitHub Release (race-safe)
+      - name: Stage macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: ${{ env.ASSET_NAME }}
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [test-linux, tauri-check, tauri-check-windows, sanitization, release-windows, release-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Stage and verify both assets before publishing
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="$GITHUB_REF_NAME"
-          for i in $(seq 1 60); do
-            gh release view "$TAG" >/dev/null 2>&1 && break
-            sleep 10
-          done
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            for i in $(seq 1 10); do
-              gh release create "$TAG" --generate-notes >/dev/null 2>&1 && break
-              gh release view "$TAG" >/dev/null 2>&1 && break
-              sleep 3
-            done
-          fi
-          gh release upload "$TAG" "$ASSET_NAME" --clobber
-          gh release view "$TAG" --json assets --jq '.assets[].name'
+          tag="$GITHUB_REF_NAME"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          cd release-assets
+          win="AiBOX-$tag-windows-x64.exe"
+          mac="AiBOX-$tag-macos-universal.dmg"
+          test -s "$win"
+          test -s "$mac"
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 2
+          repo="$GITHUB_REPOSITORY"
+          # A failed upload or digest check leaves only a private draft.
+          gh release create "$tag" "$win" "$mac" --repo "$repo" --verify-tag --draft --generate-notes
+          gh api --paginate --slurp "repos/$repo/releases?per_page=50" > /tmp/aibox-releases.json
+          python3 - "$win" "$mac" <<'PY'
+          import hashlib, json, os, pathlib, sys
+          pages = json.loads(pathlib.Path('/tmp/aibox-releases.json').read_text())
+          draft, = [r for page in pages for r in page if r['tag_name'] == os.environ['GITHUB_REF_NAME']]
+          assert draft['draft']
+          assert sorted(asset['name'] for asset in draft['assets']) == sorted(sys.argv[1:])
+          for asset in draft['assets']:
+              path = pathlib.Path(asset['name'])
+              assert path.stat().st_size == asset['size']
+              assert asset.get('digest') == 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
+          PY
+          gh release edit "$tag" --repo "$repo" --draft=false --latest
 
 
   # ── 脱敏复检：全历史 + 工作树内部引用/凭据扫描（scripts/prepush-scan.mjs）──

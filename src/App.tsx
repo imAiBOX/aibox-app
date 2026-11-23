@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { openExternal } from "./lib/openExternal";
 import { completeUpgradeBackup, createUpgradeQueue } from "./state/upgradeQueue";
+import { MANAGE_ERROR_KEYS } from "./state/manage";
 import { isMacPlatform } from "./platform";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
@@ -614,7 +615,7 @@ export default function App() {
     async (appId: string): Promise<string | null> => {
       const manifest = await api.registryApp(appId);
       const dataPaths = manifest.maintenance?.dataPaths ?? [];
-      if (dataPaths.length === 0) return null;
+      // Rust must verify even an empty list: the UI may have read an older manifest.
       return completeUpgradeBackup(await api.manageBackup(appId, dataPaths));
     },
     [],
@@ -696,10 +697,11 @@ export default function App() {
       let backupDir: string | null;
       try {
         backupDir = await backupBeforeUpgrade(appId);
-      } catch {
+      } catch (e) {
         upgradeQueue.replace([]);
         if (currentStatus.current === status) {
-          channelToast.show(t("s8.upgradeBackupBlocked", { appId }));
+          const key = MANAGE_ERROR_KEYS[errorCodeOf(e, "")];
+          channelToast.show(t(key ?? "s8.upgradeBackupBlocked", { appId }));
           setOverlay("manage");
         }
         return;

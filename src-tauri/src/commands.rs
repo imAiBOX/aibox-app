@@ -17,6 +17,7 @@ use aibox_core::diagzip;
 use aibox_core::download::{self, DownloadSpec};
 use aibox_core::exec::{self, ExecKind, ExecSpec};
 use aibox_core::manage::{self, BackupOutcome, ManifestEntry, RemoveOutcome};
+use aibox_core::manage_policy::MaintenancePolicy;
 use aibox_core::matrix::{self, ProbeTarget};
 use aibox_core::probe::{self, ProbeSpec};
 use aibox_core::prefetch::{self, PrefetchStatus};
@@ -855,7 +856,12 @@ pub async fn install_record(app_id: String, version: Option<String>) -> Cmd<Stri
 /// 只碰声明路径，绝不越界。
 #[tauri::command]
 pub async fn manage_backup(app_id: String, data_paths: Vec<String>) -> Cmd<BackupOutcome> {
-    blocking(move || manage::backup_app(&app_id, &data_paths, &manage::default_backup_root())).await
+    blocking(move || {
+        let policy = MaintenancePolicy::fetch(&app_id)?;
+        policy.confirm_backup(&data_paths)?;
+        manage::backup_app(&app_id, &policy.data_paths, &manage::default_backup_root())
+    })
+    .await
 }
 
 /// 备份列表（本机备份库；含旧格式标记）。
@@ -876,99 +882,19 @@ pub async fn manage_backup_list() -> Cmd<Vec<BackupRecord>> {
     .await
 }
 
-/// 还原预览（**不写任何东西**）：联网复校 registry → 白名单 → 计划。
-///
-/// 预览与执行共用同一份判定代码（`restore::plan_restore_in_at`）→ **显示 = 执行**。
+/// 自动还原暂停，独立于 registry 灰度。保留 IPC 签名供旧 UI 接收明确错误。
 #[tauri::command]
 pub async fn manage_restore_preview(backup_dir: String, app_id: String) -> Cmd<RestorePreview> {
-    blocking(move || {
-        let (data_paths, max_age_hours, registry_source) = restore_policy(&app_id)?;
-        let home = paths::home_dir();
-        let dir = std::path::PathBuf::from(&backup_dir);
-        let plan = restore::plan_restore_in_at(
-            &dir,
-            &app_id,
-            &home,
-            &data_paths,
-            &manage::default_backup_root(),
-            max_age_hours,
-        )?;
-        Ok(RestorePreview {
-            app_id,
-            plan,
-            registry_source,
-            data_paths,
-            max_age_hours,
-        })
-    })
-    .await
+    let _ = backup_dir;
+    automatic_restore_paused(&app_id)
 }
 
-/// 还原策略（**Rust 自己联网复校 registry**——前端不能指定白名单）。
-///
-/// 返回 `(白名单, 最大可还原时长, registry 来源)`。
-///
-/// 硬规则（全部 fail-closed）：
-/// 1. registry 必须来自**真网络源**（允许列表 `jsdelivr` / `raw` / `github-api` / `aibox-im`；
-///    `cache` / `cache-stale` / `snapshot` / 未知来源 → `RESTORE_REGISTRY_UNVERIFIED`）：
-///    本地缓存 / 内嵌快照可被投毒 → 白名单可能被换成 `~/.ssh`（审计 P2-1）；
-/// 2. 灰度开关 = `maintenance.restore.supported`（缺省/false → `RESTORE_UNSUPPORTED`）；
-/// 3. 白名单 = `maintenance.dataPaths`（缺省 → `RESTORE_NO_WHITELIST`）；
-/// 4. `maxAgeHours` = `maintenance.restore.maxAgeHours`（缺省 24；范围 1..=168，越界 → 24；
-///    **且一律不得超过 Rust 硬上限 [`restore::MAX_RESTORE_AGE_HOURS`] = 24h**——
-///    registry **不能放宽**灰度硬规则，审计 P1-4）。
-///
-/// **判定顺序**：先判「不支持还原」再判「白名单为空」——两者都是拒绝，但
-/// 「这个应用还不支持还原」才是用户真正该看到的原因（先报白名单为空会误导成
-/// 「数据目录没声明」，审计 P2-4）。
-fn restore_policy(app_id: &str) -> CoreResult<(Vec<String>, u32, String)> {
-    let (doc, source) = registry::fetch_app(app_id, true)?;
-    if !registry::is_network_verified_source(&source) {
-        return Err(CoreError::new(
-            "RESTORE_REGISTRY_UNVERIFIED",
-            format!(
-                "The data directories of '{app_id}' could only be read from the local cache ({source}); refusing to restore"
-            ),
-        ));
-    }
-    let maintenance = doc.get("maintenance");
-    // ① 灰度开关（先判：理由更贴近用户真正该看到的）
-    let restore_cfg = maintenance.and_then(|m| m.get("restore"));
-    let supported = restore_cfg
-        .and_then(|r| r.get("supported"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    if !supported {
-        return Err(CoreError::new(
-            "RESTORE_UNSUPPORTED",
-            format!("'{app_id}' does not support restoring yet; refusing to restore"),
-        ));
-    }
-    // ② 白名单
-    let data_paths: Vec<String> = maintenance
-        .and_then(|m| m.get("dataPaths"))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    if data_paths.is_empty() {
-        return Err(CoreError::new(
-            "RESTORE_NO_WHITELIST",
-            format!(
-                "'{app_id}' does not declare any data directory to restore; refusing to restore"
-            ),
-        ));
-    }
-    // ③ 允许的最长时长（**Rust 硬上限 24h**；registry 只能往小里收，不能放宽）
-    let max_age_hours = restore::effective_max_age_hours(
-        restore_cfg
-            .and_then(|r| r.get("maxAgeHours"))
-            .and_then(|v| v.as_u64()),
-    );
-    Ok((data_paths, max_age_hours, source))
+fn automatic_restore_paused<T>(app_id: &str) -> Cmd<T> {
+    registry::validate_id(app_id)?;
+    Err(CoreError::new(
+        "RESTORE_AUTOMATIC_PAUSED",
+        "Automatic restore is paused. Open the backup folder to recover files manually",
+    ).into())
 }
 
 /// 还原预览（命令层结构体；camelCase 序列化）。
@@ -987,63 +913,18 @@ pub struct RestorePreview {
     pub max_age_hours: u32,
 }
 
-/// **从备份还原**（升级前备份 → 恢复用户数据）。
-///
-/// 破坏性操作（会覆盖升级后的新文件）→ 界面必须显式确认后再调。
-/// 安全红线：
-/// - **白名单由 Rust 自己联网复校 registry 取得**（`manage_restore` **不再接受**前端传入的
-///   dataPaths）——本地 registry 缓存免复校 → 可被投毒 → 白名单可能被换成 `~/.ssh`；
-///   来源不是网络（`cache` / `cache-stale`）→ `RESTORE_REGISTRY_UNVERIFIED`；
-/// - 灰度：只有 registry 显式声明 `maintenance.restore.supported = true` 的应用可还原；
-/// - **执行前重新生成计划并与 `plan_digest` 比对** → 不一致 `RESTORE_PLAN_CHANGED`
-///   （**不写任何东西**）；一致则用这份重算的计划执行；
-/// - 备份目录必须在 `~/.aibox/backup` 之内 → 否则 `RESTORE_BAD_BACKUP_DIR`；
-/// - 还原目标也**不得落在备份库内**；
-/// - 清单 appId 必须匹配、home 指纹必须一致、软链目标跳过；
-/// - 清单超过 32 MiB → `RESTORE_MANIFEST_TOO_LARGE`；
-/// - 备份超过 `maxAgeHours` → `RESTORE_BACKUP_TOO_OLD`
-///   （**Rust 硬上限 24h**，registry 不能放宽；且清单自述时间与备份目录 mtime
-///   **任一**超龄、或清单自称「未来的备份」→ 同样拒绝）；
-/// - 覆盖前先把旧数据**移**到 `~/.aibox/backup/pre-restore-<ts>/<appId>/` 保全（不删除）。
-///   **该目录需人工清理**（AiBOX 不自动删旧凭据）——路径随结果返回并写入任务日志。
+/// 自动还原执行与预览共用本地停用闸门，旧预览摘要或旧 registry 也不能开启。
 #[tauri::command]
 pub async fn manage_restore(
     backup_dir: String,
     app_id: String,
     plan_digest: String,
 ) -> Cmd<RestoreOutcome> {
-    let app_for_log = app_id.clone();
-    let out = blocking(move || {
-        let (data_paths, max_age_hours, _source) = restore_policy(&app_id)?;
-        let home = paths::home_dir();
-        let dir = std::path::PathBuf::from(&backup_dir);
-        // 内核里：先算计划 → 与预览摘要比对（不一致 → RESTORE_PLAN_CHANGED，不写任何东西）
-        // → 一致则用这份重算的计划逐条还原。
-        restore::restore_backup_verified(
-            &dir,
-            &app_id,
-            &home,
-            &data_paths,
-            max_age_hours,
-            &plan_digest,
-        )
-    })
-    .await?;
-    // 还原留痕：还原了多少、旧数据保全目录在哪（**需人工清理**）
-    let _ = aibox_core::tasklog::append(
-        &app_for_log,
-        "restore",
-        &format!(
-            "restored {} file(s); preserved old data at: {} (delete it manually when no longer needed)",
-            out.restored,
-            out.preserved_dir.as_deref().unwrap_or("(none)")
-        ),
-    );
-    Ok(out)
+    let _ = (backup_dir, plan_digest);
+    automatic_restore_paused(&app_id)
 }
 
-/// 卸载：backupFirst 自动备份 → 白名单内（residualPaths ∪ dataPaths）删除 →
-/// 成功后注销 install-manifest。失败收集不中断；零提权；steps 只写日志不执行。
+/// Destructive uninstall is paused for the protection release, independent of registry policy.
 #[tauri::command]
 pub async fn manage_remove(
     app_id: String,
@@ -1052,29 +933,42 @@ pub async fn manage_remove(
     steps: Vec<String>,
     backup: Option<bool>,
 ) -> Cmd<RemoveOutcome> {
-    let do_backup = backup.unwrap_or(true); // backupFirst 硬规则：缺省 true
-    let id_for_remove = app_id.clone();
-    let out = blocking(move || {
-        manage::remove_app(
-            &id_for_remove,
-            &residual_paths,
-            &data_paths,
-            &steps,
-            do_backup,
-            &manage::default_backup_root(),
-        )
-    })
-    .await?;
-    // 无真失败（skipped 只允许 not found）→ 注销已装登记（幂等）
-    let clean = out
-        .skipped
-        .iter()
-        .all(|s| s.reason == "not found");
-    if clean {
-        let id = app_id.clone();
-        let _ = blocking(move || aibox_core::scan::remove_install(&id)).await;
+    // Keep the existing IPC arguments so older callers receive a stable error.
+    let _ = (app_id, residual_paths, data_paths, steps, backup);
+    Err(CoreError::new(
+        "MANAGE_REMOVE_PAUSED",
+        "Automatic uninstall is paused. See the manual uninstall guide",
+    )
+    .into())
+}
+
+#[cfg(test)]
+mod maintenance_pause_tests {
+    use super::manage_remove;
+
+    #[test]
+    fn remove_is_paused_for_all_backup_values_and_manifest_inputs() {
+        for backup in [None, Some(true), Some(false)] {
+            let err = tauri::async_runtime::block_on(manage_remove(
+                "openclaw".into(),
+                vec!["~/example-program".into()],
+                vec!["~/example-data".into()],
+                vec!["Quit the app".into()],
+                backup,
+            ))
+            .expect_err("uninstall must always be paused");
+            assert_eq!(err.code, "MANAGE_REMOVE_PAUSED");
+        }
+        let err = tauri::async_runtime::block_on(manage_remove(
+            "openclaw".into(),
+            vec![],
+            vec![],
+            vec![],
+            None,
+        ))
+        .expect_err("uninstall must also be paused without registry data");
+        assert_eq!(err.code, "MANAGE_REMOVE_PAUSED");
     }
-    Ok(out)
 }
 
 /// 已装清单：`[{appId, version?, installedAt?}]`（读 install-manifest；MANAGE 屏数据源）。
