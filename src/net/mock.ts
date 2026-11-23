@@ -600,6 +600,7 @@ export function mockManageRestorePreview(backupDir: string, appId: string): Rest
     {
       target: `${base}\\data\\config.json5`,
       rel: ".config/openclaw/config.json5",
+      payloadRel: "openclaw.json5",
       size: 2048,
       isDir: false,
       exists: true,
@@ -609,6 +610,7 @@ export function mockManageRestorePreview(backupDir: string, appId: string): Rest
     {
       target: `${base}\\data\\sessions`,
       rel: ".config/openclaw/sessions",
+      payloadRel: "sessions",
       size: 0,
       isDir: true,
       exists: true,
@@ -618,6 +620,7 @@ export function mockManageRestorePreview(backupDir: string, appId: string): Rest
     {
       target: `${base}\\data\\sessions\\2026-11-21.jsonl`,
       rel: ".config/openclaw/sessions/2026-11-21.jsonl",
+      payloadRel: "sessions/2026-11-21.jsonl",
       size: 88_000,
       isDir: false,
       exists: false,

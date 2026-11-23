@@ -1,6 +1,7 @@
 /**
  * S7 DONE：已装内容清单 + 「下一步」教程卡 + 分享/反馈入口。
  */
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MachineState } from "../state";
 import { appGuideUrl, siteUrl } from "../lib/links";
@@ -17,6 +18,8 @@ export default function S7Done({
   onRestart: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  /** 「打开文件夹」失败（后端只允许打开家目录内的路径）→ 可见提示，别让按钮像坏了 */
+  const [revealErr, setRevealErr] = useState(false);
   /** 数据目录（可能为空：registry 未声明 maintenance.dataPaths） */
   const paths = dataPaths ?? [];
   const installed = state.tasks.filter((tk) => tk.status === "done");
@@ -28,6 +31,16 @@ export default function S7Done({
     skipped.length > 0
       ? t("s7.subtitlePartial")
       : t("s7.subtitleCount", { count: installed.length });
+
+  /** 打开数据目录（失败 → 说人话） */
+  const reveal = async (path: string) => {
+    setRevealErr(false);
+    try {
+      await api.revealDir(path);
+    } catch {
+      setRevealErr(true);
+    }
+  };
 
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col gap-5">
@@ -61,7 +74,7 @@ export default function S7Done({
                 <span className="break-all font-mono text-[11px] text-aibox-text2">{p}</span>
                 <button
                   type="button"
-                  onClick={() => void api.revealDir(p).catch(() => undefined)}
+                  onClick={() => void reveal(p)}
                   className="shrink-0 rounded-[4px] border border-aibox-line px-2 py-1 font-mono text-[10px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
                 >
                   {t("s7.openFolder")}
@@ -69,6 +82,7 @@ export default function S7Done({
               </li>
             ))}
           </ul>
+          {revealErr && <p className="mt-1 text-[11px] text-aibox-danger">{t("s8.restoreRevealFail")}</p>}
           <p className="mt-2 text-[11px] leading-relaxed text-aibox-text2">{t("s7.whereHint")}</p>
         </section>
       )}

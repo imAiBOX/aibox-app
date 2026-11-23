@@ -52,6 +52,7 @@
 //! 清单与真正写下去的完全一致；计划摘要（`RestorePlan::digest`）在执行前再比一次
 //! （清单被改过 → `RESTORE_PLAN_CHANGED`，**不写任何东西**）。
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -162,6 +163,8 @@ pub struct PlannedEntry {
     pub target: String,
     /// 相对 home 的路径
     pub rel: String,
+    /// 备份载荷内的相对路径（决定读备份里的哪个文件 → 进摘要）
+    pub payload_rel: String,
     /// 清单声明的大小（字节）
     pub size: u64,
     /// 是目录
@@ -325,6 +328,9 @@ pub fn restore_backup_verified(
     max_age_hours: u32,
     expected_digest: &str,
 ) -> CoreResult<RestoreOutcome> {
+    // **内核自己夹紧上限**（复核 2026-11-23）：调用方不能放宽灰度硬规则
+    // （不夹紧时，传 168 就能放行 7 天前的备份）。
+    let max_age_hours = effective_max_age_hours(Some(max_age_hours as u64));
     run_restore(
         backup_dir,
         app_id,
@@ -622,6 +628,8 @@ pub fn plan_restore_in_at(
     backup_root: &Path,
     max_age_hours: u32,
 ) -> CoreResult<RestorePlan> {
+    // **内核自己夹紧上限**（调用方不能放宽灰度硬规则；预览与执行必须用同一个窗口）
+    let max_age_hours = effective_max_age_hours(Some(max_age_hours as u64));
     let ctx = prepare_restore(
         backup_dir,
         app_id,
@@ -675,6 +683,7 @@ fn build_plan(ctx: &RestoreContext, app_id: &str, max_age_hours: u32) -> Restore
         entries.push(PlannedEntry {
             target: target_abs.to_string_lossy().into_owned(),
             rel: target_rel.to_string_lossy().replace('\\', "/"),
+            payload_rel: e.rel.replace('\\', "/"),
             size: e.size,
             is_dir: e.is_dir,
             exists,
@@ -698,7 +707,7 @@ fn build_plan(ctx: &RestoreContext, app_id: &str, max_age_hours: u32) -> Restore
     }
 }
 
-/// 计划摘要：entries 按 `(target, rel, is_dir, size, sha256)` 排序 → **无歧义编码** → sha256。
+/// 计划摘要：**按清单原顺序**逐条**无歧义编码** → sha256。
 ///
 /// **为什么改成无歧义编码**（审计 P1-1：摘要可碰撞 → 「预览 = 执行」不变式被破）：
 /// 旧格式 `"{target}|{size}|{sha256}\n"` 有两处可碰撞：
@@ -708,20 +717,18 @@ fn build_plan(ctx: &RestoreContext, app_id: &str, max_age_hours: u32) -> Restore
 ///    能拼出同一段摘要输入（换行注入）。
 ///
 /// 新格式：**每个字段都用字节长度前缀**（`len:value`）→ 任何字段内容都无法伪造边界；
-/// 且覆盖**所有影响写入的字段**：`target` / `rel` / `isDir` / `size` / `sha256`。
-/// 排序键也改成全字段 → 清单条目顺序不同但内容相同时摘要相同（写入结果相同 → 摘要相同）。
+/// 且覆盖**所有影响写入的字段**：`target` / `rel` / `isDir` / `size` / `sha256` / 载荷路径。
+///
+/// **顺序也进摘要**（复核 2026-11-23）：计划条目与清单条目是**按序号对齐**的
+/// （执行阶段 `plan.entries[i]` ↔ `manifest.entries[i]`）→ 顺序变了就是「另一个计划」。
+/// 旧实现先排序再算摘要 → 清单换顺序但摘要不变 → 用户看到的清单与实际写入顺序不一致。
+/// （同 target 重复条目已在 `parse_manifest` 拒绝 → 不会静默「后者覆盖前者」。）
 fn plan_digest(entries: &[PlannedEntry]) -> String {
-    let mut sorted: Vec<&PlannedEntry> = entries.iter().collect();
-    sorted.sort_by(|a, b| {
-        a.target
-            .cmp(&b.target)
-            .then_with(|| a.rel.cmp(&b.rel))
-            .then_with(|| a.is_dir.cmp(&b.is_dir))
-            .then_with(|| a.size.cmp(&b.size))
-            .then_with(|| a.sha256.cmp(&b.sha256))
-    });
     let mut buf = String::new();
-    for e in sorted {
+    for (i, e) in entries.iter().enumerate() {
+        // 序号进摘要（顺序敏感）
+        buf.push_str(&i.to_string());
+        buf.push(':');
         buf.push_str(&e.target.len().to_string());
         buf.push(':');
         buf.push_str(&e.target);
@@ -733,6 +740,10 @@ fn plan_digest(entries: &[PlannedEntry]) -> String {
         buf.push_str(if e.is_dir { "1" } else { "0" });
         buf.push('|');
         buf.push_str(&e.size.to_string());
+        buf.push('|');
+        buf.push_str(&e.payload_rel.len().to_string());
+        buf.push(':');
+        buf.push_str(&e.payload_rel);
         buf.push('|');
         buf.push_str(&e.sha256.len().to_string());
         buf.push(':');
@@ -1295,6 +1306,8 @@ fn parse_manifest(value: &Value, app_id: &str) -> CoreResult<Manifest> {
         .ok_or_else(|| damaged("missing entries"))?;
 
     let mut entries = Vec::with_capacity(arr.len());
+    // 同一 target 只允许出现一次（见下方 duplicate entry target）
+    let mut seen_targets: HashSet<String> = HashSet::with_capacity(arr.len());
     for item in arr {
         let rel = item
             .get("rel")
@@ -1341,6 +1354,12 @@ fn parse_manifest(value: &Value, app_id: &str) -> CoreResult<Manifest> {
         // 旧实现对目录条目的 `sha256` 完全不校验 → 可以塞换行伪造摘要输入（审计 P1-1）。
         if is_dir && !sha256.is_empty() && !is_hex64(sha256) {
             return Err(damaged("directory entry with an invalid sha256"));
+        }
+        // **同一个 target 不许出现两次**（复核 2026-11-23）：
+        // 两条目同 target 时，谁先写谁后写会改变最终落盘内容 → 顺序影响写入结果；
+        // 清单是攻击者可改的 → 同 target 多条 = 清单自相矛盾 → 当作损坏清单。
+        if !seen_targets.insert(target.to_string()) {
+            return Err(damaged("duplicate entry target"));
         }
         entries.push(ManifestEntry {
             rel: rel.to_string(),
@@ -4280,6 +4299,7 @@ mod tests {
         PlannedEntry {
             target: target.to_string(),
             rel: rel.to_string(),
+            payload_rel: rel.to_string(),
             size,
             is_dir,
             exists: false,
@@ -4362,6 +4382,105 @@ mod tests {
         let p2 = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
             .unwrap();
         assert_ne!(p1.digest, p2.digest, "条目数不同 → 摘要必须不同");
+    }
+
+    /// 复核 2026-11-23：计划条目与清单条目**按序号对齐** → 顺序变了就是另一个计划。
+    /// 旧实现先排序再算摘要 → 清单换顺序但摘要不变 → 用户看到的清单与实际写入顺序不一致。
+    #[test]
+    fn plan_digest_changes_when_the_entry_order_changes() {
+        let a = planned("/home/appdata/a.txt", "appdata/a.txt", 1, "aa", false);
+        let b = planned("/home/appdata/b.txt", "appdata/b.txt", 1, "bb", false);
+        assert_ne!(
+            plan_digest(&[a.clone(), b.clone()]),
+            plan_digest(&[b.clone(), a.clone()]),
+            "条目顺序不同 → 摘要必须不同"
+        );
+        // 载荷路径（读备份里的哪个文件）也必须进摘要
+        let mut other_payload = a.clone();
+        other_payload.payload_rel = "other.txt".to_string();
+        assert_ne!(
+            plan_digest(&[a.clone()]),
+            plan_digest(&[other_payload]),
+            "载荷路径不同 → 摘要必须不同"
+        );
+    }
+
+    /// 复核 2026-11-23：同一 target 出现两次 → 清单自相矛盾（谁先写谁后写会改变落盘内容）
+    /// → 当作损坏清单 → 整体拒绝。
+    #[test]
+    fn rejects_manifest_with_duplicate_targets() {
+        let root = tmpdir("dup-target");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+        write(&dir.join("a.txt"), "a");
+        write(&dir.join("b.txt"), "b");
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "createdAt": crate::fsops::now_iso8601(),
+            "homeHash": home_fingerprint(&home),
+            "entries": [
+                json_entry("a.txt", "appdata/same.txt", 1, &sha256_str("a"), false),
+                json_entry("b.txt", "appdata/same.txt", 1, &sha256_str("b"), false),
+            ],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        let err = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 24)
+            .unwrap_err();
+        assert_eq!(err.code, "RESTORE_NO_MANIFEST");
+        assert!(
+            !home.join("appdata/same.txt").exists(),
+            "重复 target 的清单必须一个字都不写"
+        );
+    }
+
+    /// 复核 2026-11-23：**内核自己夹紧**最大可还原时长 → 调用方（即使传 168）也不能放宽。
+    #[test]
+    fn production_entry_clamps_the_max_age() {
+        let root = tmpdir("clamp-age");
+        let home = root.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let home = fs::canonicalize(&home).unwrap();
+        fs::create_dir_all(home.join("appdata")).unwrap();
+        let backup_root = root.join("backup");
+        fs::create_dir_all(&backup_root).unwrap();
+        let dir = backup_root.join("20260101000000/demo");
+        fs::create_dir_all(&dir).unwrap();
+        write(&dir.join("a.txt"), "a");
+        // 清单里的创建时间很旧（远早于 24 小时窗口）
+        let old = "2020-01-01T00:00:00Z".to_string();
+        let manifest = serde_json::json!({
+            "schema": MANIFEST_SCHEMA,
+            "appId": "demo",
+            "createdAt": old,
+            "homeHash": home_fingerprint(&home),
+            "entries": [json_entry("a.txt", "appdata/a.txt", 1, &sha256_str("a"), false)],
+        });
+        write(
+            &dir.join("manifest.json"),
+            &serde_json::to_string(&manifest).unwrap(),
+        );
+        // 调用方传 168 小时（7 天）→ 内核必须夹回 24 → 旧备份被拒
+        let err = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 168)
+            .unwrap_err();
+        assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD");
+        assert!(
+            !home.join("appdata/a.txt").exists(),
+            "超龄备份必须一个字都不写"
+        );
+        // 生产入口（备份根固定）走的是同一个夹紧函数
+        assert_eq!(effective_max_age_hours(Some(168)), MAX_RESTORE_AGE_HOURS);
+        assert_eq!(effective_max_age_hours(Some(24)), MAX_RESTORE_AGE_HOURS);
+        assert_eq!(effective_max_age_hours(Some(6)), 6);
     }
 
     /// ③⑤ P1-1：清单里含控制字符（`\n` / `\r` / NUL）→ 清单损坏 → 整体拒绝。

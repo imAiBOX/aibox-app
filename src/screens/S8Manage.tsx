@@ -67,6 +67,8 @@ export default function S8Manage({
   const attemptRef = useRef<RemoveAttempt | null>(null);
   /** 还原目标（非空 → 整屏渲染还原流程；列表态被替换） */
   const [restoreTarget, setRestoreTarget] = useState<{ dir: string; appId: string } | null>(null);
+  /** 「打开文件夹」失败（后端只允许打开家目录内的路径）→ 可见提示 */
+  const [revealErr, setRevealErr] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -456,7 +458,7 @@ export default function S8Manage({
           <span className="flex shrink-0 gap-2">
             <button
               type="button"
-              onClick={() => void api.revealDir(upgradeBackup.path).catch(() => undefined)}
+              onClick={() => void api.revealDir(upgradeBackup.path).catch(() => setRevealErr(true))}
               className="rounded-[4px] border border-aibox-line px-3 py-1.5 font-mono text-[10px] text-aibox-text2 hover:border-aibox-green hover:text-aibox-green"
             >
               {t("s7.openFolder")}
@@ -470,6 +472,7 @@ export default function S8Manage({
               {t("s8.restoreConfirmBtn")}
             </button>
           </span>
+          {revealErr && <p className="w-full text-[11px] text-aibox-danger">{t("s8.restoreRevealFail")}</p>}
         </div>
       )}
 

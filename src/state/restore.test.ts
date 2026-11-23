@@ -20,6 +20,7 @@ function entry(i: number): PlannedEntry {
   return {
     target: `C:\\Users\\dev\\.config\\openclaw\\file-${i}.json5`,
     rel: `.config/openclaw/file-${i}.json5`,
+    payloadRel: `file-${i}.json5`,
     size: 100,
     isDir: false,
     exists: false,

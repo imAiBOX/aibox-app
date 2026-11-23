@@ -198,6 +198,8 @@ export interface ManageRemoveResult {
 export interface PlannedEntry {
   target: string;
   rel: string;
+  /** 备份载荷内的相对路径（决定读备份里的哪个文件；进计划摘要） */
+  payloadRel: string;
   size: number;
   isDir: boolean;
   exists: boolean;
