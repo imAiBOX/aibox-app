@@ -30,6 +30,10 @@ toml_edit = "0.20"
 # YAML 读写（纯 Rust；yaml-rust2 不带 C 依赖）
 yaml-rust2 = "0.13"
 
+# Config transactions use handle-relative operations and atomic no-replace rename.
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+rustix = { version = "1", features = ["fs", "process"] }
+
 # Windows 系统信息读取（GetDiskFreeSpaceExW / GlobalMemoryStatusEx）——windows-sys 纯绑定无 C 构建
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation", "Win32_Storage_FileSystem"] }

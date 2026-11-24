@@ -1,7 +1,7 @@
 /**
  * C1→C2→C3→C4→C5→VERIFY 全流转（mock）：
  * 向导 reducer 驱动 + 真 invoke 入口（VITE_AIBOX_MOCK=1 走内存 mock）。
- * 覆盖：TODO 占位分流、key 校验守卫、C5 写入备份展示、VERIFY_OK 才推进、
+ * 覆盖：MANUAL 占位分流、key 校验守卫、C5 写入备份展示、VERIFY_OK 才推进、
  *       弱判定拒绝（ok 无文本）、模型拒绝 / 网络挂的人话错误。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -28,7 +28,7 @@ afterEach(() => {
 /** 驱动向导到 C3 粘贴了合法 key 的状态 */
 function toC3WithKey(key: string): WizardState {
   let w = createWizard();
-  w = reduceWizard(w, { type: "PICK", providerId: "openrouter" }); // C1→C2
+  w = reduceWizard(w, { type: "PICK", providerId: "openrouter", capability: "assisted" }); // C1→C2
   w = reduceWizard(w, { type: "NEXT" }); // C2→C3
   w = reduceWizard(w, { type: "SET_KEY", key });
   return w;
@@ -42,7 +42,7 @@ describe("C1→C2→C3→C4→C5 流转", () => {
     expect(w.step).toBe("C1");
 
     // C1 选 OpenRouter（完整路径）→ C2 陪跑
-    w = reduceWizard(w, { type: "PICK", providerId: "openrouter" });
+    w = reduceWizard(w, { type: "PICK", providerId: "openrouter", capability: "assisted" });
     expect(w.step).toBe("C2");
     expect(w.providerId).toBe("openrouter");
 
@@ -89,11 +89,11 @@ describe("C1→C2→C3→C4→C5 流转", () => {
     expect(w.errorKey).toBeNull();
   });
 
-  it("C1 选 TODO 路径 → TODO 占位（不装能用），BACK 回 C1", () => {
+  it("C1 选 MANUAL 路径 → MANUAL 占位（不装能用），BACK 回 C1", () => {
     let w = createWizard();
     for (const id of ["google", "claude-oauth", "ollama"]) {
-      w = reduceWizard(w, { type: "PICK", providerId: id });
-      expect(w.step).toBe("TODO");
+      w = reduceWizard(w, { type: "PICK", providerId: id, capability: "manual" });
+      expect(w.step).toBe("MANUAL");
       w = reduceWizard(w, { type: "BACK" });
       expect(w.step).toBe("C1");
     }
@@ -101,7 +101,7 @@ describe("C1→C2→C3→C4→C5 流转", () => {
 
   it("换 provider 重置 key/模型（防串号）", () => {
     let w = toC3WithKey(GOOD_KEY);
-    w = reduceWizard(w, { type: "PICK", providerId: "anthropic" });
+    w = reduceWizard(w, { type: "PICK", providerId: "anthropic", capability: "assisted" });
     expect(w.step).toBe("C2");
     expect(w.key).toBe("");
     expect(w.model).toBeNull();
@@ -109,7 +109,7 @@ describe("C1→C2→C3→C4→C5 流转", () => {
 
   it("C5 写入失败 → 人话 errorKey，可回退", () => {
     let w = createWizard();
-    w = reduceWizard(w, { type: "PICK", providerId: "openrouter" });
+    w = reduceWizard(w, { type: "PICK", providerId: "openrouter", capability: "assisted" });
     w = reduceWizard(w, { type: "NEXT", });
     w = reduceWizard(w, { type: "SET_KEY", key: GOOD_KEY });
     w = reduceWizard(w, { type: "NEXT" });
@@ -251,7 +251,7 @@ describe("VERIFY 流转与弱判定拒绝", () => {
 describe("C4 空远端模型列表", () => {
   it("远端数组为空时仍有可选的内置模型", () => {
     let w = createWizard();
-    w = reduceWizard(w, { type: "PICK", providerId: "openrouter" });
+    w = reduceWizard(w, { type: "PICK", providerId: "openrouter", capability: "assisted" });
     w = reduceWizard(w, { type: "SET_META", metas: { openrouter: { recommendedModels: [] } } });
     expect(wizardModels(w).length).toBeGreaterThan(0);
     expect(wizardModels(w)[0].name).not.toBe(wizardModels(w)[0].id);

@@ -42,6 +42,7 @@ dependencies = [
  "flate2",
  "json5",
  "regex",
+ "rustix",
  "serde",
  "serde_json",
  "sha1",

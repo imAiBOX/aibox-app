@@ -1,0 +1,621 @@
+{
+  "version": 1,
+  "profiles": {
+    "chatbox": {
+      "id": "chatbox",
+      "name": "Chatbox",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/AppData/Roaming/Chatbox/config.json",
+          "configWrite": {
+            "format": "json",
+            "fields": [
+              {
+                "path": "settings.providers.openai.apiKey",
+                "value": "<apiKey>"
+              }
+            ]
+          }
+        },
+        "google": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/AppData/Roaming/Chatbox/config.json",
+          "configWrite": {
+            "format": "json",
+            "fields": [
+              {
+                "path": "settings.providers.gemini.apiKey",
+                "value": "<apiKey>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "aider": {
+      "id": "aider",
+      "name": "Aider",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/.aider.conf.yml",
+          "configWrite": {
+            "format": "yaml",
+            "fields": [
+              {
+                "path": "openai-api-key",
+                "value": "<apiKey>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "zed": {
+      "id": "zed",
+      "name": "Zed",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": false,
+          "configTarget": "~/.config/zed/settings.json"
+        }
+      }
+    },
+    "explicit-file": {
+      "id": "explicit-file",
+      "name": "explicit-file",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/AppData/Roaming/Chatbox/config.json",
+          "configWrite": {
+            "format": "json",
+            "fields": [
+              {
+                "path": "settings.providers.openai.apiKey",
+                "value": "<apiKey>"
+              }
+            ],
+            "file": "~/Library/Application Support/Fixture/config.json"
+          }
+        }
+      }
+    },
+    "empty-file": {
+      "id": "empty-file",
+      "name": "empty-file",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/AppData/Roaming/Chatbox/config.json",
+          "configWrite": {
+            "format": "json",
+            "fields": [
+              {
+                "path": "settings.providers.openai.apiKey",
+                "value": "<apiKey>"
+              }
+            ],
+            "file": ""
+          }
+        }
+      }
+    },
+    "no-template": {
+      "id": "no-template",
+      "name": "no-template",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/AppData/Roaming/Chatbox/config.json"
+        }
+      }
+    },
+    "unsupported-format": {
+      "id": "unsupported-format",
+      "name": "unsupported-format",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/AppData/Roaming/Chatbox/config.json",
+          "configWrite": {
+            "format": "db",
+            "fields": [
+              {
+                "path": "settings.providers.openai.apiKey",
+                "value": "<apiKey>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "wrong-auth": {
+      "id": "wrong-auth",
+      "name": "wrong-auth",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "oauth",
+          "configWritable": true,
+          "configTarget": "~/AppData/Roaming/Chatbox/config.json",
+          "configWrite": {
+            "format": "json",
+            "fields": [
+              {
+                "path": "settings.providers.openai.apiKey",
+                "value": "<apiKey>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "runtime-only": {
+      "id": "runtime-only",
+      "name": "runtime-only",
+      "packages": [
+        {
+          "kind": "runtime",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/AppData/Roaming/Chatbox/config.json",
+          "configWrite": {
+            "format": "json",
+            "fields": [
+              {
+                "path": "settings.providers.openai.apiKey",
+                "value": "<apiKey>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "angle-target": {
+      "id": "angle-target",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/left<angle/config.json",
+          "configWrite": {
+            "format": "json",
+            "fields": [
+              {
+                "path": "key",
+                "value": "<apiKey>"
+              }
+            ]
+          }
+        },
+        "openrouter": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configWrite": {
+            "format": "json",
+            "file": "~/right>angle/config.json",
+            "fields": [
+              {
+                "path": "key",
+                "value": "<apiKey>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "no-key-field": {
+      "id": "no-key-field",
+      "name": "No key field",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/AppData/Roaming/Chatbox/config.json",
+          "configWrite": {
+            "format": "json",
+            "fields": [
+              {
+                "path": "settings.providers.openai.apiKey",
+                "value": "literal"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "toml-typed-match": {
+      "id": "toml-typed-match",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/.demo/settings.toml",
+          "configWrite": {
+            "format": "toml",
+            "fields": [
+              {
+                "path": "accounts",
+                "kind": "arrayItem",
+                "match": {
+                  "name": false
+                },
+                "set": {
+                  "token": "<apiKey>"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "array-mixed-set": {
+      "id": "array-mixed-set",
+      "packages": [
+        {
+          "kind": "app",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ],
+      "modelProviders": {
+        "openai": {
+          "authType": "api-key",
+          "configWritable": true,
+          "configTarget": "~/.demo/settings.toml",
+          "configWrite": {
+            "format": "toml",
+            "fields": [
+              {
+                "path": "accounts",
+                "kind": "arrayItem",
+                "match": {
+                  "name": "demo"
+                },
+                "set": {
+                  "token": "<apiKey>",
+                  "enabled": true
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "appId": "chatbox",
+      "provider": "openai",
+      "platform": "windows",
+      "expected": "manual"
+    },
+    {
+      "appId": "aider",
+      "provider": "openai",
+      "platform": "windows",
+      "expected": "manual"
+    },
+    {
+      "appId": "aider",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "assisted"
+    },
+    {
+      "appId": "chatbox",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "manual"
+    },
+    {
+      "appId": "zed",
+      "provider": "openai",
+      "platform": "windows",
+      "expected": "manual"
+    },
+    {
+      "appId": "zed",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "manual"
+    },
+    {
+      "appId": "chatbox",
+      "provider": "google",
+      "platform": "windows",
+      "expected": "manual"
+    },
+    {
+      "appId": "chatbox",
+      "provider": "openai",
+      "platform": "linux",
+      "expected": "unavailable"
+    },
+    {
+      "appId": "chatbox",
+      "provider": "missing",
+      "platform": "windows",
+      "expected": "unavailable"
+    },
+    {
+      "appId": "explicit-file",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "assisted"
+    },
+    {
+      "appId": "empty-file",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "manual"
+    },
+    {
+      "appId": "no-template",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "manual"
+    },
+    {
+      "appId": "unsupported-format",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "manual"
+    },
+    {
+      "appId": "wrong-auth",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "manual"
+    },
+    {
+      "appId": "runtime-only",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "unavailable"
+    },
+    {
+      "appId": "angle-target",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "manual"
+    },
+    {
+      "appId": "angle-target",
+      "provider": "openrouter",
+      "platform": "macos",
+      "expected": "manual"
+    },
+    {
+      "appId": "no-key-field",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "manual"
+    },
+    {
+      "appId": "toml-typed-match",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "manual"
+    },
+    {
+      "appId": "array-mixed-set",
+      "provider": "openai",
+      "platform": "macos",
+      "expected": "manual"
+    }
+  ]
+}

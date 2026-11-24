@@ -1019,7 +1019,9 @@ export default function App() {
           <S4Execute state={state} />
         ) : screen === "S5Config" ? (
           <S5Config
+            key={state.appId}
             appId={state.appId}
+            platform={state.scan?.os.platform}
             selectedPathId={state.configPathId}
             onSelectPath={(id) => dispatch({ type: "CONFIG_SELECT", pathId: id })}
             onWritten={(id, c) => {

@@ -165,6 +165,7 @@ export function mockRegistryApp(id: string): AppManifest {
     version,
     platforms: ["windows", "macos"],
     arch: "any",
+    kind: p === "node" || p === "git" ? "runtime" : "app",
     sha256: FAKE_SHA,
     sizeBytes,
     channels: [
@@ -252,6 +253,8 @@ export function mockRegistryApp(id: string): AppManifest {
         authType: "api-key",
         keyFormat: "^sk-or-v1-[A-Za-z0-9]{64}$",
         configTarget: "~/.config/openclaw/openclaw.json5",
+        configWritable: true,
+        configWrite: { format: "json5", fields: [{ path: "models.providers.openrouter.apiKey", value: "<apiKey>" }] },
         getKeyUrl: "https://openrouter.ai/keys",
         recommendedModels: [
           { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", note: "聪明均衡，日常首选", priceHint: "中等" },
@@ -263,6 +266,8 @@ export function mockRegistryApp(id: string): AppManifest {
         authType: "api-key",
         keyFormat: "^sk-ant-[A-Za-z0-9_-]{40,}$",
         configTarget: "~/.config/openclaw/openclaw.json5",
+        configWritable: true,
+        configWrite: { format: "json5", fields: [{ path: "models.providers.anthropic.apiKey", value: "<apiKey>" }] },
         getKeyUrl: "https://console.anthropic.com/settings/keys",
         recommendedModels: [
           { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", note: "性价比均衡", priceHint: "中等" },
@@ -273,6 +278,8 @@ export function mockRegistryApp(id: string): AppManifest {
         authType: "api-key",
         keyFormat: "^sk-(proj-)?[A-Za-z0-9_-]{20,}$",
         configTarget: "~/.config/openclaw/openclaw.json5",
+        configWritable: true,
+        configWrite: { format: "json5", fields: [{ path: "models.providers.openai.apiKey", value: "<apiKey>" }] },
         getKeyUrl: "https://platform.openai.com/api-keys",
         recommendedModels: [
           { id: "gpt-5.1", name: "GPT-5.1", note: "默认推荐", priceHint: "中等" },

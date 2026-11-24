@@ -653,15 +653,17 @@ pub async fn config_write(
     api_key: Option<String>,
     base_url: Option<String>,
     model: Option<String>,
-    target_path: Option<String>,
+    // Consume the legacy camelCase argument explicitly; Tauri ignores unknown arguments.
+    #[allow(non_snake_case)]
+    targetPath: Option<String>,
 ) -> Cmd<ConfigWriteResult> {
+    config::reject_legacy_target(targetPath.as_deref()).map_err(CommandError::from)?;
     let input = ConfigWriteInput {
         app_id,
         provider,
         api_key,
         base_url,
         model,
-        target_path,
     };
     let result = blocking(move || config::config_write(&input)).await;
     let result = result?;

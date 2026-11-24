@@ -2,10 +2,12 @@
  * 批量「一个 key 通吃」——**纯逻辑**（可单测；UI 在 components/KeyBatchPanel.tsx）。
  *
  * 为什么单独抽出来：批量写入要处理三件事，逻辑不能埋在组件里：
- * 1. **哪些应用能自动写**（registry `modelProviders.<pid>.configWritable` 是真源）
+ * 1. **哪些应用能自动写**（同向导和 MCP 的平台配置规则）
  * 2. **逐个写入、逐个回执**（一个失败不能影响其他；每个应用独立备份）
  * 3. **如实呈现失败原因**（不可写 / 写入失败 / 找不到条目 → 三种不同的话）
  */
+
+import { configCapability } from "./config-capability-v1";
 
 /** 一个候选应用（已装 + registry 元数据）。 */
 export interface BatchCandidate {
@@ -30,22 +32,17 @@ export interface BatchReceipt {
   backupPath?: string;
 }
 
-/** registry 元数据里某 provider 的可写性（缺席 → 未知 → 不可写）。 */
-export function writableOf(
-  meta: { configWritable?: boolean } | undefined,
-): { writable: boolean; reason?: "notSupported" | "unknown" } {
-  if (!meta) return { writable: false, reason: "unknown" };
-  if (meta.configWritable === true) return { writable: true };
-  return { writable: false, reason: "notSupported" };
-}
-
 /** 把「已装列表 + registry 元数据」整理成候选列表（可写排前面）。 */
 export function buildCandidates(
   installed: { appId: string; name?: string }[],
-  metas: Record<string, { configWritable?: boolean } | undefined>,
+  profiles: Record<string, unknown>,
+  provider: string,
+  platform: string | undefined,
 ): BatchCandidate[] {
   const list = installed.map((it) => {
-    const { writable, reason } = writableOf(metas[it.appId]);
+    const capability = configCapability(profiles[it.appId], it.appId, provider, platform);
+    const writable = capability === "assisted";
+    const reason: BatchCandidate["reason"] = capability === "unavailable" ? "unknown" : capability === "manual" ? "notSupported" : undefined;
     return {
       appId: it.appId,
       name: it.name ?? it.appId,

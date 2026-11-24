@@ -5,13 +5,14 @@
  *  C3 粘贴 key（等宽输入 + 即时格式校验，registry keyFormat 真源；人话纠错）
  *  C4 选择模型（registry recommendedModels 短清单 + 一句话 + priceHint）
  *  C5 写入（config_write：备份→合并→回读；展示 backupPath 与「已备份原文件」→ VERIFY）
- *  Google / Claude-OAuth / Ollama = TODO 占位（点入「Phase 后续」人话说明，不装能用）
+ *  依据本机平台与目录配置能力，在收集凭据前分流到向导或手动教程。
  *
  * 流程逻辑在 src/config/flow.ts（纯 reducer，可 vitest 驱动），本文件只做渲染与事件。
  * key 只活在 flow 内存态：不进主 reducer、不进持久化、不进日志（硬规则）。
  */
 import KeyStepDiagram from "../components/KeyStepDiagram";
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
+import { configCapability } from "../config/config-capability-v1";
 import { openExternal } from "../lib/openExternal";
 import { appGuideUrl } from "../lib/links";
 import { useTranslation } from "react-i18next";
@@ -26,7 +27,7 @@ import {
   type WizardState,
 } from "../config/flow";
 import type { ProviderId } from "../config/types";
-import { api } from "../net/client";
+import { api, type AppManifest } from "../net/client";
 
 export interface ConfigCreds {
   provider: ProviderId;
@@ -75,11 +76,13 @@ function BackBtn({ onClick }: { onClick: () => void }) {
 
 export default function S5Config({
   appId,
+  platform,
   selectedPathId,
   onSelectPath,
   onWritten,
 }: {
   appId: string | null;
+  platform?: string;
   selectedPathId: string | null;
   onSelectPath: (id: string) => void;
   onWritten: (id: string, creds: ConfigCreds) => void;
@@ -88,43 +91,37 @@ export default function S5Config({
   const [w, dispatch] = useReducer(reduceWizard, undefined, createWizard);
   const provider = providerById(w.providerId ?? selectedPathId);
 
-  // registry 真数据：C3 keyFormat + C4 recommendedModels（拉不到 → 本地回落，不阻塞）
+  const [catalog, setCatalog] = useState<{ appId: string; profile?: AppManifest }>();
+  const currentCatalog = catalog?.appId === appId ? catalog : undefined;
   useEffect(() => {
     if (!appId) return;
     let alive = true;
-    api
-      .registryApp(appId)
-      .then((m) => {
-        if (alive && m.modelProviders) {
-          dispatch({ type: "SET_META", metas: m.modelProviders });
-        }
-      })
-      .catch(() => undefined); // mock/网络缺席 → 本地 keyPattern + fallbackModels
-    return () => {
-      alive = false;
-    };
+    api.registryApp(appId).then(
+      (profile) => { if (alive) setCatalog({ appId, profile }); },
+      () => { if (alive) setCatalog({ appId }); },
+    );
+    return () => { alive = false; };
   }, [appId]);
 
   const pick = useCallback(
     (id: string) => {
-      dispatch({ type: "PICK", providerId: id });
+      dispatch({ type: "SET_META", metas: currentCatalog?.profile?.modelProviders ?? {} });
+      dispatch({ type: "PICK", providerId: id, capability: configCapability(currentCatalog?.profile, appId ?? "", id, platform) });
       onSelectPath(id);
     },
-    [onSelectPath],
+    [appId, currentCatalog, onSelectPath, platform],
   );
 
   const keyCheck = wizardKeyCheck(w);
-  // registry 真源：这个 provider 的配置 AiBOX 能不能自动写（不能 → 提前告知，别让用户白忙）
-  const meta = wizardMeta(w);
-  const autoWritable = meta?.configWritable === true;
+  const autoWritable = w.step !== "MANUAL" && configCapability(currentCatalog?.profile, appId ?? "", w.providerId ?? "", platform) === "assisted";
   const models = wizardModels(w);
 
   // C5 写入（真 invoke / mock 由 client 单一入口决定）
   const doWrite = useCallback(async () => {
-    if (!w.providerId || w.writing) return;
+    if (!appId || !w.providerId || w.writing || !autoWritable) return;
     dispatch({ type: "WRITE_START" });
     const out = await runConfigWrite({
-      appId: appId ?? "openclaw",
+      appId,
       provider: w.providerId as ProviderId,
       apiKey: w.key || undefined,
       model: w.model ?? undefined,
@@ -138,7 +135,7 @@ export default function S5Config({
         ...(out.errorCode ? { errorCode: out.errorCode } : {}),
       });
     }
-  }, [appId, w.providerId, w.writing, w.key, w.model]);
+  }, [appId, autoWritable, w.providerId, w.writing, w.key, w.model]);
 
   const finish = useCallback(() => {
     if (!w.providerId) return;
@@ -153,7 +150,8 @@ export default function S5Config({
     <div className="flex h-full flex-col gap-4">
       <h1 className="font-display text-xl font-bold text-aibox-cream">{t("s5.title")}</h1>
       <p className="text-sm text-aibox-text2">{t("s5.subtitle")}</p>
-      {w.step !== "C1" && w.step !== "TODO" && <StepNav step={w.step} />}
+      {w.step !== "C1" && autoWritable && <StepNav step={w.step} />}
+      {appId && !currentCatalog && <p className="text-xs text-aibox-text2">{t("s5.loadingCapability")}</p>}
 
       {/* ── C1 选择路径：六卡片等权重 ── */}
       {w.step === "C1" && (
@@ -162,6 +160,7 @@ export default function S5Config({
             <button
               key={p.id}
               type="button"
+              disabled={!!appId && !currentCatalog}
               onClick={() => pick(p.id)}
               className={[
                 "relative flex flex-col gap-1.5 rounded-[6px] border bg-aibox-raised p-4 text-left transition-colors",
@@ -183,9 +182,9 @@ export default function S5Config({
               {p.recommended && (
                 <span className="font-mono text-[10px] text-aibox-info">{t("s5.rebate")}</span>
               )}
-              {p.status === "todo" && (
+              {currentCatalog && configCapability(currentCatalog.profile, appId ?? "", p.id, platform) !== "assisted" && (
                 <span className="mt-1 self-start rounded-[3px] border border-aibox-line px-1.5 py-0.5 font-mono text-[10px] text-aibox-text2">
-                  {t("s5.todo")}
+                  {t("s5.manualGuide")}
                 </span>
               )}
             </button>
@@ -193,14 +192,21 @@ export default function S5Config({
         </div>
       )}
 
-      {/* ── TODO 占位（google / claude-oauth / ollama）：点入人话说明，不装能用 ── */}
-      {w.step === "TODO" && provider && (
+      {w.step !== "C1" && !autoWritable && provider && (
         <section className="flex flex-col gap-3 rounded-[6px] border border-dashed border-aibox-line bg-aibox-raised p-5">
           <h2 className="font-display text-base font-semibold text-aibox-cream">
-            {t(provider.nameKey)} · {t("s5.todoTitle")}
+            {t(provider.nameKey)} · {t("s5.manualGuide")}
           </h2>
-          <p className="text-sm leading-relaxed text-aibox-text2">{t("s5.todoDetail")}</p>
-          <p className="font-mono text-xs text-aibox-text2">{t(provider.descKey)}</p>
+          <p className="text-sm leading-relaxed text-aibox-text2">{t("s5.manualOnlyHint")}</p>
+          {appId && (
+            <button
+              type="button"
+              onClick={() => void openExternal(appGuideUrl(appId, i18n.resolvedLanguage))}
+              className="self-start rounded-[4px] border border-aibox-warn px-3 py-1.5 text-xs"
+            >
+              {t("s5.manualGuide")}
+            </button>
+          )}
           <div className="mt-1">
             <BackBtn onClick={() => dispatch({ type: "BACK" })} />
           </div>
@@ -208,7 +214,7 @@ export default function S5Config({
       )}
 
       {/* ── C2「去哪弄 key」陪跑页 ── */}
-      {w.step === "C2" && provider && (
+      {w.step === "C2" && autoWritable && provider && (
         <section className="flex flex-col gap-4">
           <h2 className="font-display text-base font-semibold text-aibox-cream">
             {t("s5.guideTitle")} · {t(provider.nameKey)}
@@ -280,7 +286,7 @@ export default function S5Config({
       )}
 
       {/* ── C3 粘贴 key：等宽 + 即时格式反馈 ── */}
-      {w.step === "C3" && provider && (
+      {w.step === "C3" && autoWritable && provider && (
         <section className="flex flex-col gap-3">
           <h2 className="font-display text-base font-semibold text-aibox-cream">
             {t("s5.pasteTitle")} · {t(provider.nameKey)}
@@ -324,7 +330,7 @@ export default function S5Config({
       )}
 
       {/* ── C4 选择模型：registry 推荐短清单 ── */}
-      {w.step === "C4" && provider && (
+      {w.step === "C4" && autoWritable && provider && (
         <section className="flex flex-col gap-3">
           <h2 className="font-display text-base font-semibold text-aibox-cream">
             {t("s5.c4Title")}
@@ -378,7 +384,7 @@ export default function S5Config({
       )}
 
       {/* ── C5 写入：备份→合并→回读；成功展示 backupPath ── */}
-      {w.step === "C5" && provider && (
+      {w.step === "C5" && autoWritable && provider && (
         <section className="flex flex-col gap-3">
           <h2 className="font-display text-base font-semibold text-aibox-cream">
             {t("s5.writeTitle")}
@@ -396,20 +402,6 @@ export default function S5Config({
                 </p>
                 <p className="mt-2 text-xs">{t("s5.writeNote")}</p>
               </div>
-              {meta && !autoWritable && (
-                <div className="rounded-[6px] border border-aibox-warn/70 bg-aibox-warn/10 px-3 py-2 text-xs leading-relaxed text-aibox-text2">
-                  <p>{t("s5.manualOnlyHint")}</p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void openExternal(appGuideUrl(appId ?? "openclaw", i18n.resolvedLanguage))
-                    }
-                    className="mt-2 rounded-[4px] border border-aibox-warn px-3 py-1.5 font-mono text-xs hover:bg-aibox-warn/10"
-                  >
-                    {t("s5.manualGuide")}
-                  </button>
-                </div>
-              )}
               {w.errorKey && (
                 <div className="rounded-[6px] border border-aibox-danger px-3 py-2 text-sm text-aibox-danger">
                   <p>{t(w.errorKey)}</p>
@@ -447,12 +439,14 @@ export default function S5Config({
           )}
           {w.writeResult && (
             <div className="flex flex-col gap-3 rounded-[6px] border border-aibox-ok/60 bg-aibox-ok/10 p-4">
-              <p className="font-display text-sm font-semibold text-aibox-ok">
-                ✓ {t("s5.backupOk")}
-              </p>
-              <p className="font-mono text-xs text-aibox-text1 break-all">
-                {t("s5.backupLabel")}: {w.writeResult.backupPath}
-              </p>
+              {w.writeResult.backupPath ? (
+                <>
+                  <p className="font-display text-sm font-semibold text-aibox-ok">✓ {t("s5.backupOk")}</p>
+                  <p className="font-mono text-xs text-aibox-text1 break-all">
+                    {t("s5.backupLabel")}: {w.writeResult.backupPath}
+                  </p>
+                </>
+              ) : <p className="text-xs text-aibox-text2">{t("s5.firstWriteNoBackup")}</p>}
               <p className="text-sm text-aibox-text1">{t("s5.written")}</p>
               <div>
                 <button

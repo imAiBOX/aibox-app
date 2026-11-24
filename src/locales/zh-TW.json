@@ -175,6 +175,7 @@
     "writing": "寫入中…",
     "backupOk": "已備份原檔案",
     "backupLabel": "備份檔案",
+    "firstWriteNoBackup": "這是首次建立設定檔，沒有舊檔需要備份。",
     "written": "配置寫好了。下一步：發一條真實測試訊息。",
     "toVerify": "發測試",
     "price": {
@@ -185,7 +186,8 @@
       "included": "訂閱內"
     },
     "manualGuide": "看設定教學",
-    "manualOnlyHint": "AiBOX 無法自動寫入這個應用的設定（它把設定存在資料庫、系統金鑰或加密檔案裡）。你的設定檔不會被改動。請按下面的教學手動設定，或開啟應用自己貼上 key。"
+    "loadingCapability": "正在檢查此應用是否支援輔助設定…",
+    "manualOnlyHint": "AiBOX 無法確認這個應用、服務商和裝置支援自動設定。請按照教學在應用程式裡手動設定。"
   },
   "s6": {
     "title": "發一條真實訊息",
@@ -283,7 +285,8 @@
     "verifyUnsupported": "這條路線不能在這裡測。換一家服務商，或照教學手動設定。",
     "verifyBadResponse": "服務商的回覆不是預期的格式。再試一次，或換一家服務商。",
     "verifyFailed": "測試請求沒能完成。可以重試，或換一條線路。",
-    "configUnsupported": "AiBOX 還不會寫這個應用的設定檔（它不是 JSON 格式的設定）。你的原檔案**沒有被動過** —— 照著教學手動配一下，一分鐘就好。",
+    "configUnsupported": "這個應用、服務商和裝置的組合無法自動設定。請依照教學手動設定。",
+    "configCatalogUnverified": "請連線核對設定指引後重試。",
     "verifyStalled": "這一步耗時較長，背景仍在處理。請等待結果，暫不要重複啟動安裝。",
     "installStalled": "這一步耗時較長，背景仍在處理。請等待結果，暫不要重複啟動安裝。",
     "probeStalled": "這一步耗時較長，背景仍在處理。請等待結果，暫不要重複啟動安裝。"

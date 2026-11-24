@@ -175,6 +175,7 @@
     "writing": "Saving…",
     "backupOk": "Original file backed up",
     "backupLabel": "Backup",
+    "firstWriteNoBackup": "A new file was created; there was no previous file to back up.",
     "written": "Config saved. Next: send one real test message.",
     "toVerify": "Send test",
     "price": {
@@ -185,7 +186,8 @@
       "included": "in plan"
     },
     "manualGuide": "Open the setup guide",
-    "manualOnlyHint": "AiBOX cannot write this app's settings automatically (it keeps them in a database, a system keychain, or an encrypted file). Your config file will not be touched. Use the guide below, or open the app and paste the key there yourself."
+    "loadingCapability": "Checking whether this app supports assisted setup…",
+    "manualOnlyHint": "AiBOX cannot confirm automatic setup for this app, provider, and device. Follow the guide to set up the provider directly in the app."
   },
   "s6": {
     "title": "Real test message",
@@ -283,7 +285,8 @@
     "verifyUnsupported": "This provider can't be tested from here. Pick another provider, or configure it manually.",
     "verifyBadResponse": "The provider's reply wasn't in the expected format. Try again, or use another provider.",
     "verifyFailed": "The test request didn't go through. Retry, or try a different route.",
-    "configUnsupported": "AiBOX does not know how to write this app's config file yet (it is not a JSON config). Your file was not changed — set it up by hand with the guide, it takes a minute.",
+    "configUnsupported": "Automatic setup is unavailable for this app, provider, and device. Follow the app guide to set it up manually.",
+    "configCatalogUnverified": "Reconnect to verify the setup instructions, then try again.",
     "verifyStalled": "This step is taking longer than expected. The operation is still running; please wait for its result.",
     "installStalled": "This step is taking longer than expected. The operation is still running; please wait for its result.",
     "probeStalled": "This step is taking longer than expected. The operation is still running; please wait for its result."

@@ -1,54 +1,40 @@
+import { profiles } from "./config-capability-v1.fixtures.json";
 import { describe, expect, it } from "vitest";
-import { buildCandidates, keyOk, summarize, writableOf, writableSelected } from "./batch";
-
-describe("批量「一个 key」：可写性判定", () => {
-  it("registry 明确 true → 可写", () => {
-    expect(writableOf({ configWritable: true })).toEqual({ writable: true });
-  });
-
-  it("registry 明确 false → 不可写（不是未知）", () => {
-    expect(writableOf({ configWritable: false })).toEqual({
-      writable: false,
-      reason: "notSupported",
-    });
-  });
-
-  it("元数据缺席 → 未知（也不写）", () => {
-    expect(writableOf(undefined)).toEqual({ writable: false, reason: "unknown" });
-  });
-});
+import { buildCandidates, keyOk, summarize, writableSelected } from "./batch";
 
 describe("候选列表", () => {
-  const installed = [{ appId: "openclaw" }, { appId: "chatbox" }, { appId: "zed" }];
-  const metas = {
-    openclaw: { configWritable: true },
-    chatbox: { configWritable: false },
-    zed: undefined,
-  };
+  const installed = [{ appId: "aider" }, { appId: "unlisted" }, { appId: "zed" }];
+  const candidates = () => buildCandidates(installed, profiles, "openai", "macos");
 
   it("可写的排前面，且带出不可写原因", () => {
-    const list = buildCandidates(installed, metas);
-    expect(list[0].appId).toBe("openclaw");
-    expect(list[1].appId).toBe("chatbox");
-    expect(list[1].writable).toBe(false);
-    expect(list[1].reason).toBe("notSupported");
-    expect(list[2].reason).toBe("unknown");
+    const list = candidates();
+    expect(list[0].appId).toBe("aider");
+    expect(list[1].reason).toBe("unknown");
+    expect(list[2].appId).toBe("zed");
+    expect(list[2].writable).toBe(false);
+    expect(list[2].reason).toBe("notSupported");
   });
 
   it("默认不勾选 → 计划为空（批量写不是默认动作）", () => {
-    const list = buildCandidates(installed, metas);
+    const list = candidates();
     expect(writableSelected(list, [])).toHaveLength(0);
   });
 
   it("勾了不可写的 → 不写（不假装写）", () => {
-    const list = buildCandidates(installed, metas);
-    const plan = writableSelected(list, ["chatbox", "zed"]);
+    const list = candidates();
+    const plan = writableSelected(list, ["unlisted", "zed"]);
     expect(plan).toHaveLength(0);
   });
 
   it("勾了可写的 → 进计划", () => {
-    const list = buildCandidates(installed, metas);
-    expect(writableSelected(list, ["openclaw"]).map((c) => c.appId)).toEqual(["openclaw"]);
+    const list = candidates();
+    expect(writableSelected(list, ["aider"]).map((c) => c.appId)).toEqual(["aider"]);
+  });
+
+  it("Windows 有目录条目也只支持手动配置", () => {
+    const list = buildCandidates(installed, profiles, "openai", "windows");
+    expect(list.find((c) => c.appId === "aider")).toMatchObject({ writable: false, reason: "notSupported" });
+    expect(writableSelected(list, ["aider", "zed"])).toHaveLength(0);
   });
 });
 

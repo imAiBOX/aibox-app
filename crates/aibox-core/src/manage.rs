@@ -256,8 +256,9 @@ pub fn backup_app_in(
     home: &Path,
 ) -> CoreResult<BackupOutcome> {
     crate::registry::validate_id(app_id)?;
-    let ts = fsops::now_ts();
-    let dir = backup_root.join(ts).join(app_id);
+    // Each writer owns a fresh destination, even when two backups start in the same second.
+    let run = format!("{}-{}", fsops::now_ts(), uuid::Uuid::new_v4());
+    let dir = backup_root.join(run).join(app_id);
     backup_into(app_id, data_paths, &dir, backup_root, home)
 }
 
@@ -497,8 +498,18 @@ fn backup_into(
     });
     let manifest_text = serde_json::to_string_pretty(&manifest)
         .map_err(|e| CoreError::new("BACKUP_MANIFEST", e.to_string()))?;
-    if let Err(e) = fsops::write_text_atomic_private(&dir.join("manifest.json"), &manifest_text) {
-        failed.push(format!("manifest.json ({})", e.human));
+    match fsops::write_text_atomic_private(&dir.join("manifest.json"), &manifest_text) {
+        Err(e) => failed.push(format!("manifest.json ({})", e.human)),
+        Ok(()) if skipped.is_empty() && refused.is_empty() && failed.is_empty() => {
+            // Receipt failures leave the completed backup usable for manual recovery.
+            let _ = crate::restore::record_created_backup(
+                app_id,
+                dir,
+                backup_root,
+                manifest_text.as_bytes(),
+            );
+        }
+        Ok(()) => {}
     }
 
     Ok(BackupOutcome {
@@ -855,6 +866,25 @@ mod tests {
         assert!(out.failed.iter().any(|f| f.contains("manifest.json")));
         assert_eq!(out.files.len(), 1, "the payload itself must be kept");
         assert_eq!(fs::read_to_string(dir.join("data/a.txt")).unwrap(), "x");
+    }
+
+    #[test]
+    fn incomplete_backup_has_no_restore_receipt() {
+        let root = tmpdir("bk-receipt-incomplete");
+        let home = root.join("home");
+        let backup_root = root.join("backup");
+        write(&home.join("data/a.txt"), "x");
+        let out = backup_app_in(
+            "jan",
+            &["~/data".into(), "~/absent".into()],
+            &backup_root,
+            &home,
+        ).unwrap();
+        assert_eq!(out.files.len(), 1);
+        assert_eq!(out.skipped.len(), 1);
+        let records = crate::restore::list_backups_in(&backup_root, &home, 24).unwrap();
+        assert_eq!(records.len(), 1);
+        assert!(!records[0].restorable);
     }
 
     /// 备份：缺失路径跳过；全部缺失 → 不建目录、backup_dir 空。

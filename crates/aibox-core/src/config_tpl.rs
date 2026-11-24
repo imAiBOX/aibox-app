@@ -60,12 +60,104 @@ pub struct Template {
 }
 
 impl Template {
+    pub fn supports_assisted_key(&self) -> bool {
+        let supported = ["apiKey", "model", "baseUrl", "provider"];
+        let check = |value: &str| {
+            let mut rest = value;
+            while let Some(start) = rest.find('<') {
+                let tail = &rest[start + 1..];
+                let Some(end) = tail.find('>') else {
+                    return false;
+                };
+                if !supported.contains(&&tail[..end]) {
+                    return false;
+                }
+                rest = &tail[end + 1..];
+            }
+            true
+        };
+        let mut key_field = false;
+        for field in &self.fields {
+            if field.kind == KIND_ARRAY_ITEM {
+                let Some(set) = field.set.as_ref().and_then(Value::as_object) else {
+                    return false;
+                };
+                let Some(matcher) = field.match_cond.as_ref().and_then(Value::as_object) else {
+                    return false;
+                };
+                if matcher.is_empty()
+                    || (self.format == "toml" && matcher.values().any(|value| !value.is_string()))
+                    || set.is_empty()
+                    || set.values().any(|value| !value.as_str().is_some_and(check))
+                {
+                    return false;
+                }
+                key_field |= set
+                    .values()
+                    .any(|value| value.as_str().is_some_and(|s| s.contains("<apiKey>")));
+            } else if let Some(value) = field.value.as_deref() {
+                if !check(value) {
+                    return false;
+                }
+                key_field |= value.contains("<apiKey>");
+            } else {
+                return false;
+            }
+        }
+        key_field
+    }
+
+    pub fn prepare_assisted<'a>(&self, ctx: &Ctx<'a>) -> CoreResult<PreparedTemplate<'a>> {
+        if !self.supports_assisted_key() {
+            return Err(CoreError::new(
+                "CONFIG_FORMAT_UNSUPPORTED",
+                "Unsupported or non-key configuration template",
+            ));
+        }
+        for field in &self.fields {
+            let values: Vec<&str> = if field.kind == KIND_ARRAY_ITEM {
+                field
+                    .set
+                    .as_ref()
+                    .and_then(Value::as_object)
+                    .ok_or_else(|| {
+                        CoreError::new("CONFIG_TEMPLATE_INVALID", "arrayItem requires set object")
+                    })?
+                    .values()
+                    .filter_map(Value::as_str)
+                    .collect()
+            } else {
+                vec![field.value.as_deref().ok_or_else(|| {
+                    CoreError::new("CONFIG_TEMPLATE_INVALID", "field value required")
+                })?]
+            };
+            for value in values {
+                match resolve_placeholders(value, ctx) {
+                    Ok(_) => {}
+                    Err(e) if field.optional && e.code == "CONFIG_NO_VALUES" => {}
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        Ok(PreparedTemplate {
+            template: self.clone(),
+            ctx: Ctx {
+                provider: ctx.provider,
+                api_key: ctx.api_key,
+                base_url: ctx.base_url,
+                model: ctx.model,
+            },
+        })
+    }
+
     /// 从 registry 文档片段解析模板（严格校验；任何不合规 → 报错，绝不放行）。
     pub fn from_value(v: &Value) -> CoreResult<Template> {
         let format = v
             .get("format")
             .and_then(|x| x.as_str())
-            .ok_or_else(|| CoreError::new("CONFIG_TEMPLATE_INVALID", "configWrite.format is required"))?
+            .ok_or_else(|| {
+                CoreError::new("CONFIG_TEMPLATE_INVALID", "configWrite.format is required")
+            })?
             .to_string();
         if !FORMATS.contains(&format.as_str()) {
             return Err(CoreError::new(
@@ -77,10 +169,12 @@ impl Template {
             .get("file")
             .and_then(|x| x.as_str())
             .map(|s| s.to_string());
-        let raw_fields = v
-            .get("fields")
-            .and_then(|x| x.as_array())
-            .ok_or_else(|| CoreError::new("CONFIG_TEMPLATE_INVALID", "configWrite.fields must be an array"))?;
+        let raw_fields = v.get("fields").and_then(|x| x.as_array()).ok_or_else(|| {
+            CoreError::new(
+                "CONFIG_TEMPLATE_INVALID",
+                "configWrite.fields must be an array",
+            )
+        })?;
         if raw_fields.is_empty() {
             return Err(CoreError::new(
                 "CONFIG_TEMPLATE_INVALID",
@@ -93,7 +187,10 @@ impl Template {
                 .get("path")
                 .and_then(|x| x.as_str())
                 .ok_or_else(|| {
-                    CoreError::new("CONFIG_TEMPLATE_INVALID", "configWrite field path is required")
+                    CoreError::new(
+                        "CONFIG_TEMPLATE_INVALID",
+                        "configWrite field path is required",
+                    )
                 })?
                 .to_string();
             if path.trim().is_empty() {
@@ -113,7 +210,10 @@ impl Template {
                     format!("Unknown configWrite field kind: {kind}"),
                 ));
             }
-            let value = f.get("value").and_then(|x| x.as_str()).map(|s| s.to_string());
+            let value = f
+                .get("value")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
             let match_cond = f.get("match").cloned();
             let set = f.get("set").cloned();
             if kind == KIND_ARRAY_ITEM && (match_cond.is_none() || set.is_none()) {
@@ -146,6 +246,116 @@ impl Template {
     }
 }
 
+pub struct PreparedTemplate<'a> {
+    template: Template,
+    ctx: Ctx<'a>,
+}
+
+impl PreparedTemplate<'_> {
+    pub fn render(&self, existing: &str) -> CoreResult<(String, Vec<String>)> {
+        if !self.ctx.api_key.is_some_and(|key| !key.trim().is_empty()) {
+            return Err(CoreError::new("CONFIG_NO_VALUES", "An API key is required"));
+        }
+        let (text, applied) = render_with_provenance(&self.template, existing, &self.ctx)?;
+        let verification_error = || {
+            CoreError::new(
+                "CONFIG_WRITE_FAILED",
+                "Rendered configuration verification failed",
+            )
+        };
+        let verified = if applied.key_writes.is_empty() {
+            false
+        } else if self.template.format == "toml" {
+            let doc: toml_edit::Document = text.parse().map_err(|_| verification_error())?;
+            applied.matches(|path| {
+                path.iter()
+                    .try_fold(doc.as_item(), |item, part| match part {
+                        PathPart::Key(key) => item.get(key),
+                        PathPart::Index(index) => item.get(*index),
+                    })?
+                    .as_str()
+            })
+        } else {
+            let root = match self.template.format.as_str() {
+                "json" => parse_json_strict(&text),
+                "json5" => parse_json5(&text),
+                "yaml" => parse_yaml(&text),
+                _ => unreachable!("renderer returned an unsupported format"),
+            }
+            .map_err(|_| verification_error())?;
+            applied.matches(|path| {
+                path.iter()
+                    .try_fold(&root, |value, part| match part {
+                        PathPart::Key(key) => value.get(key.as_str()),
+                        PathPart::Index(index) => value.get(*index),
+                    })?
+                    .as_str()
+            })
+        };
+        if !verified {
+            return Err(CoreError::new(
+                "CONFIG_NO_VALUES",
+                "No API key field was applied to the rendered configuration",
+            ));
+        }
+        Ok((text, applied.changed))
+    }
+}
+
+#[derive(PartialEq)]
+enum PathPart {
+    Key(String),
+    Index(usize),
+}
+
+#[derive(Default)]
+struct AppliedFields {
+    changed: Vec<String>,
+    key_writes: Vec<(Vec<PathPart>, String)>,
+}
+
+impl AppliedFields {
+    fn record(
+        &mut self,
+        field: &Field,
+        index: Option<usize>,
+        member: Option<&str>,
+        key: Option<&str>,
+    ) {
+        let (parent, leaf) = field.path.rsplit_once('.').unwrap_or(("", &field.path));
+        let mut path: Vec<_> = parent
+            .split('.')
+            .filter(|part| !part.is_empty())
+            .map(|part| PathPart::Key(part.into()))
+            .collect();
+        if !leaf.is_empty() || index.is_some() {
+            path.push(PathPart::Key(leaf.into()));
+        }
+        if let Some(index) = index {
+            path.push(PathPart::Index(index));
+        }
+        if let Some(member) = member {
+            path.push(PathPart::Key(member.into()));
+        }
+        // Replacing a leaf or its ancestor invalidates the previous write.
+        self.key_writes
+            .retain(|(previous, _)| !previous.starts_with(&path) && !path.starts_with(previous));
+        if let Some(key) = key {
+            self.key_writes.push((path, key.into()));
+        }
+        self.changed.push(match member {
+            Some(member) => format!("{}.{member}", field.path),
+            None => field.path.clone(),
+        });
+    }
+
+    fn matches<'a>(&self, read: impl Fn(&[PathPart]) -> Option<&'a str>) -> bool {
+        self.key_writes
+            .iter()
+            .any(|(path, value)| read(path) == Some(value.as_str()))
+    }
+}
+
 /// 解析占位符：`&lt;apiKey&gt;` / `&lt;model&gt;` / `&lt;baseUrl&gt;` / `&lt;provider&gt;`。
 /// 未知占位符 → 报错（fail-closed）；需要的值缺失 → `CONFIG_NO_VALUES`。
 fn resolve_placeholders(raw: &str, ctx: &Ctx) -> CoreResult<String> {
@@ -155,7 +365,10 @@ fn resolve_placeholders(raw: &str, ctx: &Ctx) -> CoreResult<String> {
         out.push_str(&rest[..pos]);
         let tail = &rest[pos..];
         let end = tail.find('>').ok_or_else(|| {
-            CoreError::new("CONFIG_TEMPLATE_INVALID", "unterminated placeholder in configWrite")
+            CoreError::new(
+                "CONFIG_TEMPLATE_INVALID",
+                "unterminated placeholder in configWrite",
+            )
         })?;
         let name = &tail[1..end];
         let value = match name {
@@ -185,6 +398,15 @@ fn resolve_placeholders(raw: &str, ctx: &Ctx) -> CoreResult<String> {
 
 /// 按模板渲染新配置文本。返回 `(新文本, 变更的键路径)`。
 pub fn render(tpl: &Template, existing: &str, ctx: &Ctx) -> CoreResult<(String, Vec<String>)> {
+    let (text, applied) = render_with_provenance(tpl, existing, ctx)?;
+    Ok((text, applied.changed))
+}
+
+fn render_with_provenance(
+    tpl: &Template,
+    existing: &str,
+    ctx: &Ctx,
+) -> CoreResult<(String, AppliedFields)> {
     match tpl.format.as_str() {
         "json" => {
             let mut root = parse_json_strict(existing)?;
@@ -250,9 +472,9 @@ fn parse_json5(text: &str) -> CoreResult<Value> {
     })
 }
 
-/// 在 `root` 上应用字段（就地修改；返回变更的键路径）。
-fn apply_fields(root: &mut Value, fields: &[Field], ctx: &Ctx) -> CoreResult<Vec<String>> {
-    let mut changed = Vec::new();
+/// 在 `root` 上应用字段（就地修改；记录实际写入）。
+fn apply_fields(root: &mut Value, fields: &[Field], ctx: &Ctx) -> CoreResult<AppliedFields> {
+    let mut applied = AppliedFields::default();
     for f in fields {
         match f.kind.as_str() {
             KIND_SCALAR => {
@@ -262,8 +484,8 @@ fn apply_fields(root: &mut Value, fields: &[Field], ctx: &Ctx) -> CoreResult<Vec
                     Err(e) if f.optional && e.code == "CONFIG_NO_VALUES" => continue,
                     Err(e) => return Err(e),
                 };
-                set_path(root, &f.path, Value::String(val))?;
-                changed.push(f.path.clone());
+                set_path(root, &f.path, Value::String(val.clone()))?;
+                applied.record(f, None, None, raw.contains("<apiKey>").then_some(&val));
             }
             KIND_LIST => {
                 let raw = f.value.as_deref().unwrap_or_default();
@@ -272,12 +494,16 @@ fn apply_fields(root: &mut Value, fields: &[Field], ctx: &Ctx) -> CoreResult<Vec
                     Err(e) if f.optional && e.code == "CONFIG_NO_VALUES" => continue,
                     Err(e) => return Err(e),
                 };
-                apply_list(root, &f.path, &val)?;
-                changed.push(f.path.clone());
+                let index = apply_list(root, &f.path, &val)?;
+                applied.record(
+                    f,
+                    Some(index),
+                    None,
+                    raw.contains("<apiKey>").then_some(&val),
+                );
             }
             KIND_ARRAY_ITEM => {
-                let changed_keys = apply_array_item(root, f, ctx)?;
-                changed.extend(changed_keys);
+                apply_array_item(root, f, ctx, &mut applied)?;
             }
             other => {
                 return Err(CoreError::new(
@@ -287,7 +513,7 @@ fn apply_fields(root: &mut Value, fields: &[Field], ctx: &Ctx) -> CoreResult<Vec
             }
         }
     }
-    Ok(changed)
+    Ok(applied)
 }
 
 /// 点分路径写值（中间层缺失则创建对象）。
@@ -323,7 +549,7 @@ fn set_path(root: &mut Value, path: &str, val: Value) -> CoreResult<()> {
 
 /// 列表写入：数组里的 `k=v` 条目 —— 同 `k` 存在则替换，否则追加。
 /// 例：aider 的 `api-key: [openrouter=sk-xxx]`。
-fn apply_list(root: &mut Value, path: &str, entry: &str) -> CoreResult<()> {
+fn apply_list(root: &mut Value, path: &str, entry: &str) -> CoreResult<usize> {
     let key = entry.split('=').next().unwrap_or(entry).trim().to_string();
     let parent_path = match path.rfind('.') {
         Some(i) => &path[..i],
@@ -349,19 +575,21 @@ fn apply_list(root: &mut Value, path: &str, entry: &str) -> CoreResult<()> {
         *list = Value::Array(Vec::new());
     }
     let arr = list.as_array_mut().expect("array");
-    let mut replaced = false;
-    for item in arr.iter_mut() {
-        let k = item.as_str().unwrap_or_default().split('=').next().unwrap_or("").trim();
+    for (index, item) in arr.iter_mut().enumerate() {
+        let k = item
+            .as_str()
+            .unwrap_or_default()
+            .split('=')
+            .next()
+            .unwrap_or("")
+            .trim();
         if k == key {
             *item = Value::String(entry.to_string());
-            replaced = true;
-            break;
+            return Ok(index);
         }
     }
-    if !replaced {
-        arr.push(Value::String(entry.to_string()));
-    }
-    Ok(())
+    arr.push(Value::String(entry.to_string()));
+    Ok(arr.len() - 1)
 }
 
 /// 取（或创建）中间对象。
@@ -385,19 +613,25 @@ fn get_or_create_object<'a>(root: &'a mut Value, path: &str) -> CoreResult<&'a m
 
 /// 数组元素写入：按 `match` 找到元素 → 写 `set` 字段。
 /// 找不到 → `CONFIG_NO_TARGET`（**不臆造**条目）。
-fn apply_array_item(root: &mut Value, f: &Field, ctx: &Ctx) -> CoreResult<Vec<String>> {
-    let match_obj = f.match_cond.as_ref().and_then(|v| v.as_object()).ok_or_else(|| {
-        CoreError::new(
-            "CONFIG_TEMPLATE_INVALID",
-            "arrayItem requires a match object",
-        )
-    })?;
-    let set_obj = f.set.as_ref().and_then(|v| v.as_object()).ok_or_else(|| {
-        CoreError::new(
-            "CONFIG_TEMPLATE_INVALID",
-            "arrayItem requires a set object",
-        )
-    })?;
+fn apply_array_item(
+    root: &mut Value,
+    f: &Field,
+    ctx: &Ctx,
+    applied: &mut AppliedFields,
+) -> CoreResult<()> {
+    let match_obj = f
+        .match_cond
+        .as_ref()
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| {
+            CoreError::new(
+                "CONFIG_TEMPLATE_INVALID",
+                "arrayItem requires a match object",
+            )
+        })?;
+    let Some(set) = resolve_array_set(f, ctx)? else {
+        return Ok(());
+    };
     let arr_path = match f.path.rfind('.') {
         Some(i) => &f.path[..i],
         None => "",
@@ -443,29 +677,62 @@ fn apply_array_item(root: &mut Value, f: &Field, ctx: &Ctx) -> CoreResult<Vec<St
             format!("no array element matched for path: {}", f.path),
         )
     })?;
-    let mut changed = Vec::new();
-    {
-        let obj = arr[idx]
-            .as_object_mut()
-            .ok_or_else(|| CoreError::new("CONFIG_NO_TARGET", "matched element is not an object"))?;
-        for (k, v) in set_obj.iter() {
-            let resolved = match v {
-                Value::String(s) => Value::String(resolve_placeholders(s, ctx)?),
-                other => other.clone(),
-            };
-            obj.insert(k.clone(), resolved);
-            changed.push(format!("{}.{k}", f.path));
-        }
+    let obj = arr[idx].as_object_mut().expect("matched object");
+    for member in set {
+        member.record(f, idx, applied);
+        obj.insert(member.name, member.value);
     }
     let container = if arr_path.is_empty() {
         root
     } else {
         get_or_create_object(root, arr_path)?
     };
-    if let Some(map) = container.as_object_mut() {
-        map.insert(leaf.to_string(), Value::Array(arr));
+    container
+        .as_object_mut()
+        .expect("matched array belongs to an object")
+        .insert(leaf.to_string(), Value::Array(arr));
+    Ok(())
+}
+
+struct ResolvedSetField {
+    name: String,
+    value: Value,
+    has_key: bool,
+}
+
+impl ResolvedSetField {
+    fn record(&self, field: &Field, index: usize, applied: &mut AppliedFields) {
+        let key = self.value.as_str().filter(|_| self.has_key);
+        applied.record(field, Some(index), Some(&self.name), key);
     }
-    Ok(changed)
+}
+
+fn resolve_array_set(f: &Field, ctx: &Ctx) -> CoreResult<Option<Vec<ResolvedSetField>>> {
+    let set = f.set.as_ref().and_then(Value::as_object).ok_or_else(|| {
+        CoreError::new("CONFIG_TEMPLATE_INVALID", "arrayItem requires a set object")
+    })?;
+    let mut resolved = Vec::with_capacity(set.len());
+    let mut missing = false;
+    for (name, value) in set {
+        let (value, has_key) = match value {
+            Value::String(raw) => match resolve_placeholders(raw, ctx) {
+                Ok(value) => (Value::String(value), raw.contains("<apiKey>")),
+                Err(e) if f.optional && e.code == "CONFIG_NO_VALUES" => {
+                    missing = true;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            },
+            value => (value.clone(), false),
+        };
+        resolved.push(ResolvedSetField {
+            name: name.clone(),
+            value,
+            has_key,
+        });
+    }
+    // Optional applies to the entire field. Resolve before touching the document.
+    Ok((!missing).then_some(resolved))
 }
 
 fn values_equal(a: &Value, b: &Value) -> bool {
@@ -481,8 +748,8 @@ fn apply_fields_toml(
     doc: &mut toml_edit::Document,
     fields: &[Field],
     ctx: &Ctx,
-) -> CoreResult<Vec<String>> {
-    let mut changed = Vec::new();
+) -> CoreResult<AppliedFields> {
+    let mut applied = AppliedFields::default();
     for f in fields {
         match f.kind.as_str() {
             KIND_SCALAR => {
@@ -493,7 +760,7 @@ fn apply_fields_toml(
                     Err(e) => return Err(e),
                 };
                 toml_set(doc, &f.path, &val)?;
-                changed.push(f.path.clone());
+                applied.record(f, None, None, raw.contains("<apiKey>").then_some(&val));
             }
             KIND_LIST => {
                 let raw = f.value.as_deref().unwrap_or_default();
@@ -502,12 +769,16 @@ fn apply_fields_toml(
                     Err(e) if f.optional && e.code == "CONFIG_NO_VALUES" => continue,
                     Err(e) => return Err(e),
                 };
-                toml_list(doc, &f.path, &val)?;
-                changed.push(f.path.clone());
+                let index = toml_list(doc, &f.path, &val)?;
+                applied.record(
+                    f,
+                    Some(index),
+                    None,
+                    raw.contains("<apiKey>").then_some(&val),
+                );
             }
             KIND_ARRAY_ITEM => {
-                let changed_keys = toml_array_item(doc, f, ctx)?;
-                changed.extend(changed_keys);
+                toml_array_item(doc, f, ctx, &mut applied)?;
             }
             other => {
                 return Err(CoreError::new(
@@ -517,7 +788,7 @@ fn apply_fields_toml(
             }
         }
     }
-    Ok(changed)
+    Ok(applied)
 }
 
 fn toml_set(doc: &mut toml_edit::Document, path: &str, val: &str) -> CoreResult<()> {
@@ -546,7 +817,7 @@ fn toml_set(doc: &mut toml_edit::Document, path: &str, val: &str) -> CoreResult<
     Ok(())
 }
 
-fn toml_list(doc: &mut toml_edit::Document, path: &str, entry: &str) -> CoreResult<()> {
+fn toml_list(doc: &mut toml_edit::Document, path: &str, entry: &str) -> CoreResult<usize> {
     let key = entry.split('=').next().unwrap_or(entry).trim().to_string();
     let (parent_path, leaf) = match path.rfind('.') {
         Some(i) => (&path[..i], &path[i + 1..]),
@@ -569,30 +840,31 @@ fn toml_list(doc: &mut toml_edit::Document, path: &str, entry: &str) -> CoreResu
         .and_then(|i| i.as_array())
         .map(|a| a.iter().cloned().collect())
         .unwrap_or_default();
-    let mut replaced = false;
-    for item in arr.iter_mut() {
-        let k = item
-            .as_str()
+    let index = arr.iter().position(|item| {
+        item.as_str()
             .unwrap_or_default()
             .split('=')
             .next()
             .unwrap_or("")
-            .trim();
-        if k == key {
-            *item = toml_edit::Value::from(entry);
-            replaced = true;
-            break;
-        }
-    }
-    if !replaced {
+            .trim()
+            == key
+    });
+    let index = if let Some(index) = index {
+        arr[index] = toml_edit::Value::from(entry);
+        index
+    } else {
         arr.push(toml_edit::Value::from(entry));
-    }
+        arr.len() - 1
+    };
     let mut out_arr = toml_edit::Array::new();
     for v in arr {
         out_arr.push(v);
     }
-    table.insert(leaf, toml_edit::Item::Value(toml_edit::Value::Array(out_arr)));
-    Ok(())
+    table.insert(
+        leaf,
+        toml_edit::Item::Value(toml_edit::Value::Array(out_arr)),
+    );
+    Ok(index)
 }
 
 /// 从 toml_edit::Value（内联表或表）里取字符串字段。
@@ -605,27 +877,25 @@ fn toml_value_get_str(v: &toml_edit::Value, key: &str) -> Option<String> {
     }
 }
 
-/// 往 toml_edit::Value（内联表或表）里写字段。
-fn toml_value_set(v: &mut toml_edit::Value, key: &str, val: toml_edit::Value) {
-    match v {
-        toml_edit::Value::InlineTable(t) => {
-            t.insert(key, val);
-        }
-        _ => {}
-    }
-}
-
 fn toml_array_item(
     doc: &mut toml_edit::Document,
     f: &Field,
     ctx: &Ctx,
-) -> CoreResult<Vec<String>> {
-    let match_obj = f.match_cond.as_ref().and_then(|v| v.as_object()).ok_or_else(|| {
-        CoreError::new("CONFIG_TEMPLATE_INVALID", "arrayItem requires a match object")
-    })?;
-    let set_obj = f.set.as_ref().and_then(|v| v.as_object()).ok_or_else(|| {
-        CoreError::new("CONFIG_TEMPLATE_INVALID", "arrayItem requires a set object")
-    })?;
+    applied: &mut AppliedFields,
+) -> CoreResult<()> {
+    let match_obj = f
+        .match_cond
+        .as_ref()
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| {
+            CoreError::new(
+                "CONFIG_TEMPLATE_INVALID",
+                "arrayItem requires a match object",
+            )
+        })?;
+    let Some(set) = resolve_array_set(f, ctx)? else {
+        return Ok(());
+    };
     let (parent_path, leaf) = match f.path.rfind('.') {
         Some(i) => (&f.path[..i], &f.path[i + 1..]),
         None => ("", f.path.as_str()),
@@ -649,11 +919,16 @@ fn toml_array_item(
         .unwrap_or_default();
     let mut hit: Option<usize> = None;
     for (i, item) in arr.iter().enumerate() {
+        if item.as_inline_table().is_none() {
+            continue;
+        }
         let mut all_match = true;
         for (k, want) in match_obj.iter() {
             let got = toml_value_get_str(item, k);
-            let want_s = want.as_str().unwrap_or_default().to_string();
-            if got.as_deref() != Some(want_s.as_str()) {
+            let want_s = want.as_str().ok_or_else(|| {
+                CoreError::new("CONFIG_TEMPLATE_INVALID", "TOML array matches require strings")
+            })?;
+            if got.as_deref() != Some(want_s) {
                 all_match = false;
                 break;
             }
@@ -669,25 +944,26 @@ fn toml_array_item(
             format!("no array element matched for path: {}", f.path),
         )
     })?;
-    let mut changed = Vec::new();
-    {
-        let mut inline = arr[idx].clone();
-        for (k, v) in set_obj.iter() {
-            let resolved = match v {
-                Value::String(s) => toml_edit::Value::from(resolve_placeholders(s, ctx)?),
-                other => toml_edit::Value::from(other.to_string()),
-            };
-            toml_value_set(&mut inline, k, resolved);
-            changed.push(format!("{}.{k}", f.path));
-        }
-        arr[idx] = inline;
+    let inline = arr[idx]
+        .as_inline_table_mut()
+        .expect("matched inline table");
+    for member in set {
+        let resolved = match &member.value {
+            Value::String(value) => toml_edit::Value::from(value.as_str()),
+            other => toml_edit::Value::from(other.to_string()),
+        };
+        inline.insert(&member.name, resolved);
+        member.record(f, idx, applied);
     }
     let mut out_arr = toml_edit::Array::new();
     for v in arr {
         out_arr.push(v);
     }
-    table.insert(leaf, toml_edit::Item::Value(toml_edit::Value::Array(out_arr)));
-    Ok(changed)
+    table.insert(
+        leaf,
+        toml_edit::Item::Value(toml_edit::Value::Array(out_arr)),
+    );
+    Ok(())
 }
 
 // ---------------------------------------------------------------- YAML 解析/渲染
@@ -817,7 +1093,10 @@ mod tests {
 
     #[test]
     fn json_nested_path_creates_intermediates_and_keeps_unknown_keys() {
-        let t = tpl("json", vec![f("models.providers.openrouter.apiKey", "<apiKey>")]);
+        let t = tpl(
+            "json",
+            vec![f("models.providers.openrouter.apiKey", "<apiKey>")],
+        );
         let existing = r#"{"theme":"dark","models":{"other":{"apiKey":"x"}}}"#;
         let (text, changed) = render(&t, existing, &ctx()).unwrap();
         let v: Value = serde_json::from_str(&text).unwrap();
@@ -828,7 +1107,10 @@ mod tests {
         // 未知键保留
         assert_eq!(v.pointer("/theme").unwrap(), "dark");
         assert_eq!(v.pointer("/models/other/apiKey").unwrap(), "x");
-        assert_eq!(changed, vec!["models.providers.openrouter.apiKey".to_string()]);
+        assert_eq!(
+            changed,
+            vec!["models.providers.openrouter.apiKey".to_string()]
+        );
     }
 
     #[test]
@@ -841,7 +1123,10 @@ mod tests {
 
     #[test]
     fn json5_keeps_comments_style_input() {
-        let t = tpl("json5", vec![f("models.providers.openrouter.apiKey", "<apiKey>")]);
+        let t = tpl(
+            "json5",
+            vec![f("models.providers.openrouter.apiKey", "<apiKey>")],
+        );
         let existing = "{\n  // 注释\n  a: 1,\n}";
         let (text, _) = render(&t, existing, &ctx()).unwrap();
         assert!(text.contains("sk-or-v1-test-key"));
@@ -871,18 +1156,23 @@ mod tests {
                 optional: false,
             }],
         );
+        let mut context = ctx();
+        context.api_key = Some("test-key==");
+        let prepared = t.prepare_assisted(&context).unwrap();
         // 同 key → 替换（不重复写）
-        let (text, _) = render(&t, "api-key:\n  - openrouter=sk-old\n", &ctx()).unwrap();
+        let (text, _) = prepared
+            .render("api-key:\n  - openrouter=sk-old\n")
+            .unwrap();
         let back = parse_yaml(&text).unwrap();
         let arr = back["api-key"].as_array().unwrap();
         assert_eq!(arr.len(), 1, "同 key 应替换而非追加：{text}");
-        assert_eq!(arr[0], "openrouter=sk-or-v1-test-key");
+        assert_eq!(arr[0], "openrouter=test-key==");
         // 不同 key → 共存追加（aider 支持多个 provider）
-        let (text, _) = render(&t, "api-key:\n  - openai=sk-old\n", &ctx()).unwrap();
+        let (text, _) = prepared.render("api-key:\n  - openai=sk-old\n").unwrap();
         let back = parse_yaml(&text).unwrap();
         let arr = back["api-key"].as_array().unwrap();
         assert_eq!(arr.len(), 2, "不同 provider 应共存：{text}");
-        assert_eq!(arr[1], "openrouter=sk-or-v1-test-key");
+        assert_eq!(arr[1], "openrouter=test-key==");
     }
 
     #[test]
@@ -898,22 +1188,21 @@ mod tests {
                 optional: false,
             }],
         );
-        // 有匹配项 → 写入
-        let (text, changed) = render(
-            &t,
-            "models:\n  - name: m1\n    provider: openrouter\n",
-            &ctx(),
-        )
-        .unwrap();
+        let context = ctx();
+        let prepared = t.prepare_assisted(&context).unwrap();
+        let (text, changed) = prepared.render(
+            "models:\n  - name: m1\n    provider: openai\n  - name: m2\n    provider: openrouter\n",
+        ).unwrap();
         let back = parse_yaml(&text).unwrap();
         assert_eq!(
-            back["models"][0]["apiKey"],
-            "sk-or-v1-test-key",
+            back["models"][1]["apiKey"], "sk-or-v1-test-key",
             "命中的元素应被写入：{text}"
         );
-        assert_eq!(changed.len(), 1);
+        assert!(back["models"][0].get("apiKey").is_none());
+        assert_eq!(changed, vec!["models.apiKey"]);
         // 无匹配项 → 拒写（不臆造条目）
-        let err = render(&t, "models:\n  - name: m1\n    provider: openai\n", &ctx())
+        let err = prepared
+            .render("models:\n  - name: m1\n    provider: openai\n")
             .unwrap_err();
         assert_eq!(err.code, "CONFIG_NO_TARGET");
     }
@@ -927,10 +1216,20 @@ mod tests {
                 f("app.openrouter_api_key", "<apiKey>"),
             ],
         );
-        let existing = "# 顶部注释\n[app]\nllm_provider = \"openai\"\nother = 1\n\n[server]\nport = 8080\n";
-        let (text, _) = render(&t, existing, &ctx()).unwrap();
+        let existing =
+            "# 顶部注释\n[app]\nllm_provider = \"openai\"\nother = 1\n\n[server]\nport = 8080\n";
+        let context = ctx();
+        let (text, changed) = t
+            .prepare_assisted(&context)
+            .unwrap()
+            .render(existing)
+            .unwrap();
+        assert_eq!(changed, vec!["app.llm_provider", "app.openrouter_api_key"]);
         assert!(text.contains("llm_provider = \"openrouter\""), "{text}");
-        assert!(text.contains("openrouter_api_key = \"sk-or-v1-test-key\""), "{text}");
+        assert!(
+            text.contains("openrouter_api_key = \"sk-or-v1-test-key\""),
+            "{text}"
+        );
         assert!(text.contains("other = 1"), "未知键要保留：{text}");
         assert!(text.contains("port = 8080"), "其他段要保留：{text}");
         assert!(text.contains("# 顶部注释"), "注释要保留：{text}");
@@ -961,6 +1260,91 @@ mod tests {
         let (text, changed) = render(&t, "{}", &c).unwrap();
         assert!(changed.is_empty());
         assert!(!text.contains("\"b\""));
+    }
+
+    #[test]
+    fn assisted_key_does_not_require_optional_model_and_url() {
+        let mut context = ctx();
+        context.model = None;
+        context.base_url = None;
+        let mut model = f("model", "<model>");
+        model.optional = true;
+        let mut url = f("url", "<baseUrl>");
+        url.optional = true;
+        let template = tpl("json", vec![f("key", "<apiKey>"), model, url]);
+        let prepared = template.prepare_assisted(&context).unwrap();
+        let (_, changed) = prepared.render("{}").unwrap();
+        assert_eq!(changed, vec!["key"]);
+    }
+
+    #[test]
+    fn assisted_toml_array_item_verifies_exact_member_and_index() {
+        let t = Template::from_value(&json!({"format":"toml", "fields":[{
+            "kind":"arrayItem", "path":"app.models", "match":{"provider":"openrouter"},
+            "set":{"api.key":"<apiKey>"}
+        }]}))
+        .unwrap();
+        let context = ctx();
+        let (text, changed) = t
+            .prepare_assisted(&context)
+            .unwrap()
+            .render("[app]\nmodels = [{provider = 'openai'}, {provider = 'openrouter'}]\n")
+            .unwrap();
+        let doc: toml_edit::Document = text.parse().unwrap();
+        assert_eq!(doc["app"]["models"][1]["api.key"].as_str(), context.api_key);
+        assert_eq!(changed, vec!["app.models.api.key"]);
+    }
+
+    #[test]
+    fn optional_array_item_skips_whole_set_when_value_is_missing() {
+        for (format, existing) in [
+            (
+                "yaml",
+                "models:\n  - provider: openrouter\n    apiKey: old\n",
+            ),
+            (
+                "toml",
+                "models = [{provider = 'openrouter', apiKey = 'old'}]\n",
+            ),
+        ] {
+            let mut t = Template::from_value(&json!({"format":format, "fields":[{
+                "kind":"arrayItem", "path":"models", "match":{"provider":"openrouter"},
+                "set":{"apiKey":"<apiKey>", "model":"<model>"}, "optional":true
+            }, {"path":"enabled", "value":"yes"}]}))
+            .unwrap();
+            let mut context = ctx();
+            context.model = None;
+            let err = t
+                .prepare_assisted(&context)
+                .unwrap()
+                .render(existing)
+                .unwrap_err();
+            assert_eq!(err.code, "CONFIG_NO_VALUES", "{format}");
+
+            t.fields.push(f("key", "<apiKey>"));
+            let (text, changed) = t
+                .prepare_assisted(&context)
+                .unwrap()
+                .render(existing)
+                .unwrap();
+            assert_eq!(changed, vec!["enabled", "key"], "{format}");
+            assert!(text.contains("old"), "{format}");
+        }
+    }
+
+    #[test]
+    fn assisted_key_must_survive_later_field_writes() {
+        let t = tpl(
+            "json5",
+            vec![f("settings.key", "Bearer <apiKey>"), f("settings", "reset")],
+        );
+        let context = ctx();
+        let err = t
+            .prepare_assisted(&context)
+            .unwrap()
+            .render("{}")
+            .unwrap_err();
+        assert_eq!(err.code, "CONFIG_NO_VALUES");
     }
 
     #[test]

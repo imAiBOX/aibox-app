@@ -51,13 +51,16 @@ pub fn source_urls(rel: &str) -> Vec<(&'static str, String)> {
 }
 
 /// 单次 GET（超时 8s，跟随重定向；GitHub API 带 UA + JSON Accept）。
-fn http_get(url: &str, source: &str) -> Result<String, String> {
+fn http_get(url: &str, source: &str, revalidate: bool) -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(SOURCE_TIMEOUT)
         .timeout_connect(SOURCE_TIMEOUT)
         .user_agent(USER_AGENT)
         .build();
     let mut req = agent.get(url).set("User-Agent", USER_AGENT);
+    if revalidate {
+        req = req.set("Cache-Control", "no-cache");
+    }
     if source == "github-api" {
         // JSON envelope（含 base64 content + blob sha）——不做 raw，拿得到完整性凭据
         req = req.set("Accept", "application/vnd.github+json");
@@ -276,6 +279,21 @@ pub fn fetch_crosschecked(
         return Ok((read_cache(cache_name)?, "cache".to_string()));
     }
 
+    match fetch_crosschecked_network(rel, false) {
+        Ok((text, source)) => {
+            write_cache(cache_name, &text, &source)?;
+            Ok((text, source))
+        }
+        Err(e) if is_availability_err(&e) => match read_cache(cache_name) {
+            Ok(cached) => Ok((cached, "cache-stale".to_string())),
+            Err(_) => Err(e),
+        },
+        Err(e) => Err(e),
+    }
+}
+
+/// Never opens, creates or updates any local registry cache entry.
+fn fetch_crosschecked_network(rel: &str, revalidate: bool) -> CoreResult<(String, String)> {
     let sources = source_urls(rel);
     let results: Vec<(&'static str, Result<String, String>)> = std::thread::scope(|s| {
         let handles: Vec<_> = sources
@@ -283,7 +301,7 @@ pub fn fetch_crosschecked(
             .map(|(name, url)| {
                 let name = *name;
                 let url = url.clone();
-                s.spawn(move || (name, http_get(&url, name)))
+                s.spawn(move || (name, http_get(&url, name, revalidate)))
             })
             .collect();
         handles
@@ -295,6 +313,13 @@ pub fn fetch_crosschecked(
             .collect()
     });
 
+    let (text, source, _) = verify_network_results(results)?;
+    Ok((text, source))
+}
+
+fn verify_network_results(
+    results: Vec<(&'static str, Result<String, String>)>,
+) -> CoreResult<(String, String, bool)> {
     // Keep HTTP reachability separate from integrity validation: a GitHub blob
     // checksum failure is a hard security error and must never be hidden by a
     // stale cache fallback.
@@ -311,15 +336,13 @@ pub fn fetch_crosschecked(
     }
 
     if let Some((text, source)) = pick_agreed(&results) {
-        let _ = write_cache(cache_name, &text, source)?;
-        return Ok((text, source.to_string()));
+        return Ok((text, source.to_string(), false));
     }
 
     // GitHub API 单源（其余源全挂）：正文已在 decode 阶段过 git blob sha1 完整性校验
     // → 采信（可用性兜底）。缓存 meta 标 github-api-single 以区分交叉一致来源。
     if let Some(text) = pick_single_api(&results) {
-        let _ = write_cache(cache_name, &text, "github-api-single");
-        return Ok((text, "github-api".to_string()));
+        return Ok((text, "github-api".to_string(), true));
     }
 
     let errs: Vec<String> = results
@@ -341,10 +364,6 @@ pub fn fetch_crosschecked(
         ));
     }
 
-    // 0~1 源可达 → 可用性回退旧缓存
-    if let Ok(cached) = read_cache(cache_name) {
-        return Ok((cached, "cache-stale".to_string()));
-    }
     if http_ok_count == 0 {
         Err(CoreError::new(
             "REGISTRY_UNAVAILABLE",
@@ -424,6 +443,24 @@ pub fn fetch_app(id: &str, force: bool) -> CoreResult<(Value, String)> {
     let rel = format!("apps/{id}/app.json");
     let (text, src) = fetch_crosschecked(&rel, &format!("app-{id}.json"), force)?;
     Ok((parse_doc(&text, "app manifest")?, src))
+}
+
+/// Security-sensitive app read: only current network verification, no local cache or snapshot.
+pub(crate) fn fetch_app_network_verified(id: &str) -> CoreResult<(Value, String)> {
+    validate_id(id)?;
+    let rel = format!("apps/{id}/app.json");
+    fetch_verified_app_doc(&rel, |rel| {
+        let (text, source) = fetch_crosschecked_network(rel, true)?;
+        Ok((text, source))
+    })
+}
+
+fn fetch_verified_app_doc(
+    rel: &str,
+    read_network: impl FnOnce(&str) -> CoreResult<(String, String)>,
+) -> CoreResult<(Value, String)> {
+    let (text, source) = read_network(rel)?;
+    Ok((parse_doc(&text, "app manifest")?, source))
 }
 
 /// 读**缓存**的 app 文档（本地操作不联网；供 config_target 解析）。

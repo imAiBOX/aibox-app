@@ -144,6 +144,7 @@ export interface RegistryPackage {
   name: string;
   version: string;
   platforms: string[];
+  kind?: string;
   arch?: string; // 'x64' | 'arm64' | 'any' | 缺省
   sha256?: string;
   sizeBytes?: number;
@@ -362,7 +363,6 @@ export interface ConfigWriteInput {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
-  targetPath?: string;
 }
 export interface ConfigWriteResult {
   backupPath: string;

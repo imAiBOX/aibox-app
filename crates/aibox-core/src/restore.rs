@@ -35,7 +35,8 @@
 //! 9. **零提权 / 不删任何东西**：只做「移到保全目录」+「写新文件」。
 //! 10. **备份库与保全目录私有**（Unix 0700 / 0600）：里面是应用凭据明文，
 //!    同机别的账号不该能读（审计 P1-3）。
-//! 11. **只还原本机刚做的备份**（v0.1.20 灰度）：备份年龄超过 `max_age_hours`
+//! 11. **只还原本进程刚做的备份**：要求本进程的内存收据，绑定应用、规范化备份目录及
+//!    实际解析的清单字节。备份年龄以毫秒为单位，不得超过 `max_age_hours`
 //!    （**Rust 硬上限 24h**，registry 不能放宽）→ 整体拒绝 `RESTORE_BACKUP_TOO_OLD`；
 //!    清单没写创建时间 → 年龄未知 → **同样拒绝**（fail-closed）；
 //!    **双口径**：清单自述 `createdAt` **或**备份目录 mtime 任一超龄 → 拒绝；
@@ -48,14 +49,16 @@
 //! `RESTORE_BACKUP_TOO_OLD`；逐条问题只进 `skipped` / `failed` 列表。
 //!
 //! **预览 = 执行**（v0.1.20）：[`plan_restore_in_at`]（预览，**不写任何东西**）与
-//! [`restore_backup_in_at`]（执行）走**同一份判定代码**（`prepare_restore`）→ 用户看到的
+//! [`restore_backup_verified`]（执行）走**同一份判定代码**（`prepare_restore`）→ 用户看到的
 //! 清单与真正写下去的完全一致；计划摘要（`RestorePlan::digest`）在执行前再比一次
 //! （清单被改过 → `RESTORE_PLAN_CHANGED`，**不写任何东西**）。
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -100,6 +103,9 @@ pub const MAX_RESTORE_AGE_HOURS: u32 = 24;
 /// 只容忍极小的时钟漂移（备份就在本机做的，误差毫秒级）；
 /// **不容忍**清单自称「几年后做的」——那会让年龄算成 0 → 备份永远「新鲜」（审计 P1-2）。
 const FUTURE_SKEW_MS: u64 = 5 * 60 * 1000;
+const MS_PER_HOUR: u64 = 3_600_000;
+const BACKUP_RECEIPT_LIMIT: usize = 256;
+static BACKUP_RECEIPTS: Mutex<BackupReceipts> = Mutex::new(BackupReceipts(VecDeque::new()));
 
 // ── 逐条原因码（固定枚举；UI 必须逐个映射人话文案）────────────────────
 /// 路径上有软链 → 为安全跳过。
@@ -280,7 +286,135 @@ pub fn home_fingerprint(home: &Path) -> String {
     sha256_str(&canon.to_string_lossy())
 }
 
-/// 从备份目录还原数据到 `home` 下的原路径（备份根固定为 `~/.aibox/backup`）。
+struct BackupReceipt {
+    app_id: String,
+    backup_dir: PathBuf,
+    digest: [u8; 32],
+    created: Instant,
+}
+
+struct BackupReceipts(VecDeque<BackupReceipt>);
+
+impl BackupReceipts {
+    fn insert(&mut self, receipt: BackupReceipt) {
+        self.0.retain(|old| {
+            receipt
+                .created
+                .checked_duration_since(old.created)
+                .is_some_and(|age| age <= Duration::from_millis(u64::from(MAX_RESTORE_AGE_HOURS) * MS_PER_HOUR))
+                && (receipt.app_id != old.app_id || receipt.backup_dir != old.backup_dir)
+        });
+        if self.0.len() >= BACKUP_RECEIPT_LIMIT {
+            self.0.pop_front();
+        }
+        self.0.push_back(receipt);
+    }
+
+    fn check(
+        &self,
+        app_id: &str,
+        backup_dir: &Path,
+        digest: [u8; 32],
+        now: Instant,
+        max_age_hours: u32,
+    ) -> CoreResult<()> {
+        let receipt = self
+            .0
+            .iter()
+            .find(|r| r.app_id == app_id && r.backup_dir == backup_dir)
+            .ok_or_else(receipt_unavailable)?;
+        let limit = Duration::from_millis(
+            u64::from(max_age_hours.min(MAX_RESTORE_AGE_HOURS)) * MS_PER_HOUR,
+        );
+        if !now
+            .checked_duration_since(receipt.created)
+            .is_some_and(|age| age <= limit)
+        {
+            return Err(CoreError::new(
+                "RESTORE_BACKUP_TOO_OLD",
+                "The in-process backup receipt is outside the permitted window; refusing to restore",
+            ));
+        }
+        if receipt.digest != digest {
+            return Err(CoreError::new(
+                "RESTORE_RECEIPT_MISMATCH",
+                "The backup manifest differs from the one created by this process; refusing to restore",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn receipt_unavailable() -> CoreError {
+    CoreError::new(
+        "RESTORE_RECEIPT_REQUIRED",
+        "No in-process receipt exists for this backup and application; recover files manually",
+    )
+}
+
+/// Trusted backup-writer hook. Call only after a complete backup and successful manifest write,
+/// passing the exact bytes emitted by the writer. Never populate receipts from files read back
+/// from disk or from IPC inputs. Receipts are lost when the process exits.
+pub(crate) fn record_created_backup(
+    app_id: &str,
+    backup_dir: &Path,
+    backup_root: &Path,
+    manifest_bytes: &[u8],
+) -> CoreResult<()> {
+    crate::registry::validate_id(app_id)?;
+    let root = fs::canonicalize(backup_root).map_err(|_| receipt_unavailable())?;
+    let dir = fs::canonicalize(backup_dir).map_err(|_| receipt_unavailable())?;
+    if !dir.starts_with(&root)
+        || dir == root
+        || !dir.is_dir()
+        || dir.file_name().and_then(|name| name.to_str()) != Some(app_id)
+        || manifest_bytes.len() > MAX_MANIFEST_BYTES
+    {
+        return Err(receipt_unavailable());
+    }
+    let value: Value = serde_json::from_slice(manifest_bytes).map_err(|_| receipt_unavailable())?;
+    parse_manifest(&value, app_id)?;
+    let digest = Sha256::digest(manifest_bytes).into();
+    let mut receipts = BACKUP_RECEIPTS.lock().map_err(|_| receipt_unavailable())?;
+    receipts.insert(BackupReceipt {
+        app_id: app_id.to_owned(),
+        backup_dir: dir,
+        digest,
+        created: Instant::now(),
+    });
+    Ok(())
+}
+
+fn verify_backup_receipt(
+    app_id: &str,
+    backup_dir_real: &Path,
+    manifest_bytes: &[u8],
+    max_age_hours: u32,
+) -> CoreResult<()> {
+    let digest = Sha256::digest(manifest_bytes).into();
+    BACKUP_RECEIPTS
+        .lock()
+        .map_err(|_| receipt_unavailable())?
+        .check(app_id, backup_dir_real, digest, Instant::now(), max_age_hours)
+}
+
+#[derive(Clone, Copy)]
+enum ReceiptPolicy {
+    Required,
+    #[cfg(test)]
+    Fixture,
+}
+
+impl ReceiptPolicy {
+    fn required(self) -> bool {
+        match self {
+            Self::Required => true,
+            #[cfg(test)]
+            Self::Fixture => false,
+        }
+    }
+}
+
 /// 从备份目录还原数据到 `home` 下的原路径（备份根固定为 `~/.aibox/backup`）。
 ///
 /// `data_paths` = **调用方给的可信白名单**（registry manifest 的 `maintenance.dataPaths`，
@@ -305,13 +439,14 @@ pub fn restore_backup_in(
     home: &Path,
     data_paths: &[String],
 ) -> CoreResult<RestoreOutcome> {
-    restore_backup_in_at(
+    run_restore(
         backup_dir,
         app_id,
         home,
         data_paths,
         &crate::manage::default_backup_root(),
         MAX_RESTORE_AGE_HOURS,
+        (ReceiptPolicy::Required, None),
     )
 }
 
@@ -338,12 +473,12 @@ pub fn restore_backup_verified(
         data_paths,
         &crate::manage::default_backup_root(),
         max_age_hours,
-        Some(expected_digest),
+        (ReceiptPolicy::Required, Some(expected_digest)),
     )
 }
 
-/// 可注入备份根的实现（**`pub(crate)`**：生产对外不允许换根——审计 P2-1；
-/// 只有 crate 内（测试）能指定别的备份根）。
+/// Fixture entry for testing the underlying restore checks independently of backup provenance.
+#[cfg(test)]
 pub(crate) fn restore_backup_in_at(
     backup_dir: &Path,
     app_id: &str,
@@ -359,7 +494,7 @@ pub(crate) fn restore_backup_in_at(
         data_paths,
         backup_root,
         max_age_hours,
-        None,
+        (ReceiptPolicy::Fixture, None),
     )
 }
 
@@ -373,7 +508,7 @@ fn run_restore(
     data_paths: &[String],
     backup_root: &Path,
     max_age_hours: u32,
-    expected_digest: Option<&str>,
+    (receipt, expected_digest): (ReceiptPolicy, Option<&str>),
 ) -> CoreResult<RestoreOutcome> {
     let ctx = prepare_restore(
         backup_dir,
@@ -382,6 +517,7 @@ fn run_restore(
         data_paths,
         backup_root,
         max_age_hours,
+        receipt,
     )?;
     let plan = build_plan(&ctx, app_id, max_age_hours);
     if let Some(expected) = expected_digest {
@@ -421,6 +557,7 @@ fn prepare_restore(
     data_paths: &[String],
     backup_root: &Path,
     max_age_hours: u32,
+    receipt: ReceiptPolicy,
 ) -> CoreResult<RestoreContext> {
     crate::registry::validate_id(app_id)?;
 
@@ -488,8 +625,15 @@ fn prepare_restore(
         ));
     }
 
-    // ④ 定位清单（备份目录本身或其 <appId> 子目录）
-    let manifest_path = locate_manifest(&backup_dir_real, app_id).ok_or_else(|| {
+    // ④ 有收据的备份以写入端的清单目录为准。旧测试夹具仍覆盖旧定位方式。
+    let manifest_path = match receipt {
+        ReceiptPolicy::Required => {
+            let path = backup_dir_real.join("manifest.json");
+            is_direct_manifest(&path).then_some(path)
+        }
+        #[cfg(test)]
+        ReceiptPolicy::Fixture => locate_manifest(&backup_dir_real, app_id),
+    }.ok_or_else(|| {
         CoreError::new(
             "RESTORE_NO_MANIFEST",
             format!(
@@ -594,18 +738,16 @@ fn prepare_restore(
         }
     }
 
-    // ⑧ 超龄（**在 ①–⑦ 之后、任何写入之前**）：越界/限额比「太旧」更严重，先报它们。
-    // **双口径**（清单自述 `createdAt` + 备份目录 mtime；任一超龄 → 拒绝；
-    // 清单自称「未来」→ 也拒绝；详见 [`check_backup_age`]）。
+    // ⑧ 检查清单时间、目录 mtime 与本进程收据。
     //
     // 载荷根 = 清单所在目录；保全根 = 备份根
     let payload_root = manifest_path
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| backup_dir_real.clone());
-    let dir_mtime_ms = backup_dir_mtime_ms(&payload_root, &backup_root_real);
-    let age = backup_age(manifest.created_at_ms, dir_mtime_ms);
-    check_backup_age(&age, max_age_hours)?;
+    let age = backup_wall_age(manifest.created_at_ms, &payload_root, &backup_root_real);
+    // Verify the same bytes parsed above without reopening the manifest.
+    check_backup_admission(app_id, &backup_dir_real, text.as_bytes(), &age, max_age_hours, receipt)?;
 
     Ok(RestoreContext {
         home_real,
@@ -628,6 +770,26 @@ pub fn plan_restore_in_at(
     backup_root: &Path,
     max_age_hours: u32,
 ) -> CoreResult<RestorePlan> {
+    plan_restore_with_receipt_policy(
+        backup_dir,
+        app_id,
+        home,
+        data_paths,
+        backup_root,
+        max_age_hours,
+        ReceiptPolicy::Required,
+    )
+}
+
+fn plan_restore_with_receipt_policy(
+    backup_dir: &Path,
+    app_id: &str,
+    home: &Path,
+    data_paths: &[String],
+    backup_root: &Path,
+    max_age_hours: u32,
+    receipt: ReceiptPolicy,
+) -> CoreResult<RestorePlan> {
     // **内核自己夹紧上限**（调用方不能放宽灰度硬规则；预览与执行必须用同一个窗口）
     let max_age_hours = effective_max_age_hours(Some(max_age_hours as u64));
     let ctx = prepare_restore(
@@ -637,6 +799,7 @@ pub fn plan_restore_in_at(
         data_paths,
         backup_root,
         max_age_hours,
+        receipt,
     )?;
     Ok(build_plan(&ctx, app_id, max_age_hours))
 }
@@ -795,12 +958,13 @@ fn execute_restore(ctx: &RestoreContext, plan: &RestorePlan) -> CoreResult<Resto
 /// - `format = "legacy"`：有清单但 schema 不符（旧格式 `data.zip`）→ **不可还原**；
 /// - `format = "unknown"`：没有清单 → **不可还原**。
 ///
-/// `restorable` = v1 + 清单 appId 与目录名一致 + home 指纹一致 + 创建时间已知 + 未超龄。
+/// `restorable` = v1 + appId/home 匹配 + 年龄合格 + 本进程持有匹配收据。
 pub fn list_backups_in(
     backup_root: &Path,
     home: &Path,
     max_age_hours: u32,
 ) -> CoreResult<Vec<BackupRecord>> {
+    let max_age_hours = effective_max_age_hours(Some(u64::from(max_age_hours)));
     let home_real = fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
     let home_hash = home_fingerprint(&home_real);
     let Ok(rd) = fs::read_dir(backup_root) else {
@@ -847,6 +1011,7 @@ pub fn list_backups_in(
             let app_id = app_entry.file_name().to_string_lossy().into_owned();
             out.push(read_backup_record(
                 &app_dir,
+                &app_real,
                 &app_id,
                 &home_hash,
                 max_age_hours,
@@ -866,6 +1031,7 @@ pub fn list_backups_in(
 /// 读一个备份目录 → 列表条目（**只读元数据**；不碰载荷内容）。
 fn read_backup_record(
     app_dir: &Path,
+    app_real: &Path,
     app_id: &str,
     home_hash: &str,
     max_age_hours: u32,
@@ -882,8 +1048,8 @@ fn read_backup_record(
         restorable: false,
         age_hours: 0,
     };
-    let manifest_path = app_dir.join("manifest.json");
-    if !manifest_path.is_file() {
+    let manifest_path = app_real.join("manifest.json");
+    if !is_direct_manifest(&manifest_path) {
         // 没有清单 → unknown（旧备份是 data.zip，没有可核对的映射表）
         return rec;
     }
@@ -902,8 +1068,7 @@ fn read_backup_record(
         .to_string();
     let created_at_ms = parse_iso8601_ms(&created_at).unwrap_or(0);
     // **与执行同一条年龄口径**（清单自述 + 目录 mtime；任一超龄 → 不可还原）
-    let dir_mtime_ms = backup_dir_mtime_ms(app_dir, backup_root_real);
-    let age = backup_age(created_at_ms, dir_mtime_ms);
+    let age = backup_wall_age(created_at_ms, app_real, backup_root_real);
     rec.created_at = created_at;
     rec.created_at_ms = created_at_ms;
     rec.age_hours = age.worst();
@@ -945,8 +1110,11 @@ fn read_backup_record(
     rec.format = "v1".to_string();
     rec.file_count = file_count;
     rec.total_bytes = total_bytes;
-    // 可还原 = v1 + appId 一致 + home 指纹一致 + 年龄合格（双口径，与执行同一条规则）
-    rec.restorable = app_ok && home_ok && check_backup_age(&age, max_age_hours).is_ok();
+    rec.restorable = app_ok
+        && home_ok
+        && check_backup_admission(
+            app_id, app_real, text.as_bytes(), &age, max_age_hours, ReceiptPolicy::Required,
+        ).is_ok();
     rec
 }
 
@@ -958,14 +1126,9 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// 备份年龄（小时，向下取整）；`created_at_ms == 0`（时间未知）→ 0
-/// （调用方按「年龄未知 → 拒绝」另行处理）。
-fn age_hours_since(created_at_ms: u64) -> u32 {
-    if created_at_ms == 0 {
-        return 0;
-    }
-    let ms = now_ms().saturating_sub(created_at_ms);
-    (ms / 3_600_000).min(u32::MAX as u64) as u32
+/// 小时只用于展示；准入按毫秒比较。
+fn display_age_hours(age_ms: u64) -> u32 {
+    (age_ms / MS_PER_HOUR).min(u64::from(u32::MAX)) as u32
 }
 
 /// registry 声明的「最大可还原时长」→ **实际生效值**（小时）。
@@ -1026,36 +1189,50 @@ fn backup_dir_mtime_ms(payload_root: &Path, backup_root_real: &Path) -> Option<u
 struct BackupAge {
     /// 清单自述创建时间（unix 毫秒；0 = 清单没写/解析不了 → 年龄未知）
     created_at_ms: u64,
-    /// 清单自述年龄（小时；`None` = 年龄未知）
-    declared: Option<u32>,
     /// 备份目录 mtime（unix 毫秒；`None` = 取不到）
     dir_mtime_ms: Option<u64>,
-    /// 目录年龄（小时；`None` = 取不到）
-    dir: Option<u32>,
+    /// 同一次检查使用同一个墙钟快照。
+    now_ms: u64,
 }
 
 impl BackupAge {
-    /// **最坏估计**年龄（小时）：两个口径里**较旧**的那个（未知算 0）。
-    ///
-    /// 报告值与闸门取同一口径 → UI 显示与判定永远一致
-    /// （不会出现「0 小时前但不可还原」这种自相矛盾）。
+    fn age_ms_since(&self, timestamp: u64) -> u64 {
+        self.now_ms.saturating_sub(timestamp)
+    }
+
+    /// 展示两个口径里较旧的年龄（未知算 0）。
     fn worst(&self) -> u32 {
-        self.declared.unwrap_or(0).max(self.dir.unwrap_or(0))
+        let declared = if self.created_at_ms == 0 {
+            0
+        } else {
+            self.age_ms_since(self.created_at_ms)
+        };
+        let dir = self.dir_mtime_ms.map_or(0, |t| self.age_ms_since(t));
+        display_age_hours(declared.max(dir))
     }
 }
 
-/// 采集两个口径的年龄（清单时间 + 目录 mtime）。
-fn backup_age(created_at_ms: u64, dir_mtime_ms: Option<u64>) -> BackupAge {
-    BackupAge {
-        created_at_ms,
-        declared: if created_at_ms == 0 {
-            None
-        } else {
-            Some(age_hours_since(created_at_ms))
-        },
-        dir_mtime_ms,
-        dir: dir_mtime_ms.map(age_hours_since),
+fn check_backup_admission(
+    app_id: &str,
+    dir: &Path,
+    manifest_bytes: &[u8],
+    age: &BackupAge,
+    max_age_hours: u32,
+    receipt: ReceiptPolicy,
+) -> CoreResult<()> {
+    check_backup_age(age, max_age_hours)?;
+    if receipt.required() {
+        verify_backup_receipt(app_id, dir, manifest_bytes, max_age_hours)?;
     }
+    Ok(())
+}
+
+fn backup_wall_age(created_at_ms: u64, dir: &Path, root: &Path) -> BackupAge {
+    backup_age(created_at_ms, backup_dir_mtime_ms(dir, root), now_ms())
+}
+
+fn backup_age(created_at_ms: u64, dir_mtime_ms: Option<u64>, now_ms: u64) -> BackupAge {
+    BackupAge { created_at_ms, dir_mtime_ms, now_ms }
 }
 
 /// 备份年龄闸门（**列表与执行共用同一套口径**——否则会出现
@@ -1073,9 +1250,9 @@ fn check_backup_age(age: &BackupAge, max_age_hours: u32) -> CoreResult<u32> {
             format!("{what}; refusing to restore"),
         )
     };
-    let now = now_ms();
+    let now = age.now_ms;
     // ① 时间未知 → 拒绝（fail-closed：拿不准 → 不放行）
-    if age.created_at_ms == 0 {
+    if age.created_at_ms == 0 || now == 0 {
         return Err(too_old(
             "The backup does not state when it was created (age unknown)".to_string(),
         ));
@@ -1098,18 +1275,12 @@ fn check_backup_age(age: &BackupAge, max_age_hours: u32) -> CoreResult<u32> {
             "The backup folder timestamp is in the future (it was tampered with)".to_string(),
         ));
     }
-    let declared_age = age.declared.unwrap_or(0);
-    let dir_age = age.dir.unwrap_or(0);
-    // ④ 任一口径超龄 → 拒绝（宁可拒绝，也不放行可疑备份）
-    if declared_age > max_age_hours {
-        return Err(too_old(format!(
-            "This backup is {declared_age} hour(s) old (limit {max_age_hours})"
-        )));
+    let max_age_ms = u64::from(max_age_hours) * MS_PER_HOUR;
+    if age.age_ms_since(age.created_at_ms) > max_age_ms {
+        return Err(too_old(format!("This backup exceeds the {max_age_hours}-hour limit")));
     }
-    if dir_age > max_age_hours {
-        return Err(too_old(format!(
-            "This backup folder is {dir_age} hour(s) old (limit {max_age_hours})"
-        )));
+    if age.age_ms_since(dir_mtime) > max_age_ms {
+        return Err(too_old(format!("This backup folder exceeds the {max_age_hours}-hour limit")));
     }
     Ok(age.worst())
 }
@@ -1188,7 +1359,13 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe - 719_468
 }
+fn is_direct_manifest(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .is_ok_and(|meta| meta.is_file() && !crate::manage_paths::is_link_or_reparse(&meta))
+}
+
 /// 定位清单：`<backup_dir>/manifest.json` 或 `<backup_dir>/<appId>/manifest.json`。
+#[cfg(test)]
 fn locate_manifest(backup_dir: &Path, app_id: &str) -> Option<PathBuf> {
     let direct = backup_dir.join("manifest.json");
     if direct.is_file() {
@@ -3738,11 +3915,23 @@ mod tests {
     /// 备份年龄：小时向下取整；未知时间 → 0。
     #[test]
     fn computes_backup_age_in_hours() {
-        let two_hours_ago = now_ms().saturating_sub(2 * 3_600_000);
-        assert_eq!(age_hours_since(two_hours_ago), 2);
-        assert_eq!(age_hours_since(0), 0);
-        // 未来时间（时钟回拨）→ 不为负
-        assert_eq!(age_hours_since(now_ms() + 3_600_000), 0);
+        let now = 3 * MS_PER_HOUR;
+        assert_eq!(backup_age(now - 2 * MS_PER_HOUR - 1, None, now).worst(), 2);
+        assert_eq!(backup_age(0, None, now).worst(), 0);
+        assert_eq!(backup_age(now + MS_PER_HOUR, None, now).worst(), 0);
+    }
+
+    fn plan_restore_in_at(
+        backup_dir: &Path,
+        app_id: &str,
+        home: &Path,
+        data_paths: &[String],
+        backup_root: &Path,
+        max_age_hours: u32,
+    ) -> CoreResult<RestorePlan> {
+        plan_restore_with_receipt_policy(
+            backup_dir, app_id, home, data_paths, backup_root, max_age_hours, ReceiptPolicy::Fixture,
+        )
     }
 
     // ── v0.1.20：预览（计划）+ 执行共用同一份判定 ────────────────────────
@@ -4046,7 +4235,7 @@ mod tests {
             &wl(&home, "appdata"),
             &backup_root,
             24,
-            Some("0000000000000000000000000000000000000000000000000000000000000000"),
+            (ReceiptPolicy::Fixture, Some("0000000000000000000000000000000000000000000000000000000000000000")),
         )
         .unwrap_err();
         assert_eq!(err.code, "RESTORE_PLAN_CHANGED", "{err:?}");
@@ -4067,14 +4256,12 @@ mod tests {
         let backup_root = root.join("backup");
         fs::create_dir_all(&backup_root).unwrap();
 
-        // v1（新鲜 + home 指纹一致）→ 可还原
-        let v1 = make_backup_at(
-            &backup_root,
-            &home,
-            "v1app",
-            &crate::fsops::now_iso8601(),
-            &[("appdata/x.txt", "x")],
-        );
+        // 只有真实写入端能为当次完整备份签发收据。
+        write(&home.join("appdata/x.txt"), "x");
+        let backup = crate::manage::backup_app_in(
+            "v1app", &wl(&home, "appdata"), &backup_root, &home,
+        ).unwrap();
+        let v1 = PathBuf::from(backup.backup_dir);
         // v1（别的 home）→ 不可还原
         let other = backup_root.join("20260101000000/otherhome");
         fs::create_dir_all(&other).unwrap();
@@ -4143,6 +4330,63 @@ mod tests {
             !list.iter().any(|r| r.dir.contains("pre-restore-")),
             "{list:?}"
         );
+    }
+
+    #[test]
+    fn admission_requires_the_writers_exact_manifest_and_directory() {
+        let root = tmpdir("receipt-admission");
+        let home = root.join("home");
+        let backup_root = root.join("backups");
+        let source = home.join("appdata/x.txt");
+        write(&source, "initial");
+        let paths = wl(&home, "appdata");
+        let backup = crate::manage::backup_app_in("demo", &paths, &backup_root, &home).unwrap();
+        let dir = PathBuf::from(backup.backup_dir);
+        let initial = super::plan_restore_in_at(&dir, "demo", &home, &paths, &backup_root, 24)
+            .unwrap();
+        assert!(list_backups_in(&backup_root, &home, 24).unwrap()[0].restorable);
+        let manifest = dir.join("manifest.json");
+        let original = fs::read_to_string(&manifest).unwrap();
+        let copied = backup_root.join("copied/demo");
+        write(&copied.join("manifest.json"), &original);
+        write(&copied.join("appdata/x.txt"), "initial");
+        let copied_error = super::plan_restore_in_at(
+            &copied, "demo", &home, &paths, &backup_root, 24,
+        ).unwrap_err();
+        assert_eq!(copied_error.code, "RESTORE_RECEIPT_REQUIRED");
+        write(&manifest, &format!("{original}\n"));
+        write(&source, "current");
+        let preview_error = super::plan_restore_in_at(&dir, "demo", &home, &paths, &backup_root, 24)
+            .unwrap_err();
+        assert_eq!(preview_error.code, "RESTORE_RECEIPT_MISMATCH");
+        let execute_error = run_restore(
+            &dir, "demo", &home, &paths, &backup_root, 24,
+            (ReceiptPolicy::Required, Some(&initial.digest)),
+        ).unwrap_err();
+        assert_eq!(execute_error.code, preview_error.code);
+        assert_eq!(fs::read_to_string(&source).unwrap(), "current");
+        assert!(list_backups_in(&backup_root, &home, 24).unwrap().iter().all(|r| !r.restorable));
+    }
+
+    #[test]
+    fn monotonic_receipt_expires_at_the_millisecond_boundary() {
+        let created = Instant::now();
+        let digest = Sha256::digest(b"manifest").into();
+        let path = Path::new("backup/demo");
+        let mut receipts = BackupReceipts(VecDeque::new());
+        receipts.insert(BackupReceipt {
+            app_id: "demo".to_string(),
+            backup_dir: path.to_path_buf(),
+            digest,
+            created,
+        });
+        let limit = Duration::from_millis(24 * MS_PER_HOUR);
+        assert!(receipts.check("demo", path, digest, created + limit, 24).is_ok());
+        let expired = receipts.check("demo", path, digest, created + limit + Duration::from_millis(1), 24)
+            .unwrap_err();
+        assert_eq!(expired.code, "RESTORE_BACKUP_TOO_OLD");
+        let other = receipts.check("other", path, digest, created, 24).unwrap_err();
+        assert_eq!(other.code, "RESTORE_RECEIPT_REQUIRED");
     }
 
     /// ⑦（续）超龄的 v1 备份 → `restorable = false`。
@@ -4471,8 +4715,10 @@ mod tests {
             &serde_json::to_string(&manifest).unwrap(),
         );
         // 调用方传 168 小时（7 天）→ 内核必须夹回 24 → 旧备份被拒
-        let err = plan_restore_in_at(&dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 168)
-            .unwrap_err();
+        let err = super::plan_restore_in_at(
+            &dir, "demo", &home, &wl(&home, "appdata"), &backup_root, 168,
+        )
+        .unwrap_err();
         assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD");
         assert!(
             !home.join("appdata/a.txt").exists(),
@@ -4619,35 +4865,38 @@ mod tests {
         let now = now_ms();
         let hour = 3_600_000u64;
         // ① 清单自称「未来的备份」→ 拒绝（年龄会算成 0 → 永远新鲜）
-        let future = backup_age(now + 60 * 60 * 1000, Some(now));
+        let future = backup_age(now + 60 * 60 * 1000, Some(now), now);
         let err = check_backup_age(&future, 24).unwrap_err();
         assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
         // ② 清单很旧 → 拒绝
-        let old = backup_age(now - 100 * hour, Some(now));
+        let old = backup_age(now - 100 * hour, Some(now), now);
         let err = check_backup_age(&old, 24).unwrap_err();
         assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
         // ③ 清单说新、但目录很旧 → 拒绝（第二口径）
-        let forged = backup_age(now - hour, Some(now - 100 * hour));
+        let forged = backup_age(now - hour, Some(now - 100 * hour), now);
         let err = check_backup_age(&forged, 24).unwrap_err();
         assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
         // ④ 清单说未来、目录也新 → 仍然拒绝（清单自述不可信）
-        let forged2 = backup_age(now + 60 * 60 * 1000, Some(now - 100 * hour));
+        let forged2 = backup_age(now + 60 * 60 * 1000, Some(now - 100 * hour), now);
         assert!(check_backup_age(&forged2, 24).is_err());
         // ⑤ 时间未知 → 拒绝
-        let unknown = backup_age(0, Some(now));
+        let unknown = backup_age(0, Some(now), now);
         let err = check_backup_age(&unknown, 24).unwrap_err();
         assert_eq!(err.code, "RESTORE_BACKUP_TOO_OLD", "{err:?}");
         // ⑥ 目录 mtime 取不到 → 拒绝
-        let no_dir = backup_age(now - hour, None);
+        let no_dir = backup_age(now - hour, None, now);
         assert!(check_backup_age(&no_dir, 24).is_err());
         // ⑦ 两者都新 → 放行
-        let fresh = backup_age(now - hour, Some(now - 2 * hour));
+        let fresh = backup_age(now - hour, Some(now - 2 * hour), now);
         assert!(check_backup_age(&fresh, 24).is_ok());
         // ⑧ 刚好在窗口内 → 放行；超出一小时 → 拒绝
-        let edge = backup_age(now - 24 * hour, Some(now - 24 * hour));
+        let edge = backup_age(now - 24 * hour, Some(now - 24 * hour), now);
         assert!(check_backup_age(&edge, 24).is_ok());
-        let over = backup_age(now - 25 * hour, Some(now - 25 * hour));
-        assert!(check_backup_age(&over, 24).is_err());
+        let cutoff = now - 24 * hour;
+        let manifest_over = backup_age(cutoff - 1, Some(cutoff), now);
+        assert!(check_backup_age(&manifest_over, 24).is_err());
+        let directory_over = backup_age(cutoff, Some(cutoff - 1), now);
+        assert!(check_backup_age(&directory_over, 24).is_err());
     }
 
     /// P1-2（端到端）：清单自称「未来的备份」→ 整体拒绝（预览与执行一致）。

@@ -41,6 +41,7 @@ const EXACT_CODES: Record<string, string> = {
   // AiBOX 还不会写这个应用的配置格式（YAML/TOML/SQLite…）→
   // 必须明确告诉用户「原文件没被改动」+ 给手动教程入口
   CONFIG_FORMAT_UNSUPPORTED: "err.configUnsupported",
+  CONFIG_CATALOG_UNVERIFIED: "err.configCatalogUnverified",
   // 模板要求命中已有条目（如 continue 的 models[]），但用户还没建 → 说清怎么办
   CONFIG_NO_TARGET: "err.configNoTarget",
   // VERIFY_ 精确码（模型测试）；下载期的 SHA 校验码也在此档，

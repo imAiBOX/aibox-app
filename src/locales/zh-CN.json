@@ -175,6 +175,7 @@
     "writing": "写入中…",
     "backupOk": "已备份原文件",
     "backupLabel": "备份文件",
+    "firstWriteNoBackup": "这是首次创建配置文件，没有旧文件需要备份。",
     "written": "配置写好了。下一步：发一条真实测试消息。",
     "toVerify": "发测试",
     "price": {
@@ -185,7 +186,8 @@
       "included": "订阅内"
     },
     "manualGuide": "看配置教程",
-    "manualOnlyHint": "AiBOX 无法自动写入这个应用的设置（它把设置存在数据库、系统钥匙串或加密文件里）。你的配置文件不会被改动。请按下面的教程手动配置，或打开应用自己粘贴 key。"
+    "loadingCapability": "正在检查此应用是否支持辅助配置…",
+    "manualOnlyHint": "AiBOX 无法确认此应用、服务商和设备支持自动配置。请按照教程在应用里手动设置。"
   },
   "s6": {
     "title": "发一条真实消息",
@@ -283,7 +285,8 @@
     "verifyUnsupported": "这条路线不能在这里测。换一家服务商，或照教程手动配置。",
     "verifyBadResponse": "服务商的回复不是预期的格式。再试一次，或换一家服务商。",
     "verifyFailed": "测试请求没能完成。可以重试，或换一条线路。",
-    "configUnsupported": "AiBOX 还不会写这个应用的配置文件（它不是 JSON 格式的配置）。你的原文件**没有被动过** —— 照着教程手动配一下，一分钟就好。",
+    "configUnsupported": "此应用、服务商和设备的组合无法自动配置。请按教程手动设置。",
+    "configCatalogUnverified": "请联网核对配置指引后重试。",
     "verifyStalled": "这一步耗时较长，后台仍在处理。请等待结果，暂不要重复启动安装。",
     "installStalled": "这一步耗时较长，后台仍在处理。请等待结果，暂不要重复启动安装。",
     "probeStalled": "这一步耗时较长，后台仍在处理。请等待结果，暂不要重复启动安装。"

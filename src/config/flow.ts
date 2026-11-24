@@ -10,9 +10,10 @@ import { fallbackModels, providerById, validateKey, type KeyCheck, type Provider
 import { errorCodeOf, errorCodeOrNull, messageKeyForCode } from "../state/orchestrate";
 import { maskSecrets } from "../lib/redact";
 import type { ModelOption, ProviderMeta } from "./types";
+import type { ConfigCapability } from "./config-capability-v1";
 
 /** 向导步骤（S5 屏内子状态；与八态状态机正交） */
-export type WizardStep = "C1" | "C2" | "C3" | "C4" | "C5" | "TODO";
+export type WizardStep = "C1" | "C2" | "C3" | "C4" | "C5" | "MANUAL";
 
 export interface WizardState {
   step: WizardStep;
@@ -33,7 +34,7 @@ export interface WizardState {
 }
 
 export type WizardEvent =
-  | { type: "PICK"; providerId: string } // C1 选路径（full→C2，todo→TODO）
+  | { type: "PICK"; providerId: string; capability: ConfigCapability }
   | { type: "BACK" } // 各步回退
   | { type: "NEXT" } // C2→C3、C3→C4（校验守卫）、C4→C5（守卫）
   | { type: "SET_KEY"; key: string } // C3 即时输入
@@ -91,7 +92,7 @@ export function reduceWizard(s: WizardState, e: WizardEvent): WizardState {
       const fresh: WizardState = {
         ...createWizard(),
         providerId: p.id,
-        step: p.status === "full" ? "C2" : "TODO",
+        step: e.capability === "assisted" ? "C2" : "MANUAL",
       };
       return { ...fresh, metas: s.metas };
     }
@@ -105,7 +106,7 @@ export function reduceWizard(s: WizardState, e: WizardEvent): WizardState {
           return { ...s, step: "C3" };
         case "C5":
           return { ...s, step: "C4", writeResult: null, errorKey: null };
-        case "TODO":
+        case "MANUAL":
           return { ...s, step: "C1" };
         default:
           return s;
@@ -182,7 +183,7 @@ export interface WriteOutcome {
 export async function runConfigWrite(input: ConfigWriteInput): Promise<WriteOutcome> {
   try {
     const r = await api.configWrite(input);
-    if (r.ok && r.backupPath) return { ok: true, backupPath: r.backupPath };
+    if (r.ok) return { ok: true, backupPath: r.backupPath };
     // 回读校验不过（文件写下去了但内容对不上）→ 归「写入失败」
     return { ok: false, backupPath: "", errorKey: "err.configFailed", errorCode: "CONFIG_FAILED" };
   } catch (e) {
