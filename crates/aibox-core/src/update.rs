@@ -19,7 +19,7 @@ pub struct UpdateInfo {
 
 const LATEST_URL: &str = "https://api.github.com/repos/imAiBOX/aibox-app/releases/latest";
 /// 受控代理源（site 边缘缓存，30min）：优先，失败/坏体回落 GitHub 直连。
-const PROXY_LATEST_URL: &str = "https://aibox.im/api/github/repos/imAiBOX/aibox-app/releases/latest";
+const PROXY_LATEST_URL: &str = "https://aibox.im/api/github?path=repos/imAiBOX/aibox-app/releases/latest";
 
 /// 已装应用更新行（契约：`check_app_updates` 返回 `[{appId, installed?, latest?, hasUpdate}]`）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
