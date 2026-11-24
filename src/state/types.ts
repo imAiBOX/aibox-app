@@ -54,8 +54,16 @@ export interface Task {
   id: string;
   name: string;
   version: string;
+  /** 目标应用与必要依赖分开判定；可选依赖失败不阻断目标。 */
+  role?: "target" | "required" | "optional";
+  /** 实际探测版本；version 仅表示计划/清单版本。 */
+  actualVersion?: string;
+  catalogVersion?: string;
+  probeStatus?: "version" | "present" | "unconfirmed" | "mock";
   phase: TaskPhase;
   status: TaskStatus;
+  /** 安装器已成功退出；之后探测失败时重试仅重跑探测。 */
+  installerSucceeded?: boolean;
   /** 四阶段执行载荷（PLAN 构建时注入；纯 reducer 测试可缺省） */
   spec?: TaskSpec;
 }
@@ -112,6 +120,9 @@ export interface AppError {
 export interface SessionSnapshot {
   appId: string;
   doneTaskIds: string[];
+  /** 已成功运行安装器但尚未通过探测的任务（持久化后重启也不重复安装）。 */
+  installedTaskIds?: string[];
+  upgradeMode?: boolean;
   savedAt: number;
 }
 
@@ -149,7 +160,9 @@ export type Event =
   | { type: "CONFIRM" } // PLAN → CONFIRM
   | { type: "BEGIN" } // CONFIRM → EXECUTE
   | { type: "TASK_PHASE"; taskId: string; phase: TaskPhase } // EXECUTE 内推进
-  | { type: "TASK_DONE"; taskId: string } // EXECUTE 内任务完成（→持久化快照）
+  | { type: "TASK_DONE"; taskId: string; actualVersion?: string; probeStatus?: Task["probeStatus"] }
+  | { type: "TASK_PROBED"; taskId: string; actualVersion?: string; probeStatus: Task["probeStatus"] }
+  | { type: "TASK_INSTALLER_SUCCEEDED"; taskId: string }
   | { type: "ALL_DONE" } // EXECUTE → CONFIG（升级模式 → DONE）
   | { type: "UPGRADE_MODE" } // 标记本次为升级（装完不进配置步骤）
   | { type: "CONFIG_WRITTEN"; pathId: string } // CONFIG → VERIFY（pathId="none" → DONE，跳过模型配置）

@@ -225,6 +225,8 @@ export function mockRegistryApp(id: string): AppManifest {
     routePlans: {
       "mock-full": {
         label: "Mock full queue",
+        target: "openclaw",
+        optionalSteps: ["git"],
         steps: ["node", "git", "openclaw", "hub"],
       },
     },

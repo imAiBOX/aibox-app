@@ -40,7 +40,8 @@ function recover(s: MachineState, opts: { skipFailed?: boolean } = {}): MachineS
   const from: Status = s.error.from;
   let tasks = s.tasks;
   let idx = s.currentTaskIndex;
-  if (opts.skipFailed && from === "EXECUTE") {
+  if (opts.skipFailed) {
+    if (from !== "EXECUTE" || s.tasks[s.currentTaskIndex]?.role !== "optional" || s.tasks[s.currentTaskIndex]?.status !== "failed") return s;
     tasks = s.tasks.map((t, i) =>
       i === s.currentTaskIndex && t.status === "failed"
         ? { ...t, status: "skipped" as const }
@@ -62,17 +63,22 @@ function resumeToExec(
   s: MachineState,
   appId: string,
   doneTaskIds: string[],
+  installedTaskIds: string[],
   plan: import("./types").Plan | null,
 ): MachineState {
   const tasks: Task[] =
     plan && plan.appId === appId
       ? plan.tasks.map((t) =>
+          // Legacy snapshots contain IDs only. Re-probe the target instead of trusting
+          // an old `done` to prove the currently selected route's version.
           doneTaskIds.includes(t.id)
             ? { ...t, status: "done" as const }
-            : t,
+            : installedTaskIds.includes(t.id)
+              ? { ...t, installerSucceeded: true, status: "failed" as const }
+              : t,
         )
       : s.tasks.map((t) =>
-          doneTaskIds.includes(t.id) ? { ...t, status: "done" as const } : t,
+          doneTaskIds.includes(t.id) ? { ...t, status: "done" as const } : installedTaskIds.includes(t.id) ? { ...t, installerSucceeded: true, status: "failed" as const } : t,
         );
   const firstOpen = tasks.findIndex((t) => t.status !== "done");
   return {
@@ -129,19 +135,25 @@ export function reduce(state: MachineState, event: Event): MachineState {
       return { ...state, tasks, currentTaskIndex: idx < 0 ? state.currentTaskIndex : idx };
     }
 
+    case "TASK_INSTALLER_SUCCEEDED":
+      return state.status === "EXECUTE"
+        ? { ...state, tasks: state.tasks.map((t) => t.id === event.taskId ? { ...t, installerSucceeded: true } : t) }
+        : state;
+
+    case "TASK_PROBED":
     case "TASK_DONE": {
       if (state.status !== "EXECUTE") return state;
       const tasks = state.tasks.map((t) =>
-        t.id === event.taskId ? { ...t, status: "done" as const, phase: "probe" as const } : t,
+        t.id === event.taskId
+          ? { ...t, status: event.type === "TASK_DONE" ? "done" as const : t.status,
+              installerSucceeded: t.installerSucceeded, phase: "probe" as const, actualVersion: event.actualVersion, probeStatus: event.probeStatus }
+          : t,
       );
       const idx = tasks.findIndex((t) => t.id === event.taskId);
-      const allDone = tasks.every((t) => t.status === "done");
       return {
         ...state,
         tasks,
         currentTaskIndex: idx < 0 ? state.currentTaskIndex : idx,
-        // 全部完成时保持 EXECUTE，等待 ALL_DONE（由 UI/编排层发）
-        ...(allDone ? {} : {}),
       };
     }
 
@@ -150,18 +162,28 @@ export function reduce(state: MachineState, event: Event): MachineState {
       return { ...state, upgradeMode: true };
 
     case "ALL_DONE":
-      // skipped 也算已处置（SKIP 后不能死锁在 EXECUTE）
+      // 只有可选依赖可跳过；主应用/必要组件未完成时绝不进入配置成功态。
       if (state.status !== "EXECUTE") return state;
       if (state.tasks.length === 0) {
         // **空队列兜底**：没有任务可执行 → 回 IDLE（绝不能停在 EXECUTE 空转）。
         // 真实触发路径：断点续装时 plan 还没重建好就进了 EXECUTE（冷启动 state.plan=null）。
         return { ...state, status: "IDLE", error: null };
       }
-      if (!state.tasks.every((t) => t.status === "done" || t.status === "skipped")) {
-        return state;
+      if (!state.tasks.every((t) => t.status === "done" || t.status === "skipped")) return state;
+      if (state.tasks.some((t) => t.status === "skipped" && t.role !== "optional")) {
+        return setError(state, "TASK_TARGET_MISSING", "err.targetMissing");
       }
-      // 升级模式 → 装完直接 DONE（不要求重新配 key）
-      if (state.upgradeMode) {
+      const targets = state.tasks.filter((t) => t.role === "target");
+      if (targets.length !== 1 || targets[0].status !== "done") {
+        return setError(state, "TASK_TARGET_MISSING", "err.targetMissing");
+      }
+      const target = targets[0];
+      const verified = (target.probeStatus === "version" && Boolean(target.actualVersion)) || target.probeStatus === "mock";
+      if (state.upgradeMode && !verified) {
+        return setError(state, "PROBE_VERSION_UNCONFIRMED", "err.versionUnconfirmed", target.id);
+      }
+      // Config requires a verified target; a presence-only result gets manual guidance.
+      if (state.upgradeMode || !verified) {
         return { ...state, status: "DONE", error: null };
       }
       return { ...state, status: "CONFIG", error: null };
@@ -263,7 +285,7 @@ export function reduce(state: MachineState, event: Event): MachineState {
     case "RESUME_SESSION": {
       if (state.status !== "IDLE" || !state.resume.snapshot) return state;
       const snap = state.resume.snapshot;
-      const next = resumeToExec(state, snap.appId, snap.doneTaskIds, state.plan);
+      const next = resumeToExec({ ...state, upgradeMode: snap.upgradeMode === true }, snap.appId, snap.doneTaskIds, snap.installedTaskIds ?? [], state.plan);
       // 兜底：既没有 plan 也没有任务 → 留在 IDLE（进 EXECUTE 会空转卡死）
       if (next.tasks.length === 0) return state;
       return next;

@@ -32,8 +32,8 @@ const plan: Plan = {
     { id: "oc", name: "OpenClaw", versionRange: "2026.11.2", kind: "target", children: [] },
   ],
   tasks: [
-    { id: "node", name: "Node.js", version: "v26", phase: "download", status: "pending" },
-    { id: "oc", name: "OpenClaw", version: "2026.11.2", phase: "download", status: "pending" },
+    { id: "node", name: "Node.js", version: "v26", role: "required", phase: "download", status: "pending" },
+    { id: "oc", name: "OpenClaw", version: "2026.11.2", role: "target", phase: "download", status: "pending" },
   ],
   route: "ghfast.top",
   channel: "ghfast.top",
@@ -61,7 +61,7 @@ function flowTo(status: Status): MachineState {
   s = reducer(s, { type: "TASK_PHASE", taskId: "node", phase: "download" });
   s = reducer(s, { type: "TASK_DONE", taskId: "node" });
   s = reducer(s, { type: "TASK_PHASE", taskId: "oc", phase: "download" });
-  s = reducer(s, { type: "TASK_DONE", taskId: "oc" });
+  s = reducer(s, { type: "TASK_DONE", taskId: "oc", actualVersion: "2026.11.2", probeStatus: "version" });
   s = reducer(s, { type: "ALL_DONE" });
   if (status === "CONFIG") return s;
   s = reducer(s, { type: "CONFIG_WRITTEN", pathId: "openrouter" });
@@ -117,10 +117,32 @@ describe("主流程转移表（IDLE→…→DONE）", () => {
   it("TASK_DONE 标记完成；全部完成后 ALL_DONE → CONFIG", () => {
     let s = flowTo("EXECUTE");
     s = reducer(s, { type: "TASK_DONE", taskId: "node" });
-    s = reducer(s, { type: "TASK_DONE", taskId: "oc" });
+    s = reducer(s, { type: "TASK_DONE", taskId: "oc", actualVersion: "2026.11.2", probeStatus: "version" });
     expect(s.tasks.every((t) => t.status === "done")).toBe(true);
     const c = reducer(s, { type: "ALL_DONE" });
     expect(c.status).toBe("CONFIG");
+  });
+
+  it("主应用被跳过或未完成时不允许进入配置；可选依赖可跳过", () => {
+    const base = flowTo("EXECUTE");
+    const skippedTarget = { ...base, tasks: base.tasks.map((t) => ({ ...t, status: "skipped" as const })) };
+    expect(reducer(skippedTarget, { type: "ALL_DONE" }).status).toBe("ERROR");
+    const optional = { ...base, tasks: [
+      { ...base.tasks[0], role: "target" as const, status: "done" as const, actualVersion: "1.24.4", probeStatus: "version" as const },
+      { ...base.tasks[1], role: "optional" as const, status: "skipped" as const },
+    ] };
+    const done = reducer(optional, { type: "ALL_DONE" });
+    expect(done.status).toBe("CONFIG");
+    expect(done.tasks[0].actualVersion).toBe("1.24.4");
+  });
+
+  it("presence-only install gets manual guidance without CONFIG and cannot complete an upgrade", () => {
+    const base = flowTo("EXECUTE");
+    const present = { ...base, tasks: [{ ...base.tasks[1], status: "done" as const, probeStatus: "present" as const }] };
+    expect(reducer(present, { type: "ALL_DONE" }).status).toBe("DONE");
+    const upgrade = reducer({ ...present, upgradeMode: true }, { type: "ALL_DONE" });
+    expect(upgrade.status).toBe("ERROR");
+    expect(upgrade.error?.code).toBe("PROBE_VERSION_UNCONFIRMED");
   });
 
   it("ALL_DONE 在任务未完成时非法（不转移）", () => {
@@ -213,7 +235,8 @@ describe("任意态 → ERROR → 恢复", () => {
     s = reducer(s, { type: "ERROR", code: "HASH_MISMATCH", messageKey: "err.hash", taskId: "node" });
     expect(s.error?.taskId).toBe("node");
     // 标记失败任务
-    s = { ...s, tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, status: "failed" as const } : t)) };
+    expect(reducer(s, { type: "SKIP" })).toBe(s);
+    s = { ...s, tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, status: "failed" as const, role: "optional" as const } : t)) };
     const after = reducer(s, { type: "SKIP" });
     expect(after.status).toBe("EXECUTE");
     expect(after.tasks[0].status).toBe("skipped");

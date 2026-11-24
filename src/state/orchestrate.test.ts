@@ -11,7 +11,9 @@ import {
   type ExecuteApi,
   type ExecuteDeps,
 } from "./orchestrate";
-import type { Event, SessionSnapshot, Task, TaskSpec } from "./types";
+import { createInitialState, reduce } from "./reducer";
+import { sqlitePersistence, type SqlDriver } from "./persistence-sqlite";
+import type { Event, MachineState, Plan, SessionSnapshot, Task, TaskSpec } from "./types";
 import type { AiboxEvent } from "../net/client";
 
 const SPEC: TaskSpec = {
@@ -66,7 +68,7 @@ function harness(overrides: {
     sleep: () => Promise.resolve(),
     scenario: () => overrides.scenario ?? "normal",
     saveSnapshot: async (s) => {
-      snapshots.push(s);
+      snapshots.push(structuredClone(s));
     },
     now: () => Date.now(),
     ...(overrides.phaseTimeouts ? { phaseTimeouts: overrides.phaseTimeouts } : {}),
@@ -98,6 +100,7 @@ describe("真分支四阶段推进（注入 fake api）", () => {
       "TASK_PHASE", // download
       "TASK_PHASE", // verify
       "TASK_PHASE", // install
+      "TASK_INSTALLER_SUCCEEDED",
       "TASK_PHASE", // probe
       "TASK_DONE",
       "ALL_DONE",
@@ -108,13 +111,144 @@ describe("真分支四阶段推进（注入 fake api）", () => {
     );
     expect(h.api.execInstall).toHaveBeenCalledTimes(1);
     expect(h.api.probeRun).toHaveBeenCalledTimes(1);
-    expect(h.snapshots).toHaveLength(1);
-    expect(h.snapshots[0].doneTaskIds).toEqual(["t1"]);
+    expect(h.events).toContainEqual({ type: "TASK_DONE", taskId: "t1", probeStatus: "version", actualVersion: "1.0" });
+    expect(h.snapshots).toEqual([
+      { appId: "app", doneTaskIds: [], installedTaskIds: ["t1"], savedAt: expect.any(Number) },
+      { appId: "app", doneTaskIds: ["t1"], savedAt: expect.any(Number) },
+    ]);
     // 阶段顺序
     const phases = h.events
       .filter((e): e is Extract<Event, { type: "TASK_PHASE" }> => e.type === "TASK_PHASE")
       .map((e) => e.phase);
     expect(phases).toEqual(["download", "verify", "install", "probe"]);
+  });
+
+  it.each([
+    { packageVersion: "1.24.4", version: "1.24.3", error: "PROBE_WRONG_VERSION" },
+    { packageVersion: "1.24.3", version: "1.24.3", error: "PROBE_WRONG_VERSION" },
+    { packageVersion: "1.24.4", version: null, error: "PROBE_VERSION_UNCONFIRMED" },
+    { packageVersion: "1.24.4", version: "installed", error: "PROBE_VERSION_UNCONFIRMED" },
+  ])("upgrade to 1.24.4 with $version on route $packageVersion stops", async ({ packageVersion, version, error }) => {
+    const h = harness({ api: { probeRun: vi.fn(async () => ({ version })) } });
+    h.api.downloadStart = vi.fn(async () => {
+      setTimeout(() => h.emit(ok("download ok: 10 bytes")), 0);
+      return "t1";
+    });
+    const target: Task = { ...task(), role: "target", version: packageVersion, catalogVersion: "1.24.4" };
+    await startExecute(h.deps, { appId: "chatbox", tasks: [target], upgradeMode: true }).promise;
+    expect(last(h.events)).toMatchObject({ type: "ERROR", code: error, taskId: target.id });
+    expect(h.events.some((e) => e.type === "TASK_DONE" || e.type === "ALL_DONE")).toBe(false);
+    expect(h.snapshots).toEqual([
+      { appId: "chatbox", doneTaskIds: [], installedTaskIds: [target.id], upgradeMode: true, savedAt: expect.any(Number) },
+    ]);
+    expect(h.events).toContainEqual({ type: "TASK_INSTALLER_SUCCEEDED", taskId: target.id });
+    expect(h.api.execInstall).toHaveBeenCalledOnce();
+  });
+
+  it("stops before any download or install when the target lacks a probe", async () => {
+    const h = harness({});
+    const declared = task();
+    if (!declared.spec) throw new Error("expected an executable test task");
+    const target: Task = { ...declared, role: "target", spec: { ...declared.spec, probe: undefined } };
+    await startExecute(h.deps, { appId: "app", tasks: [target] }).promise;
+    expect(last(h.events)).toMatchObject({ type: "ERROR", code: "PROBE_VERSION_UNCONFIRMED", taskId: target.id });
+    expect(h.api.downloadStart).not.toHaveBeenCalled();
+    expect(h.api.execInstall).not.toHaveBeenCalled();
+    expect(h.snapshots).toHaveLength(0);
+  });
+
+  it("records the actual package version on fresh installs even when the catalog is newer", async () => {
+    const h = harness({ api: { probeRun: vi.fn(async () => ({ version: "1.24.3" })) } });
+    h.api.downloadStart = vi.fn(async () => {
+      setTimeout(() => h.emit(ok("download ok: 10 bytes")), 0);
+      return "t1";
+    });
+    const target: Task = { ...task(), role: "target", version: "1.24.3", catalogVersion: "1.24.4" };
+    await startExecute(h.deps, { appId: "chatbox", tasks: [target] }).promise;
+    expect(h.events).toContainEqual({ type: "TASK_DONE", taskId: target.id, actualVersion: "1.24.3", probeStatus: "version" });
+    expect(last(h.events)).toEqual({ type: "ALL_DONE" });
+  });
+
+  it("re-probes a resumed target before accepting the snapshot as an upgrade", async () => {
+    const h = harness({ api: { probeRun: vi.fn(async () => ({ version: "1.24.3" })) } });
+    const target: Task = { ...task("target", "done"), role: "target", version: "1.24.4", catalogVersion: "1.24.4" };
+    await startExecute(h.deps, { appId: "chatbox", tasks: [target], upgradeMode: true }).promise;
+    expect(h.api.downloadStart).not.toHaveBeenCalled();
+    expect(h.api.probeRun).toHaveBeenCalledOnce();
+    expect(last(h.events)).toMatchObject({ type: "ERROR", code: "PROBE_WRONG_VERSION" });
+  });
+
+  it.each(["retry", "restart"] as const)("%s after installer success only probes and retains the durable upgrade boundary", async (recovery) => {
+    let stored: string | null = null;
+    const driver: SqlDriver = {
+      async execute(query, values = []) {
+        if (query.startsWith("INSERT INTO sessions")) stored = String(values[1]);
+      },
+      async select<T>() {
+        return (stored === null ? [] : [{ state_json: stored }]) as T[];
+      },
+    };
+    const persistence = sqlitePersistence(driver);
+    const target: Task = { ...task(), role: "target", version: "1.24.4", catalogVersion: "1.24.4" };
+    const plan: Plan = {
+      appId: "chatbox", tasks: [target], nodes: [], route: "desktop", channel: "direct", diskMb: 1, estMinutes: 1,
+    };
+    let state: MachineState = { ...createInitialState(), status: "EXECUTE", appId: plan.appId, plan, tasks: plan.tasks, upgradeMode: true };
+    const h = harness({});
+    const recordEvent = h.deps.dispatch;
+    h.deps.dispatch = (event) => {
+      recordEvent(event);
+      state = reduce(state, event);
+    };
+    h.deps.saveSnapshot = async (snapshot) => {
+      h.snapshots.push(structuredClone(snapshot));
+      await persistence.saveSnapshot(snapshot);
+    };
+    h.api.downloadStart = vi.fn(async () => {
+      setTimeout(() => h.emit(ok("download ok: 10 bytes")), 0);
+      return target.id;
+    });
+    h.api.probeRun = vi.fn(async () => {
+      // The installer boundary must already be serialized when probing begins.
+      expect(await persistence.loadSession()).toEqual({
+        appId: plan.appId, doneTaskIds: [], installedTaskIds: [target.id], upgradeMode: true, savedAt: expect.any(Number),
+      });
+      throw { code: "PROBE_MISMATCH" };
+    });
+    await startExecute(h.deps, { appId: state.appId, tasks: state.tasks, upgradeMode: state.upgradeMode }).promise;
+    expect(state.status).toBe("ERROR");
+    expect(state.tasks[0]).toMatchObject({ status: "failed", installerSucceeded: true });
+    expect(last(h.events)).toMatchObject({ type: "ERROR", code: "PROBE_MISMATCH" });
+
+    if (recovery === "retry") {
+      state = reduce(state, { type: "RETRY" });
+    } else {
+      // A fresh persistence instance reads the SQL JSON written by the first run.
+      const snapshot = await sqlitePersistence(driver).loadSession();
+      expect(snapshot).not.toBeNull();
+      state = reduce(createInitialState(), { type: "DETECT_SESSION", snapshot: snapshot! });
+      state = reduce(state, { type: "RESUME_PLAN", plan });
+      state = reduce(state, { type: "RESUME_SESSION" });
+    }
+    expect(state).toMatchObject({ status: "EXECUTE", upgradeMode: true });
+    expect(state.tasks[0].installerSucceeded).toBe(true);
+    h.events.length = 0;
+    h.api.probeRun = vi.fn(async () => ({ version: "1.24.4" }));
+    await startExecute(h.deps, { appId: state.appId, tasks: state.tasks, upgradeMode: state.upgradeMode }).promise;
+
+    expect(h.api.downloadStart).toHaveBeenCalledOnce();
+    expect(h.api.verifySha256).toHaveBeenCalledOnce();
+    expect(h.api.execInstall).toHaveBeenCalledOnce();
+    expect(h.api.probeRun).toHaveBeenCalledOnce();
+    expect(h.events).toEqual([
+      { type: "TASK_PHASE", taskId: target.id, phase: "probe" },
+      { type: "TASK_DONE", taskId: target.id, actualVersion: "1.24.4", probeStatus: "version" },
+      { type: "ALL_DONE" },
+    ]);
+    expect(state.status).toBe("DONE"); // Upgrades finish without reconfiguring the application.
+    expect(await sqlitePersistence(driver).loadSession()).toEqual({
+      appId: plan.appId, doneTaskIds: [target.id], upgradeMode: true, savedAt: expect.any(Number),
+    });
   });
 
   it("多任务顺序执行；done/skipped 跳过（断点续装语义）", async () => {
@@ -130,8 +264,9 @@ describe("真分支四阶段推进（注入 fake api）", () => {
     expect(h.api.downloadStart).toHaveBeenNthCalledWith(1, SPEC.download);
     const dones = h.events.filter((e) => e.type === "TASK_DONE");
     expect(dones).toHaveLength(2);
-    // 快照含进入时已处置任务（a done / b skipped）+ 新完成的 c、d
-    expect(h.snapshots[1].doneTaskIds).toEqual(["a", "b", "c", "d"]);
+    // Skips must never become completions on restart.
+    expect(h.snapshots).toHaveLength(4);
+    expect(last(h.snapshots).doneTaskIds).toEqual(["a", "c", "d"]);
   });
 
   it("下载失败 log → ERROR 带 human_error_code + taskId", async () => {
@@ -246,6 +381,7 @@ describe("真分支四阶段推进（注入 fake api）", () => {
       "TASK_PHASE",
       "TASK_PHASE",
       "TASK_PHASE",
+      "TASK_INSTALLER_SUCCEEDED",
       "TASK_PHASE",
       "TASK_DONE",
       "ALL_DONE",

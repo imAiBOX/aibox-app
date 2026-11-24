@@ -95,7 +95,7 @@ export function errorActions(s: MachineState): {
   return {
     retry: true,
     // SKIP 仅在 EXECUTE 有可跳任务时可用
-    skip: from === "EXECUTE" && s.currentTaskIndex < s.tasks.length,
+    skip: from === "EXECUTE" && s.currentTaskIndex < s.tasks.length && s.tasks[s.currentTaskIndex]?.role === "optional",
     exportDiag: true,
   };
 }

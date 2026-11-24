@@ -3,7 +3,7 @@
 //! - 跨平台 shell：unix `sh -c <cmd>`，windows `cmd /C <cmd>`（覆盖 `npm`/`openclaw` 等 .cmd 包装）
 //! - 超时默认 15s（`AIBOX_PROBE_TIMEOUT_MS` 覆盖）
 //! - expect 命中才返回版本；未命中 → `PROBE_MISMATCH` 结构化错误（附输出摘要）
-//! - 版本提取：正则有捕获组 → 组1；否则取命中处/输出中第一个 `v?\d+(\.\d+)+` 形态
+//! - 版本提取：要求完整版本串与 expect 命中重叠，且候选唯一；存在性探针单独处理。
 
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ pub struct ProbeSpec {
 /// `probe_run` 返回（`{version}`）。
 #[derive(Debug, Clone, Serialize)]
 pub struct ProbeResult {
-    pub version: String,
+    pub version: Option<String>,
 }
 
 /// 探测超时（毫秒）。
@@ -38,28 +38,61 @@ fn probe_timeout() -> Duration {
 
 /// 提取版本串（纯函数，单测锁语义）。
 pub fn extract_version(output: &str, expect: &regex::Regex) -> Option<String> {
-    let caps = expect.captures(output)?;
-    if caps.len() > 1 {
-        if let Some(g) = caps.get(1) {
-            let s = g.as_str().trim();
-            if !s.is_empty() {
-                return Some(s.to_string());
-            }
-        }
+    let re =
+        regex::Regex::new(r"\bv?[0-9]+(?:\.[0-9]+)+(?:[-+][0-9A-Za-z][0-9A-Za-z.+-]*)?\b").ok()?;
+    let mut versions = re.find_iter(output).filter(|version| {
+        expect.find_iter(output).any(|matched| {
+            // Patterns like `^v26\.` or `2026\.11\.3` may match only a prefix.
+            // Take the full version token, never the substring matched by expect.
+            matched.start() < version.end() && version.start() < matched.end()
+        })
+    });
+    let version = versions.next()?;
+    if versions.next().is_some() {
+        return None;
     }
-    let whole = caps.get(0)?.as_str();
-    if version_like(whole) {
-        return Some(whole.to_string());
-    }
-    // 命中处周边找第一个版本形态（如 expect=`2026\.` → 输出 `2026.11.2`）
-    let re = regex::Regex::new(r"v?\d+(?:\.\d+)+").ok()?;
-    re.find(output).map(|m| m.as_str().to_string())
+    Some(version.as_str().to_owned())
 }
 
-fn version_like(s: &str) -> bool {
-    regex::Regex::new(r"\d+(?:\.\d+)+")
-        .map(|re| re.is_match(s))
-        .unwrap_or(false)
+// Recognize the two legacy GUI probe forms and inspect the named path directly.
+// Shell output such as a bare `echo installed` is not evidence of presence.
+fn presence_path(spec: &ProbeSpec) -> Option<std::path::PathBuf> {
+    let cmd = spec.cmd.trim();
+    match spec.expect.trim() {
+        "True" if cfg!(windows) => {
+            let path = cmd
+                .strip_prefix("powershell -NoProfile -Command \"Test-Path ")?
+                .strip_suffix('"')?;
+            let path = if let Some(rel) = path.strip_prefix("$env:LOCALAPPDATA\\") {
+                std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join(rel)
+            } else {
+                std::path::PathBuf::from(path.strip_prefix('\'')?.strip_suffix('\'')?)
+            };
+            path.is_absolute().then_some(path)
+        }
+        "installed" if cfg!(unix) => {
+            let path = cmd
+                .strip_prefix("bash -lc \"ls -d ")?
+                .strip_suffix(" >/dev/null 2>&1 && echo installed\"")?;
+            let path = std::path::PathBuf::from(path);
+            (path.starts_with("/Applications") && path.extension().is_some_and(|ext| ext == "app"))
+                .then_some(path)
+        }
+        _ => None,
+    }
+}
+
+fn probe_presence(
+    spec: &ProbeSpec,
+    exists: impl FnOnce(&std::path::Path) -> bool,
+) -> CoreResult<ProbeResult> {
+    if presence_path(spec).is_some_and(|path| exists(&path)) {
+        return Ok(ProbeResult { version: None });
+    }
+    Err(CoreError::new(
+        "PROBE_MISMATCH",
+        "Unable to confirm the installed application path",
+    ))
 }
 
 /// 执行探测并返回版本（同步；调用方放入 spawn_blocking）。
@@ -73,6 +106,41 @@ pub fn run_probe(spec: &ProbeSpec) -> CoreResult<ProbeResult> {
     }
     let expect = regex::Regex::new(expect_src)
         .map_err(|e| CoreError::new("PROBE_BAD_EXPECT", format!("Invalid expect regex: {e}")))?;
+
+    match expect_src {
+        "True" => {
+            return probe_presence(spec, |path| {
+                if path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+                {
+                    return path.is_file();
+                }
+                // Some older manifests named only the installation directory.
+                // Require an executable in it before reporting presence.
+                std::fs::read_dir(path).is_ok_and(|entries| {
+                    entries.filter_map(Result::ok).any(|entry| {
+                        entry
+                            .path()
+                            .extension()
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+                            && entry.path().is_file()
+                    })
+                })
+            })
+        }
+        "installed" => {
+            return probe_presence(spec, |path| {
+                path.join("Contents/Info.plist").is_file()
+                    && std::fs::read_dir(path.join("Contents/MacOS")).is_ok_and(|entries| {
+                        entries
+                            .filter_map(Result::ok)
+                            .any(|entry| entry.path().is_file())
+                    })
+            })
+        }
+        _ => {}
+    }
 
     let program;
     let args: Vec<String>;
@@ -96,6 +164,12 @@ pub fn run_probe(spec: &ProbeSpec) -> CoreResult<ProbeResult> {
         elevation_guard: false,
     })?;
 
+    if outcome.code != 0 {
+        return Err(CoreError::new(
+            "PROBE_EXIT",
+            format!("Probe command exited with code {}", outcome.code),
+        ));
+    }
     let version = extract_version(&outcome.out, &expect).ok_or_else(|| {
         let (safe, _) = scan_and_mask(&outcome.out);
         CoreError::new(
@@ -109,7 +183,9 @@ pub fn run_probe(spec: &ProbeSpec) -> CoreResult<ProbeResult> {
         )
     })?;
 
-    Ok(ProbeResult { version })
+    Ok(ProbeResult {
+        version: Some(version),
+    })
 }
 
 #[cfg(test)]
@@ -128,7 +204,7 @@ mod tests {
         let re = regex::Regex::new(r"v(\d+\.\d+\.\d+)").unwrap();
         assert_eq!(
             extract_version("node v26.13.0 (x64)", &re).as_deref(),
-            Some("26.13.0")
+            Some("v26.13.0")
         );
     }
 
@@ -160,7 +236,31 @@ mod tests {
     #[test]
     fn probe_local_script_returns_version() {
         let r = run_probe(&spec("echo 'openclaw 2026.11.2'", r"\d{4}\.")).unwrap();
-        assert_eq!(r.version, "2026.11.2");
+        assert_eq!(r.version.as_deref(), Some("2026.11.2"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn probe_rejects_fake_presence_and_nonzero_exit() {
+        let fake_presence = run_probe(&spec("printf installed", "installed")).unwrap_err();
+        assert_eq!(fake_presence.code, "PROBE_MISMATCH");
+        let nonzero = run_probe(&spec("printf '1.2.3'; exit 7", r"1\.2\.3")).unwrap_err();
+        assert_eq!(nonzero.code, "PROBE_EXIT");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gui_presence_requires_local_path_evidence() {
+        let gui = spec(
+            r#"bash -lc "ls -d /Applications/Zed.app >/dev/null 2>&1 && echo installed""#,
+            "installed",
+        );
+        assert!(probe_presence(&gui, |_| false).is_err());
+        let result = probe_presence(&gui, |path| {
+            path == std::path::Path::new("/Applications/Zed.app")
+        })
+        .unwrap();
+        assert_eq!(result.version, None);
     }
 
     #[cfg(unix)]
@@ -183,6 +283,6 @@ mod tests {
     fn probe_captures_real_binary_version() {
         // 真实本机命令：git --version → "git version 2.x.y"
         let r = run_probe(&spec("git --version", r"git version \d+\.\d+\.\d+")).unwrap();
-        assert!(r.version.starts_with("git version 2."), "{}", r.version);
+        assert!(r.version.unwrap().starts_with("2."));
     }
 }

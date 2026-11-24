@@ -94,13 +94,15 @@ describe("errorActions 三按钮可用性", () => {
       exportDiag: false,
     });
   });
-  it("ERROR@EXECUTE 且有任务 → retry/skip/export 全 true", () => {
+  it("ERROR@EXECUTE 仅可选依赖提供跳过操作", () => {
     const s: MachineState = {
       ...execState(),
       status: "ERROR",
       error: { code: "X", messageKey: "err.x", from: "EXECUTE" },
     };
-    expect(errorActions(s)).toEqual({ retry: true, skip: true, exportDiag: true });
+    expect(errorActions(s).skip).toBe(false);
+    const optional = { ...s, tasks: s.tasks.map((t) => ({ ...t, role: "optional" as const })) };
+    expect(errorActions(optional)).toEqual({ retry: true, skip: true, exportDiag: true });
   });
   it("ERROR@SCAN → skip false（无可跳任务）", () => {
     const s: MachineState = {

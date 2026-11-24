@@ -1,0 +1,4585 @@
+{
+  "source": "aibox-registry/apps app.json (route/package projection)",
+  "apps": [
+    {
+      "id": "5ire",
+      "name": "5ire",
+      "version": "0.15.4",
+      "packages": [
+        {
+          "id": "5ire-win-x64",
+          "name": "5ire Desktop (NSIS, win32-x64)",
+          "version": "0.15.4",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "13e0d247b5cacc43b8e29d5ee757da2bc75093c8aac4fe1a1abf81dd1144d73a",
+          "sizeBytes": 137986979,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/nanbingxyz/5ire/releases/download/v0.15.4/5ire-Setup-0.15.4.exe",
+              "region": "global",
+              "operator": "github",
+              "note": "Official electron-builder NSIS installer (machine-wide install — upstream sets perMachine true, so an administrator prompt appears)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/nanbingxyz/5ire/releases/download/v0.15.4/5ire-Setup-0.15.4.exe",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/nanbingxyz/5ire/releases/download/v0.15.4/5ire-Setup-0.15.4.exe",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S",
+              "/allusers"
+            ],
+            "notes": "electron-builder NSIS with oneClick false / perMachine true → installs to C:\\Program Files\\5ire and asks for administrator rights. Silent deploy needs /S plus /allusers (verified on a real Windows machine 2026-11-19: exit code 0, C:\\Program Files\\5ire\\5ire.exe present, app starts).",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"Test-Path 'C:\\Program Files\\5ire\\5ire.exe'\"",
+              "expect": "True"
+            }
+          }
+        },
+        {
+          "id": "5ire-mac-x64",
+          "name": "5ire Desktop (dmg, x64)",
+          "version": "0.15.4",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "1902a51453d54ee49f7d63a9ff4c3b9bc7d270113b63cbc29c3ce0f2fba6cf55",
+          "sizeBytes": 159434490,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/nanbingxyz/5ire/releases/download/v0.15.4/5ire-0.15.4.dmg",
+              "region": "global",
+              "operator": "github",
+              "note": "Official electron-builder dmg (contains 5ire.app) — Intel Mac build"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/nanbingxyz/5ire/releases/download/v0.15.4/5ire-0.15.4.dmg",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/nanbingxyz/5ire/releases/download/v0.15.4/5ire-0.15.4.dmg",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/1902a51453d54ee49f7d63a9ff4c3b9bc7d270113b63cbc29c3ce0f2fba6cf55.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "electron-builder dmg ships 5ire.app (productName from upstream build config); copy into /Applications.",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/5ire.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        },
+        {
+          "id": "5ire-mac-arm64",
+          "name": "5ire Desktop (dmg, arm64)",
+          "version": "0.15.4",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "dc1a88012963a010458ded3d89c40c0260df07265add6aa73b29179ad00a0ee4",
+          "sizeBytes": 149558707,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/nanbingxyz/5ire/releases/download/v0.15.4/5ire-0.15.4-arm64.dmg",
+              "region": "global",
+              "operator": "github",
+              "note": "Official electron-builder dmg (contains 5ire.app) — Apple silicon build"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/nanbingxyz/5ire/releases/download/v0.15.4/5ire-0.15.4-arm64.dmg",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/nanbingxyz/5ire/releases/download/v0.15.4/5ire-0.15.4-arm64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/dc1a88012963a010458ded3d89c40c0260df07265add6aa73b29179ad00a0ee4.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "electron-builder dmg ships 5ire.app (productName from upstream build config); copy into /Applications.",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/5ire.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "5ire-win-x64",
+            "5ire-mac-x64",
+            "5ire-mac-arm64"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "5ire-win-x64",
+            "5ire-mac-x64",
+            "5ire-mac-arm64"
+          ]
+        }
+      }
+    },
+    {
+      "id": "aider",
+      "name": "Aider",
+      "version": "0.86.2",
+      "packages": [
+        {
+          "id": "aider-win",
+          "name": "aider-chat wheel (PyPI, user-level pip)",
+          "version": "0.86.2",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "any",
+          "sha256": "64f6a0c66c9f4633ad9f479bca3e64ebcba02b9da03c6b604b74a44736b2416e",
+          "sizeBytes": 377009,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://files.pythonhosted.org/packages/75/f7/e20749d9a510673e7adf910b005e3efe4ceaf9c194f1dd40d6931a3f34b9/aider_chat-0.86.2-py3-none-any.whl",
+              "region": "global",
+              "operator": "pypi",
+              "note": "Official PyPI file host (2026-11-14 measured 200 / sha256 verified on full download)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "python -m pip install --user \"$env:USERPROFILE\\.aibox\\cache\\downloads\\aider_chat-0.86.2-py3-none-any.whl\""
+            ],
+            "notes": "Installs the hash-verified wheel into the per-user site-packages (`--user`, zero admin). Dependencies (litellm, etc.) are resolved from PyPI at install time — in CN, prefix with `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` if the default index is slow. The `aider` console script lands in the user Scripts directory; if it is not on PATH, run `python -m aider`.",
+            "probe": {
+              "cmd": "python -m pip show aider-chat",
+              "expect": "Name:\\s*aider-chat\\s+Version:\\s*\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "aider-mac",
+          "name": "aider-chat wheel (PyPI, user-level pip)",
+          "version": "0.86.2",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "64f6a0c66c9f4633ad9f479bca3e64ebcba02b9da03c6b604b74a44736b2416e",
+          "sizeBytes": 377009,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://files.pythonhosted.org/packages/75/f7/e20749d9a510673e7adf910b005e3efe4ceaf9c194f1dd40d6931a3f34b9/aider_chat-0.86.2-py3-none-any.whl",
+              "region": "global",
+              "operator": "pypi",
+              "note": "Official PyPI file host (2026-11-14 measured 200 / sha256 verified on full download)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; python3 -m pip install --user \"$HOME/.aibox/cache/downloads/64f6a0c66c9f4633ad9f479bca3e64ebcba02b9da03c6b604b74a44736b2416e.whl\""
+            ],
+            "notes": "Same hash-verified wheel via `pip3 --user` (zero admin; lands in ~/Library/Python/<ver>/lib/python/site-packages). Requires Python 3.10–3.12 (`python3 --version`); deps resolve from PyPI (TUNA: export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple). If `aider` is not on PATH, run `python3 -m aider`.",
+            "probe": {
+              "cmd": "python3 -m pip show aider-chat",
+              "expect": "Name:\\s*aider-chat\\s+Version:\\s*\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "direct-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official PyPI install (hash-verified wheel, user-level pip)",
+          "steps": [
+            "aider-win",
+            "aider-mac"
+          ],
+          "note": "Downloads the official PyPI wheel and installs it with `pip install --user`; steps contain both platform packages and are filtered by machine arch. No CN gateway applies (PyPI asset, not GitHub) — CN users get fast dependency resolution by exporting PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple at install time."
+        }
+      }
+    },
+    {
+      "id": "aidog",
+      "name": "AiDog",
+      "version": "0.5.92",
+      "packages": [
+        {
+          "id": "aidog-win",
+          "name": "AiDog source archive (Windows via WSL2)",
+          "version": "0.5.92",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "any",
+          "sha256": "1c9aa62d3c0f3334b782180d129083ff8f5d7a68acb3f5803778a6f2821076be",
+          "contentSha256": "40c24ba7e2781589a8942f37dc5d1e5a037956794341c94955bfa9a18c026e80",
+          "hashMode": "content",
+          "sizeBytes": 3780828,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/AiDog-im/AiDog/archive/7f1864f4da5689484f8ea647e74b4b508ebe7984.tar.gz",
+              "region": "global",
+              "operator": "GitHub",
+              "note": "Official source archive pinned to a Git commit."
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/AiDog-im/AiDog/archive/7f1864f4da5689484f8ea647e74b4b508ebe7984.tar.gz",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community accelerator for the same commit-pinned archive."
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "wsl",
+              "bash",
+              "-lc",
+              "set -e; W=$(wslpath \"$(cmd.exe /c echo %USERPROFILE% 2>/dev/null | tr -d '\\r')\"); S=$(mktemp -d); tar -xzf \"$W/.aibox/cache/downloads/40c24ba7e2781589a8942f37dc5d1e5a037956794341c94955bfa9a18c026e80.gz\" -C \"$S\"; mkdir -p \"$HOME/aidog\"; cp -a \"$S\"/AiDog-7f1864f4da5689484f8ea647e74b4b508ebe7984/. \"$HOME/aidog/\"; rm -rf \"$S\"; bash \"$HOME/aidog/deploy/install.sh\""
+            ],
+            "notes": "Windows route = WSL2 (official reference platform). The script locates the AiBOX-cached source archive from inside WSL, unpacks it to ~/aidog (official Quick Start path) and runs the official one-command installer `deploy/install.sh` (provision + boot + verify, idempotent). Prerequisites inside WSL: Python 3.10+, tmux (manual, admin), a free port 19167. Re-running merges the new version over an existing checkout.",
+            "probe": {
+              "cmd": "wsl bash -lc \"cat ~/aidog/VERSION\"",
+              "expect": "\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "aidog-mac",
+          "name": "AiDog source archive (macOS)",
+          "version": "0.5.92",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "1c9aa62d3c0f3334b782180d129083ff8f5d7a68acb3f5803778a6f2821076be",
+          "contentSha256": "40c24ba7e2781589a8942f37dc5d1e5a037956794341c94955bfa9a18c026e80",
+          "hashMode": "content",
+          "sizeBytes": 3780828,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/AiDog-im/AiDog/archive/7f1864f4da5689484f8ea647e74b4b508ebe7984.tar.gz",
+              "region": "global",
+              "operator": "GitHub",
+              "note": "Official source archive pinned to a Git commit."
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/AiDog-im/AiDog/archive/7f1864f4da5689484f8ea647e74b4b508ebe7984.tar.gz",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community accelerator for the same commit-pinned archive."
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; S=$(mktemp -d); tar -xzf \"$HOME/.aibox/cache/downloads/40c24ba7e2781589a8942f37dc5d1e5a037956794341c94955bfa9a18c026e80.gz\" -C \"$S\"; mkdir -p \"$HOME/aidog\"; cp -a \"$S\"/AiDog-7f1864f4da5689484f8ea647e74b4b508ebe7984/. \"$HOME/aidog/\"; rm -rf \"$S\"; bash \"$HOME/aidog/deploy/install.sh\""
+            ],
+            "notes": "Unpack the cached, hash-verified source archive to ~/aidog and run the official installer (provision + boot + verify; idempotent, safe to re-run). Needs Python 3.10+ and tmux (brew install tmux) — installed manually beforehand, AiBOX never escalates. Upstream marks macOS as expected-but-untested.",
+            "probe": {
+              "cmd": "cat ~/aidog/VERSION",
+              "expect": "\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official source install (commit-pinned archive)",
+          "steps": [
+            "aidog-win",
+            "aidog-mac"
+          ],
+          "note": "Both platforms share the same commit-pinned archive. Windows runs inside WSL2."
+        },
+        "proxy-install": {
+          "label": "China-accelerated install (gh-proxy channel)",
+          "steps": [
+            "aidog-win",
+            "aidog-mac"
+          ],
+          "note": "Same package, download layer prefers the gh-proxy channel in the CN region and falls back to direct automatically."
+        }
+      }
+    },
+    {
+      "id": "anything-llm",
+      "name": "AnythingLLM",
+      "version": "1.20.0",
+      "packages": [
+        {
+          "id": "anyllm-win-x64",
+          "name": "AnythingLLM Desktop Windows installer (x64)",
+          "version": "1.20.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "63dad00f576986d5403a3ff5f354192347ecafdbb885e10168e3d8b77c725f55",
+          "sizeBytes": 396626360,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop.exe",
+              "region": "global",
+              "operator": "Mintplex-Labs",
+              "note": "GitHub Releases direct (daily CI HEAD)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "Official silent mode (docs.anythingllm.com installation-desktop/windows, available v1.16.1+): `AnythingLLMDesktop.exe /S` — always installs for the current user into %LOCALAPPDATA%\\Programs\\AnythingLLM (the only supported location), skips the ~2GB Meeting Assistant model. Add /DOWNLOAD_MODEL=yes only if you want that model. Engine/GPU support files are still fetched from the vendor CDN during install.",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Programs\\AnythingLLM\\AnythingLLMDesktop.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "anyllm-win-arm64",
+          "name": "AnythingLLM Desktop Windows installer (ARM64)",
+          "version": "1.20.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "arm64",
+          "sha256": "347ace31a06a63c6982ec576361437374d10abd7d27c5cdcbfc0dfeca9bfe719",
+          "sizeBytes": 484456520,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop-Arm64.exe",
+              "region": "global",
+              "operator": "Mintplex-Labs",
+              "note": "GitHub Releases direct (daily CI HEAD)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop-Arm64.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop-Arm64.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "Same official silent mode as x64 (`/S`, current user, %LOCALAPPDATA%\\Programs\\AnythingLLM).",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Programs\\AnythingLLM\\AnythingLLMDesktop.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "anyllm-mac-arm64",
+          "name": "AnythingLLM macOS dmg (Apple Silicon)",
+          "version": "1.20.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "eb5d0702d86ba7452660efcb6482141e8da863e397e802498a3884f21404aade",
+          "sizeBytes": 604481437,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop-Silicon.dmg",
+              "region": "global",
+              "operator": "Mintplex-Labs",
+              "note": "GitHub Releases direct (daily CI HEAD)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop-Silicon.dmg",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop-Silicon.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/eb5d0702d86ba7452660efcb6482141e8da863e397e802498a3884f21404aade.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "dmg mount + copy AnythingLLM.app into /Applications + detach (official docs: drag the AnythingLLM logo into Applications; brew: install --cask anythingllm).",
+            "probe": {
+              "cmd": "/Applications/AnythingLLM.app/Contents/MacOS/AnythingLLM --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "anyllm-mac-x64",
+          "name": "AnythingLLM macOS dmg (Intel)",
+          "version": "1.20.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "5255b43221f56dbde3ec745636743910a3adebafc0f67e86aa573462fabf68a9",
+          "sizeBytes": 551384444,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop.dmg",
+              "region": "global",
+              "operator": "Mintplex-Labs",
+              "note": "GitHub Releases direct (daily CI HEAD)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop.dmg",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/Mintplex-Labs/anything-llm/releases/download/v1.20.0/AnythingLLMDesktop.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/5255b43221f56dbde3ec745636743910a3adebafc0f67e86aa573462fabf68a9.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "Same dmg mount + copy as arm64.",
+            "probe": {
+              "cmd": "/Applications/AnythingLLM.app/Contents/MacOS/AnythingLLM --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official direct install (GitHub Releases)",
+          "steps": [
+            "anyllm-win-x64",
+            "anyllm-mac-arm64"
+          ],
+          "note": "Installer route: Windows runs the official NSIS silent mode (/S, current user), macOS mounts the dmg and copies AnythingLLM.app; steps contain both platform packages and are filtered by machine arch (arm64 machines pick the -Arm64/-Silicon variants)."
+        },
+        "proxy-install": {
+          "label": "CN accelerated install (ghfast/gh-proxy channels)",
+          "steps": [
+            "anyllm-win-x64",
+            "anyllm-mac-arm64"
+          ],
+          "note": "Same packages; the download layer prefers proxy channels in CN and falls back to direct automatically."
+        }
+      }
+    },
+    {
+      "id": "chatbox",
+      "name": "Chatbox",
+      "version": "1.24.4",
+      "packages": [
+        {
+          "id": "chatbox-win-x64",
+          "name": "Chatbox Windows Installer (x64)",
+          "version": "1.24.3",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "7d67a0df61c9daf5d3aed57434fcd7d6b0bb98856ec69d16cd3c07bafef24187",
+          "sizeBytes": 241083488,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://download.chatboxai.app/releases/Chatbox-1.24.4-Setup.exe",
+              "region": "global",
+              "operator": "chatboxai",
+              "note": "官方 CDN 直连（探活 CI 每日 HEAD）。本应用资产不在 GitHub，社区加速网关（ghfast/gh-proxy 仅代理 github.com）不适用 → 无 proxy 通道"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "electron-builder NSIS 辅助安装模式（electron-builder.yml 实证 oneClick:false、productName=Chatbox），默认安装到 %LOCALAPPDATA%\\Programs\\Chatbox。/S 为 electron-builder NSIS 官方静默参数。",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Programs\\Chatbox\\Chatbox.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "chatbox-mac-arm64",
+          "name": "Chatbox macOS dmg (Apple Silicon)",
+          "version": "1.24.3",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "09a48e314ec4d2988219db3e128a58fe6b32cd2da24a779f8068d98874a04d78",
+          "sizeBytes": 157996502,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://download.chatboxai.app/releases/Chatbox-1.24.4-arm64.dmg",
+              "region": "global",
+              "operator": "chatboxai",
+              "note": "官方 CDN 直连（探活 CI 每日 HEAD）；无 proxy 通道（资产不在 GitHub）"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/09a48e314ec4d2988219db3e128a58fe6b32cd2da24a779f8068d98874a04d78.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "dmg 挂载 + 拷贝 Chatbox.app + 卸载（hdiutil 惯例，destName=URL 末段）。",
+            "probe": {
+              "cmd": "/Applications/Chatbox.app/Contents/MacOS/Chatbox --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "chatbox-mac-x64",
+          "name": "Chatbox macOS dmg (Intel)",
+          "version": "1.24.3",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "c2bc74141321e783394f2a1db9ca0984f93a90b42bf58659a3f76b29c9ad144f",
+          "sizeBytes": 165182243,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://download.chatboxai.app/releases/Chatbox-1.24.4.dmg",
+              "region": "global",
+              "operator": "chatboxai",
+              "note": "官方 CDN 直连（探活 CI 每日 HEAD）；无 proxy 通道（资产不在 GitHub）"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/c2bc74141321e783394f2a1db9ca0984f93a90b42bf58659a3f76b29c9ad144f.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "dmg 挂载 + 拷贝 Chatbox.app + 卸载（hdiutil 惯例，destName=URL 末段）。",
+            "probe": {
+              "cmd": "/Applications/Chatbox.app/Contents/MacOS/Chatbox --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "direct-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "官方 CDN 直连安装",
+          "steps": [
+            "chatbox-win-x64",
+            "chatbox-mac-x64"
+          ],
+          "note": "安装器路线：Windows 走 NSIS 静默安装（仅 x64 资产），macOS 走 dmg 挂载拷贝（x64/arm64 各一份，按机型过滤，arm64 机型自动换成 -arm64 变体）。上游无 Windows ARM64 资产 → WoA 机型 plan 为空（待上游发布对应资产）；本应用资产不在 GitHub，国内同样走官方 CDN 直连（网关不代理非 GitHub 源）。"
+        }
+      }
+    },
+    {
+      "id": "cherry-studio",
+      "name": "Cherry Studio",
+      "version": "2.2.3",
+      "packages": [
+        {
+          "id": "cherry-win-x64",
+          "name": "Cherry Studio Windows Installer (x64)",
+          "version": "2.2.3",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "95d32c330c14fddadf1223eb754ba521ff548780b820527c6846499f7e5dead7",
+          "sizeBytes": 300195208,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-win-x64-setup.exe",
+              "region": "global",
+              "operator": "cherryhq",
+              "note": "GitHub Releases 直连（探活 CI 每日 HEAD）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-win-x64-setup.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关（2026-11-11 实测 200/同大小）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-win-x64-setup.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关（2026-11-11 实测 200/同大小）"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "electron-builder NSIS 辅助安装模式（electron-builder.yml 实证 oneClick:false、executableName \"Cherry Studio\"），默认安装到 %LOCALAPPDATA%\\Programs\\Cherry Studio。/S 为 electron-builder NSIS 官方静默参数。",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Programs\\Cherry Studio\\Cherry Studio.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "cherry-win-arm64",
+          "name": "Cherry Studio Windows Installer (ARM64)",
+          "version": "2.2.3",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "arm64",
+          "sha256": "fd293cff8f27616a1c8427eb3f9a961cbf21cde4bf70e9c7da3e6309370567e6",
+          "sizeBytes": 279008608,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-win-arm64-setup.exe",
+              "region": "global",
+              "operator": "cherryhq",
+              "note": "GitHub Releases 直连（探活 CI 每日 HEAD）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-win-arm64-setup.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-win-arm64-setup.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "同 x64（electron-builder NSIS oneClick:false）。",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Programs\\Cherry Studio\\Cherry Studio.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "cherry-mac-x64",
+          "name": "Cherry Studio macOS dmg (Intel)",
+          "version": "2.2.3",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "f57be2cf11029ed7a457da4e42d01de3a5be106aea5b3cdd52c6237a5d3f22f5",
+          "sizeBytes": 315623427,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-mac-x64.dmg",
+              "region": "global",
+              "operator": "cherryhq",
+              "note": "GitHub Releases 直连（探活 CI 每日 HEAD）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-mac-x64.dmg",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-mac-x64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/f57be2cf11029ed7a457da4e42d01de3a5be106aea5b3cdd52c6237a5d3f22f5.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "dmg 挂载 + 拷贝 Cherry Studio.app + 卸载（hdiutil 惯例，destName=URL 末段）。",
+            "probe": {
+              "cmd": "/Applications/Cherry Studio.app/Contents/MacOS/Cherry Studio --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "cherry-mac-arm64",
+          "name": "Cherry Studio macOS dmg (Apple Silicon)",
+          "version": "2.2.3",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "afa9c479997a3c28b5a8a79d5dff71bd38f0d2d662dce6093aee642ccbaafae3",
+          "sizeBytes": 291610226,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-mac-arm64.dmg",
+              "region": "global",
+              "operator": "cherryhq",
+              "note": "GitHub Releases 直连（探活 CI 每日 HEAD）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-mac-arm64.dmg",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关（2026-11-11 实测 200/同大小）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/CherryHQ/cherry-studio/releases/download/v2.2.3/Cherry-Studio-2.2.3-mac-arm64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/afa9c479997a3c28b5a8a79d5dff71bd38f0d2d662dce6093aee642ccbaafae3.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "dmg 挂载 + 拷贝 Cherry Studio.app + 卸载（hdiutil 惯例，destName=URL 末段）。",
+            "probe": {
+              "cmd": "/Applications/Cherry Studio.app/Contents/MacOS/Cherry Studio --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "官方直连安装（GitHub Releases）",
+          "steps": [
+            "cherry-win-x64",
+            "cherry-mac-x64"
+          ],
+          "note": "安装器路线：Windows 走 NSIS 静默安装，macOS 走 dmg 挂载拷贝；步骤含双平台包，按机型过滤，arm64 机型自动换成 -arm64 变体。"
+        },
+        "proxy-install": {
+          "label": "国内加速安装（ghfast/gh-proxy 通道）",
+          "steps": [
+            "cherry-win-x64",
+            "cherry-mac-x64"
+          ],
+          "note": "与 direct-install 同包；下载层按区域优先 proxy 通道，失败自动降级直连。"
+        }
+      }
+    },
+    {
+      "id": "cline",
+      "name": "Cline",
+      "version": "4.1.27",
+      "packages": [
+        {
+          "id": "cline-win",
+          "name": "Cline VS Code extension (VSIX)",
+          "version": "4.1.27",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "any",
+          "sha256": "62437813fc43e09b3c532e0bd50d924ad8625153db05b74d71a73ce87fe3754d",
+          "sizeBytes": 14420212,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/cline/cline/releases/download/v4.1.27/cline-4.1.27.vsix",
+              "region": "global",
+              "operator": "cline",
+              "note": "GitHub Releases direct (daily CI HEAD). Official release asset published with each version."
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/cline/cline/releases/download/v4.1.27/cline-4.1.27.vsix",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/cline/cline/releases/download/v4.1.27/cline-4.1.27.vsix",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "code --install-extension \"$env:USERPROFILE\\.aibox\\cache\\downloads\\cline-4.1.27.vsix\" --force"
+            ],
+            "notes": "Installs the hash-verified VSIX through VS Code's own CLI (`code --install-extension`), the same mechanism the Marketplace uses — per-user, zero admin. Prerequisites: VS Code installed and `code` on PATH (Windows default).",
+            "probe": {
+              "cmd": "code --list-extensions --show-versions",
+              "expect": "saoudrizwan\\.claude-dev@\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "cline-mac",
+          "name": "Cline VS Code extension (VSIX)",
+          "version": "4.1.27",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "62437813fc43e09b3c532e0bd50d924ad8625153db05b74d71a73ce87fe3754d",
+          "sizeBytes": 14420212,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/cline/cline/releases/download/v4.1.27/cline-4.1.27.vsix",
+              "region": "global",
+              "operator": "cline",
+              "note": "GitHub Releases direct (daily CI HEAD)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/cline/cline/releases/download/v4.1.27/cline-4.1.27.vsix",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/cline/cline/releases/download/v4.1.27/cline-4.1.27.vsix",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; code --install-extension \"$HOME/.aibox/cache/downloads/62437813fc43e09b3c532e0bd50d924ad8625153db05b74d71a73ce87fe3754d.vsix\" --force"
+            ],
+            "notes": "Same hash-verified VSIX via VS Code CLI. macOS prerequisite: run VS Code's Command Palette → \"Shell Command: Install 'code' command in PATH\" once, otherwise the `code` binary is not found. Zero admin.",
+            "probe": {
+              "cmd": "code --list-extensions --show-versions",
+              "expect": "saoudrizwan\\.claude-dev@\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official direct install (GitHub release VSIX)",
+          "steps": [
+            "cline-win",
+            "cline-mac"
+          ],
+          "note": "Downloads the official VSIX and installs it with `code --install-extension`; steps contain both platform packages and are filtered by machine arch."
+        },
+        "proxy-install": {
+          "label": "CN accelerated install (ghfast/gh-proxy channels)",
+          "steps": [
+            "cline-win",
+            "cline-mac"
+          ],
+          "note": "Same packages; the download layer prefers proxy channels in CN and falls back to direct automatically."
+        }
+      }
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "version": "0.170.0",
+      "packages": [
+        {
+          "id": "codex-win-x64",
+          "name": "Codex CLI (self-contained, win32-x64)",
+          "version": "rust-v0.171.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "cefea4ffee1fff04983a99c0dda99944d8b380e891e740a28b32f4b815a6e0b7",
+          "sizeBytes": 407421232,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/openai/codex/releases/download/rust-v0.171.0/codex-x86_64-pc-windows-msvc.exe",
+              "region": "global",
+              "operator": "github",
+              "note": "Official standalone binary"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/openai/codex/releases/download/rust-v0.171.0/codex-x86_64-pc-windows-msvc.exe",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/openai/codex/releases/download/rust-v0.171.0/codex-x86_64-pc-windows-msvc.exe",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "$d=\"$env:LOCALAPPDATA\\Programs\\Codex\"; New-Item -ItemType Directory -Force -Path $d | Out-Null; Copy-Item \"$env:USERPROFILE\\.aibox\\cache\\downloads\\ce1945eb440b5481ed1233ebaf32b7056ee7e4e452fa62ffe1cbfb26103cdee0.exe\" \"$d\\codex.exe\" -Force"
+            ],
+            "notes": "Copies the hash-verified binary into the user directory (same pattern as llamafile). No admin, no PATH mutation; launch from any terminal at %LOCALAPPDATA%\\Programs\\Codex\\codex.exe.",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"& \\\"$env:LOCALAPPDATA\\Programs\\Codex\\codex.exe\\\" --version\"",
+              "expect": "[cC]odex"
+            }
+          }
+        },
+        {
+          "id": "codex-mac-arm64",
+          "name": "Codex CLI (dmg, arm64)",
+          "version": "rust-v0.171.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "a045e08133c1d29a388443e2dc672768ad34a0b4fb31cdeebfd9de110bdfb02a",
+          "sizeBytes": 250609096,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/openai/codex/releases/download/rust-v0.171.0/codex-aarch64-apple-darwin.dmg",
+              "region": "global",
+              "operator": "github",
+              "note": "Official dmg (flattened bin/codex + symlink, verified in upstream CI)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/openai/codex/releases/download/rust-v0.171.0/codex-aarch64-apple-darwin.dmg",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/openai/codex/releases/download/rust-v0.171.0/codex-aarch64-apple-darwin.dmg",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -readonly -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/a045e08133c1d29a388443e2dc672768ad34a0b4fb31cdeebfd9de110bdfb02a.dmg\"; D=\"/Applications/Codex\"; mkdir -p \"$D\"; ditto \"$M\" \"$D\"; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "Mount dmg and ditto its contents into /Applications/Codex (upstream layout: bin/codex + relative codex symlink + codex-resources). Run as /Applications/Codex/codex.",
+            "probe": {
+              "cmd": "bash -lc \"/Applications/Codex/codex --version\"",
+              "expect": "[cC]odex"
+            }
+          }
+        },
+        {
+          "id": "codex-mac-x64",
+          "name": "Codex CLI (dmg, x64)",
+          "version": "rust-v0.171.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "cfda30e0c8a65f4b9fad82055cabc45e189bbc12e7dacc325115ce29ff0a7923",
+          "sizeBytes": 274669679,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/openai/codex/releases/download/rust-v0.171.0/codex-x86_64-apple-darwin.dmg",
+              "region": "global",
+              "operator": "github",
+              "note": "Official dmg (flattened bin/codex + symlink, verified in upstream CI)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/openai/codex/releases/download/rust-v0.171.0/codex-x86_64-apple-darwin.dmg",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/openai/codex/releases/download/rust-v0.171.0/codex-x86_64-apple-darwin.dmg",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -readonly -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/cfda30e0c8a65f4b9fad82055cabc45e189bbc12e7dacc325115ce29ff0a7923.dmg\"; D=\"/Applications/Codex\"; mkdir -p \"$D\"; ditto \"$M\" \"$D\"; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "Mount dmg and ditto its contents into /Applications/Codex (upstream layout: bin/codex + relative codex symlink + codex-resources). Run as /Applications/Codex/codex.",
+            "probe": {
+              "cmd": "bash -lc \"/Applications/Codex/codex --version\"",
+              "expect": "[cC]odex"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "codex-win-x64",
+            "codex-mac-x64"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "codex-win-x64",
+            "codex-mac-x64"
+          ]
+        }
+      }
+    },
+    {
+      "id": "comfyui",
+      "name": "ComfyUI",
+      "version": "0.46.0",
+      "packages": [
+        {
+          "id": "comfyui-win",
+          "name": "ComfyUI Windows portable (NVIDIA / CPU, 7z)",
+          "version": "0.46.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "6a5255c7ec01fdc54bdbd8e4507073cf6acda2fbeea74ae1829a50681af5fac6",
+          "sizeBytes": 2085169944,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/Comfy-Org/ComfyUI/releases/download/v0.46.0/ComfyUI_windows_portable_nvidia.7z",
+              "region": "global",
+              "operator": "comfyorg",
+              "note": "GitHub Releases direct (daily CI HEAD; 2026-11-14 measured 302 → 200 / Content-Length = sizeBytes). ghfast.top answered 403 for every Comfy-Org asset (measured 2026-11-14, same behavior as the Ollama profile) — only the gh-proxy channel is shipped."
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/Comfy-Org/ComfyUI/releases/download/v0.46.0/ComfyUI_windows_portable_nvidia.7z",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-14 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "New-Item -ItemType Directory -Force -Path \"$env:LOCALAPPDATA\\Programs\" | Out-Null; tar -xf \"$env:USERPROFILE\\.aibox\\cache\\downloads\\ComfyUI_windows_portable_nvidia.7z\" -C \"$env:LOCALAPPDATA\\Programs\""
+            ],
+            "notes": "Extracts the hash-verified official portable into %LOCALAPPDATA%\\Programs\\ComfyUI_windows_portable (per-user, zero admin, no Python install needed — the portable ships python_embeded). Uses Windows' built-in `tar`, which reads 7z on recent Windows (README: extract with 7-Zip or Explorer on recent Windows); if `tar` fails, install 7-Zip and extract manually. First run: double-click run_nvidia_gpu.bat (or run_cpu.bat under ComfyUI\\advanced for CPU-only). ~2 GB download.",
+            "probe": {
+              "cmd": "type \"%LOCALAPPDATA%\\Programs\\ComfyUI_windows_portable\\ComfyUI\\comfyui_version.py\"",
+              "expect": "__version__\\s*=\\s*['\"]?\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "comfyui-mac",
+          "name": "ComfyUI source archive (macOS, venv install)",
+          "version": "0.46.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "1281a61ab7b5f32b4d771c4f89633573eadcd820f5e1e93e92c261f54ac3890a",
+          "sizeBytes": 12979257,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/Comfy-Org/ComfyUI/archive/refs/tags/v0.46.0.tar.gz",
+              "region": "global",
+              "operator": "comfyorg",
+              "note": "GitHub tag source archive (2026-11-14 measured: full download sha256 recorded; codeload answers HEAD without Content-Length, so the size check is digest-based). ghfast.top answered 403 for Comfy-Org archives (measured 2026-11-14) — only the gh-proxy channel is shipped."
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/Comfy-Org/ComfyUI/archive/refs/tags/v0.46.0.tar.gz",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-14 measured 200)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; S=$(mktemp -d); tar -xzf \"$HOME/.aibox/cache/downloads/1281a61ab7b5f32b4d771c4f89633573eadcd820f5e1e93e92c261f54ac3890a.gz\" -C \"$S\"; rm -rf \"$HOME/ComfyUI\"; mv \"$S/ComfyUI-0.46.0\" \"$HOME/ComfyUI\"; rmdir \"$S\"; cd \"$HOME/ComfyUI\"; python3 -m venv .venv; .venv/bin/pip install -r requirements.txt"
+            ],
+            "notes": "Unpacks the hash-verified source archive to ~/ComfyUI (official manual-install layout), creates a venv inside it and installs requirements — everything under the user home, zero admin. Prerequisites: Python 3.10–3.13 (`python3 --version`) and several GB of disk; the dependency pull includes PyTorch (~1–2 GB, PyPI default index — CN: PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple). First run: `cd ~/ComfyUI && .venv/bin/python main.py` → http://127.0.0.1:8188 (port measured in main.py).",
+            "probe": {
+              "cmd": "cat ~/ComfyUI/comfyui_version.py",
+              "expect": "__version__\\s*=\\s*['\"]?\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official direct install (portable 7z / source archive)",
+          "steps": [
+            "comfyui-win",
+            "comfyui-mac"
+          ],
+          "note": "Windows: extract the official portable with the built-in tar (no admin, no Python install). macOS: unpack the tag archive into ~/ComfyUI and install requirements into a local venv. Steps contain both platform packages and are filtered by machine arch."
+        },
+        "proxy-install": {
+          "label": "CN accelerated install (gh-proxy channel)",
+          "steps": [
+            "comfyui-win",
+            "comfyui-mac"
+          ],
+          "note": "Same packages; the download layer prefers the gh-proxy channel in CN and falls back to direct automatically (ghfast.top does not serve Comfy-Org assets — measured 403 on 2026-11-14)."
+        }
+      }
+    },
+    {
+      "id": "continue",
+      "name": "Continue",
+      "version": "2.1.0",
+      "packages": [
+        {
+          "id": "continue-win",
+          "name": "Continue VS Code extension (VSIX, win32-x64)",
+          "version": "2.1.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "0aa7844bcd6b042517e1bd5d77d26a14c2d68914d832fbfc6a0d49d921ac8f88",
+          "sizeBytes": 74469477,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://open-vsx.org/api/Continue/continue/win32-x64/2.1.0/file/Continue.continue-2.1.0@win32-x64.vsix",
+              "region": "global",
+              "operator": "open-vsx.org",
+              "note": "Official Open VSX registry download (2026-11-14 measured 200 / Content-Length = sizeBytes). Continue ships no GitHub release assets, so the community GitHub gateways do not apply to this app."
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "code --install-extension \"$env:USERPROFILE\\.aibox\\cache\\downloads\\Continue.continue-2.1.0@win32-x64.vsix\" --force"
+            ],
+            "notes": "Installs the hash-verified VSIX through VS Code's own CLI (`code --install-extension`), the same mechanism the Marketplace uses — per-user, zero admin. Prerequisites: VS Code installed and `code` on PATH (Windows default).",
+            "probe": {
+              "cmd": "code --list-extensions --show-versions",
+              "expect": "Continue\\.continue@\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "continue-mac-arm64",
+          "name": "Continue VS Code extension (VSIX, darwin-arm64)",
+          "version": "2.1.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "739d26de25aa7f66a11d3eb85b8bbd16c48d8bd8a628cc477e686659a700ef1d",
+          "sizeBytes": 77895110,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://open-vsx.org/api/Continue/continue/darwin-arm64/2.1.0/file/Continue.continue-2.1.0@darwin-arm64.vsix",
+              "region": "global",
+              "operator": "open-vsx.org",
+              "note": "Official Open VSX registry download (2026-11-14 measured 200 / Content-Length = sizeBytes)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; code --install-extension \"$HOME/.aibox/cache/downloads/739d26de25aa7f66a11d3eb85b8bbd16c48d8bd8a628cc477e686659a700ef1d.vsix\" --force"
+            ],
+            "notes": "Same hash-verified VSIX via VS Code CLI. macOS prerequisite: run VS Code's Command Palette → \"Shell Command: Install 'code' command in PATH\" once, otherwise the `code` binary is not found. Zero admin.",
+            "probe": {
+              "cmd": "code --list-extensions --show-versions",
+              "expect": "Continue\\.continue@\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "continue-mac-x64",
+          "name": "Continue VS Code extension (VSIX, darwin-x64)",
+          "version": "2.1.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "1663c19546ff568f25a7c032347f6b3699dc052f2a046c9b4c4809d207d08b5c",
+          "sizeBytes": 113239087,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://open-vsx.org/api/Continue/continue/darwin-x64/2.1.0/file/Continue.continue-2.1.0@darwin-x64.vsix",
+              "region": "global",
+              "operator": "open-vsx.org",
+              "note": "Official Open VSX registry download (2026-11-14 measured 200 / Content-Length = sizeBytes)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; code --install-extension \"$HOME/.aibox/cache/downloads/1663c19546ff568f25a7c032347f6b3699dc052f2a046c9b4c4809d207d08b5c.vsix\" --force"
+            ],
+            "notes": "Same hash-verified VSIX via VS Code CLI (Intel Macs). macOS prerequisite: run VS Code's Command Palette → \"Shell Command: Install 'code' command in PATH\" once. Zero admin.",
+            "probe": {
+              "cmd": "code --list-extensions --show-versions",
+              "expect": "Continue\\.continue@\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "direct-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official Open VSX install (hash-verified VSIX via the VS Code CLI)",
+          "steps": [
+            "continue-win",
+            "continue-mac-arm64",
+            "continue-mac-x64"
+          ],
+          "note": "Downloads the platform VSIX from Open VSX and installs it with `code --install-extension`; steps contain all platform packages and are filtered by machine arch. Open VSX is a Fastly-fronted CDN reachable from CN directly — no GitHub gateway applies (this app ships no GitHub assets), so the CN order uses the same plan."
+        }
+      }
+    },
+    {
+      "id": "cowagent",
+      "name": "CowAgent",
+      "version": "2.2.2",
+      "packages": [
+        {
+          "id": "cowagent-win-x64",
+          "name": "CowAgent Windows installer (x64)",
+          "version": "2.2.2",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "d856cdc10cf172cc84603754d26de8bbae6c374fdec16eeb9a4a945cc0bf408d",
+          "sizeBytes": 189761792,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/zhayujie/CowAgent/releases/download/2.2.2/CowAgent-Setup-2.2.2-x64.exe",
+              "region": "global",
+              "operator": "zhayujie",
+              "note": "Official GitHub Releases installer (daily probe HEAD + Content-Length). A separate CowAgent-Setup-2.2.2-win7-x64.exe exists for Windows 7 and is intentionally not routed."
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/zhayujie/CowAgent/releases/download/2.2.2/CowAgent-Setup-2.2.2-x64.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 189761792 identical)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/zhayujie/CowAgent/releases/download/2.2.2/CowAgent-Setup-2.2.2-x64.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 189761792 identical)"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "electron-builder NSIS (desktop/electron-builder.js: oneClick false, perMachine false, artifactName CowAgent-Setup-*) → standard NSIS silent flag /S; default install dir %LOCALAPPDATA%\\Programs\\CowAgent (per-user, no admin; directory is changeable in the interactive installer). Signed build.",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Programs\\CowAgent\\CowAgent.exe\" --version",
+              "expect": "\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "cowagent-mac-arm64",
+          "name": "CowAgent macOS dmg (Apple Silicon)",
+          "version": "2.2.2",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "c3af5a167b18fe132cbd5f59919dba6c43120a353b10572fd1c8fc0aa95a75cf",
+          "sizeBytes": 228228555,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/zhayujie/CowAgent/releases/download/2.2.2/CowAgent-2.2.2-arm64.dmg",
+              "region": "global",
+              "operator": "zhayujie",
+              "note": "Official per-arch dmg (daily probe HEAD + Content-Length)."
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/zhayujie/CowAgent/releases/download/2.2.2/CowAgent-2.2.2-arm64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 228228555 identical)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/zhayujie/CowAgent/releases/download/2.2.2/CowAgent-2.2.2-arm64.dmg",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 228228555 identical)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/c3af5a167b18fe132cbd5f59919dba6c43120a353b10572fd1c8fc0aa95a75cf.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "dmg mount + copy .app + unmount (same convention as other desktop apps). If /Applications is not writable for the current (non-admin) account, fall back to ~/Applications — manual route in the guide. Upstream builds are notarized Electron dmgs.",
+            "probe": {
+              "cmd": "/Applications/CowAgent.app/Contents/MacOS/CowAgent --version",
+              "expect": "\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "cowagent-mac-x64",
+          "name": "CowAgent macOS dmg (Intel)",
+          "version": "2.2.2",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "12aa29e2ab35524f17c95f8cf50b8e7ef1c164ac86998ab62f34535e8eecb902",
+          "sizeBytes": 239855555,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/zhayujie/CowAgent/releases/download/2.2.2/CowAgent-2.2.2-x64.dmg",
+              "region": "global",
+              "operator": "zhayujie",
+              "note": "Official per-arch dmg (daily probe HEAD + Content-Length)."
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/zhayujie/CowAgent/releases/download/2.2.2/CowAgent-2.2.2-x64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 239855555 identical)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/zhayujie/CowAgent/releases/download/2.2.2/CowAgent-2.2.2-x64.dmg",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 239855555 identical)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/12aa29e2ab35524f17c95f8cf50b8e7ef1c164ac86998ab62f34535e8eecb902.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "Intel build of the same release; identical dmg flow. Use ~/Applications manually if /Applications is not writable.",
+            "probe": {
+              "cmd": "/Applications/CowAgent.app/Contents/MacOS/CowAgent --version",
+              "expect": "\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official desktop installers (GitHub Releases)",
+          "steps": [
+            "cowagent-win-x64",
+            "cowagent-mac-arm64",
+            "cowagent-mac-x64"
+          ],
+          "note": "Three platform packages; PLAN filters steps by machine (Windows x64 / macOS Apple Silicon / macOS Intel). The one-line server installer is documented as the manual route in the guide."
+        },
+        "proxy-install": {
+          "label": "China-accelerated install (gh-proxy / ghfast channels)",
+          "steps": [
+            "cowagent-win-x64",
+            "cowagent-mac-arm64",
+            "cowagent-mac-x64"
+          ],
+          "note": "Same packages; in the CN region the download layer prefers accelerator channels and falls back to direct automatically (both gateways measured 200 / identical size on 2026-11-12)."
+        }
+      }
+    },
+    {
+      "id": "dyad",
+      "name": "Dyad",
+      "version": "1.23.0",
+      "packages": [
+        {
+          "id": "dyad-win-x64",
+          "name": "Dyad Desktop (Squirrel setup, win32-x64)",
+          "version": "1.23.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "23960f2df6ff7d2e5494a82a5dc24279d7bdbb801465a2512d900cd77180f678",
+          "sizeBytes": 178051360,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/dyad-sh/dyad/releases/download/v1.23.0/dyad-1.23.0.Setup.exe",
+              "region": "global",
+              "operator": "github",
+              "note": "Official Electron Forge MakerSquirrel setup (per-user install)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/dyad-sh/dyad/releases/download/v1.23.0/dyad-1.23.0.Setup.exe",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/dyad-sh/dyad/releases/download/v1.23.0/dyad-1.23.0.Setup.exe",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "Electron Forge MakerSquirrel setup — per-user install under %LOCALAPPDATA%\\dyad, no UAC. Squirrel accepts the /S silent switch. Verified on a real Windows machine 2026-11-19: silent install exit code 0, %LOCALAPPDATA%\\dyad\\dyad.exe present, Squirrel creates the Start-menu and desktop shortcuts, and the app starts (writes %APPDATA%\\dyad\\logs\\main.log).",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"Test-Path $env:LOCALAPPDATA\\dyad\\dyad.exe\"",
+              "expect": "True"
+            }
+          }
+        },
+        {
+          "id": "dyad-mac-x64",
+          "name": "Dyad Desktop (zip, x64)",
+          "version": "1.23.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "7bc14403480dcc765a02dbaa3aeb51dcc223524e55e17c5022c5973330b021ee",
+          "sizeBytes": 140284060,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/dyad-sh/dyad/releases/download/v1.23.0/dyad-darwin-x64-1.23.0.zip",
+              "region": "global",
+              "operator": "github",
+              "note": "Official Electron Forge MakerZIP (contains dyad.app) — Intel Mac build"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/dyad-sh/dyad/releases/download/v1.23.0/dyad-darwin-x64-1.23.0.zip",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/dyad-sh/dyad/releases/download/v1.23.0/dyad-darwin-x64-1.23.0.zip",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; T=$(mktemp -d); ditto -x -k \"$HOME/.aibox/cache/downloads/7bc14403480dcc765a02dbaa3aeb51dcc223524e55e17c5022c5973330b021ee.zip\" \"$T\"; cp -R \"$T\"/dyad.app /Applications/; rm -rf \"$T\""
+            ],
+            "notes": "Electron Forge MakerZIP ships dyad.app at the archive root; unzip and copy into /Applications.",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/dyad.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        },
+        {
+          "id": "dyad-mac-arm64",
+          "name": "Dyad Desktop (zip, arm64)",
+          "version": "1.23.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "50667b4acc859d936222703bddfc51b4729a311ea281ab95f274b216b6a2fe15",
+          "sizeBytes": 130606146,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/dyad-sh/dyad/releases/download/v1.23.0/dyad-darwin-arm64-1.23.0.zip",
+              "region": "global",
+              "operator": "github",
+              "note": "Official Electron Forge MakerZIP (contains dyad.app) — Apple silicon build"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/dyad-sh/dyad/releases/download/v1.23.0/dyad-darwin-arm64-1.23.0.zip",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/dyad-sh/dyad/releases/download/v1.23.0/dyad-darwin-arm64-1.23.0.zip",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; T=$(mktemp -d); ditto -x -k \"$HOME/.aibox/cache/downloads/50667b4acc859d936222703bddfc51b4729a311ea281ab95f274b216b6a2fe15.zip\" \"$T\"; cp -R \"$T\"/dyad.app /Applications/; rm -rf \"$T\""
+            ],
+            "notes": "Electron Forge MakerZIP ships dyad.app at the archive root; unzip and copy into /Applications.",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/dyad.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "dyad-win-x64",
+            "dyad-mac-x64",
+            "dyad-mac-arm64"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "dyad-win-x64",
+            "dyad-mac-x64",
+            "dyad-mac-arm64"
+          ]
+        }
+      }
+    },
+    {
+      "id": "fooocus",
+      "name": "Fooocus",
+      "version": "2.5.5",
+      "packages": [
+        {
+          "id": "fooocus-src",
+          "name": "Fooocus (source, tag 2.5.5)",
+          "version": "2.5.5",
+          "platforms": [
+            "windows",
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "a5f05c4888178428e250e07fd1163f7c372deeed057482c5da9cd75de36ad89d",
+          "sizeBytes": 10302076,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/lllyasviel/Fooocus/archive/refs/tags/v2.5.5.tar.gz",
+              "region": "global",
+              "operator": "github",
+              "note": "Tag source archive"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/lllyasviel/Fooocus/archive/refs/tags/v2.5.5.tar.gz",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/lllyasviel/Fooocus/archive/refs/tags/v2.5.5.tar.gz",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "git clone --depth 1 -b v2.5.5 https://github.com/lllyasviel/Fooocus.git \"$HOME/Fooocus\" && cd \"$HOME/Fooocus\" && python -m venv venv && ./venv/bin/pip install -r requirements_versions.txt"
+            ],
+            "notes": "Clones into the user home, builds a user-level venv (zero admin). Prerequisites: git + Python 3.10+. First run fetches large ML deps — set PIP_INDEX_URL to a CN mirror if slow.",
+            "probe": {
+              "cmd": "bash -lc \"grep -m1 __version__ $HOME/Fooocus/fooocus_version.py 2>/dev/null || ls $HOME/Fooocus\"",
+              "expect": "version"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "fooocus-src"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "fooocus-src"
+          ]
+        }
+      }
+    },
+    {
+      "id": "goose",
+      "name": "Goose",
+      "version": "1.60.2",
+      "packages": [
+        {
+          "id": "goose-win-x64",
+          "name": "Goose Desktop (NSIS, win32-x64)",
+          "version": "1.60.2",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "5e92497973ef4400ba8cda3c5e2f47ec6b808ef4a8985367d2e62cfe76985842",
+          "sizeBytes": 163233656,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/block/goose/releases/download/v1.60.2/Goose-win32-x64-setup.exe",
+              "region": "global",
+              "operator": "github",
+              "note": "Official NSIS installer"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/block/goose/releases/download/v1.60.2/Goose-win32-x64-setup.exe",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/block/goose/releases/download/v1.60.2/Goose-win32-x64-setup.exe",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "Official /S switch: per-user install to %LOCALAPPDATA%\\Programs\\Goose, Start Menu + desktop shortcuts, no UAC (goose-docs.ai installation page).",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"Test-Path $env:LOCALAPPDATA\\Programs\\Goose\"",
+              "expect": "True"
+            }
+          }
+        },
+        {
+          "id": "goose-mac-arm64",
+          "name": "Goose Desktop (zip, Apple silicon)",
+          "version": "1.60.2",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "ce96e45cf3c05eecd98a7d483d6cc5bfeac66cc6ed2fdb57dfc84fa84c207e75",
+          "sizeBytes": 184230930,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/block/goose/releases/download/v1.60.2/Goose-darwin-arm64.zip",
+              "region": "global",
+              "operator": "github",
+              "note": "Contains Goose.app (verified via zip central directory)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/block/goose/releases/download/v1.60.2/Goose-darwin-arm64.zip",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/block/goose/releases/download/v1.60.2/Goose-darwin-arm64.zip",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "unzip -qo \"$HOME/.aibox/cache/downloads/ce96e45cf3c05eecd98a7d483d6cc5bfeac66cc6ed2fdb57dfc84fa84c207e75.zip\" -d /tmp/aibox-goose && cp -R /tmp/aibox-goose/Goose.app /Applications/ && rm -rf /tmp/aibox-goose"
+            ],
+            "notes": "Unzip and copy Goose.app into /Applications (user-writable).",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/Goose.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        },
+        {
+          "id": "goose-mac-x64",
+          "name": "Goose Desktop (zip, Intel)",
+          "version": "1.60.2",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "a8b47c00ef028dc82d26afb37a7885323b31308803572c41d32870dd57f22825",
+          "sizeBytes": 196381822,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/block/goose/releases/download/v1.60.2/Goose-darwin-x64.zip",
+              "region": "global",
+              "operator": "github",
+              "note": "Contains Goose.app"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/block/goose/releases/download/v1.60.2/Goose-darwin-x64.zip",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/block/goose/releases/download/v1.60.2/Goose-darwin-x64.zip",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "unzip -qo \"$HOME/.aibox/cache/downloads/a8b47c00ef028dc82d26afb37a7885323b31308803572c41d32870dd57f22825.zip\" -d /tmp/aibox-goose && cp -R /tmp/aibox-goose/Goose.app /Applications/ && rm -rf /tmp/aibox-goose"
+            ],
+            "notes": "Same flow as arm64.",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/Goose.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "goose-win-x64",
+            "goose-mac-x64"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "goose-win-x64",
+            "goose-mac-x64"
+          ]
+        }
+      }
+    },
+    {
+      "id": "gpt4all",
+      "name": "GPT4All",
+      "version": "3.10.0",
+      "packages": [
+        {
+          "id": "gpt4all-win-x64",
+          "name": "GPT4All Windows installer (x64)",
+          "version": "3.10.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "e284f2d72cf0026dc49c3dce8b5f1a19c088737b36e37bc8e0d48b668926ef52",
+          "sizeBytes": 744456856,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/nomic-ai/gpt4all/releases/download/v3.10.0/gpt4all-installer-win64-v3.10.0.exe",
+              "region": "global",
+              "operator": "nomic-ai",
+              "note": "GitHub Releases direct (daily CI HEAD)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/nomic-ai/gpt4all/releases/download/v3.10.0/gpt4all-installer-win64-v3.10.0.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/nomic-ai/gpt4all/releases/download/v3.10.0/gpt4all-installer-win64-v3.10.0.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "& \"$env:USERPROFILE\\.aibox\\cache\\downloads\\gpt4all-installer-win64-v3.10.0.exe\" --silent"
+            ],
+            "notes": "Qt Installer Framework silent mode (`--silent`, official Qt IFW CLI). Default target directory is @HomeDir@\\gpt4all = %USERPROFILE%\\gpt4all (cpack_config.cmake, measured from source) — per-user, no admin needed; binary lands in %USERPROFILE%\\gpt4all\\bin\\chat.exe.",
+            "probe": {
+              "cmd": "\"%USERPROFILE%\\gpt4all\\bin\\chat.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "gpt4all-win-arm64",
+          "name": "GPT4All Windows installer (ARM64)",
+          "version": "3.10.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "arm64",
+          "sha256": "2b5a0486f12bbac232352e393b60b98ff94d924ffee66365fc71071aec42b9be",
+          "sizeBytes": 318116056,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/nomic-ai/gpt4all/releases/download/v3.10.0/gpt4all-installer-win64-arm-v3.10.0.exe",
+              "region": "global",
+              "operator": "nomic-ai",
+              "note": "GitHub Releases direct (daily CI HEAD)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/nomic-ai/gpt4all/releases/download/v3.10.0/gpt4all-installer-win64-arm-v3.10.0.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/nomic-ai/gpt4all/releases/download/v3.10.0/gpt4all-installer-win64-arm-v3.10.0.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "& \"$env:USERPROFILE\\.aibox\\cache\\downloads\\gpt4all-installer-win64-arm-v3.10.0.exe\" --silent"
+            ],
+            "notes": "Same Qt IFW silent mode and per-user default target as x64. Supports Qualcomm Snapdragon / Microsoft SQ1/SQ2 (README).",
+            "probe": {
+              "cmd": "\"%USERPROFILE%\\gpt4all\\bin\\chat.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "gpt4all-mac",
+          "name": "GPT4All macOS dmg",
+          "version": "3.10.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "universal",
+          "sha256": "d0d98ab465de516af6d50fc013abbf9a8967274f2d171bbf69198873ce255b5f",
+          "sizeBytes": 319600812,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/nomic-ai/gpt4all/releases/download/v3.10.0/gpt4all-installer-macos-v3.10.0.dmg",
+              "region": "global",
+              "operator": "nomic-ai",
+              "note": "GitHub Releases direct (daily CI HEAD)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/nomic-ai/gpt4all/releases/download/v3.10.0/gpt4all-installer-macos-v3.10.0.dmg",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/nomic-ai/gpt4all/releases/download/v3.10.0/gpt4all-installer-macos-v3.10.0.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/d0d98ab465de516af6d50fc013abbf9a8967274f2d171bbf69198873ce255b5f.dmg\"; A=$(find \"$M\" -maxdepth 2 -name '*.app' -type d | head -1); \"$A\"/Contents/MacOS/* --silent; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "dmg contains the Qt IFW installer app; running its binary with --silent performs the non-interactive install. Source evidence (cmake cpack_config + component qs): target = /Applications/gpt4all (bin/gpt4all.app) plus symlink /Applications/GPT4All.app.",
+            "probe": {
+              "cmd": "/Applications/GPT4All.app/Contents/MacOS/gpt4all --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official direct install (GitHub Releases)",
+          "steps": [
+            "gpt4all-win-x64",
+            "gpt4all-mac"
+          ],
+          "note": "Installer route: Windows runs the Qt IFW installer in silent mode into %USERPROFILE%\\gpt4all (per-user, no admin), macOS mounts the dmg and runs the bundled installer; steps contain both platform packages and are filtered by machine arch (arm64 machines pick the -arm variant)."
+        },
+        "proxy-install": {
+          "label": "CN accelerated install (ghfast/gh-proxy channels)",
+          "steps": [
+            "gpt4all-win-x64",
+            "gpt4all-mac"
+          ],
+          "note": "Same packages; the download layer prefers proxy channels in CN and falls back to direct automatically."
+        }
+      }
+    },
+    {
+      "id": "hermes-agent",
+      "name": "Hermes Agent",
+      "version": "0.23.2",
+      "packages": [
+        {
+          "id": "hermes-win",
+          "name": "Hermes official Windows installer (install.ps1)",
+          "version": "0.23.1",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "9bd2c1402427414a2ac9a3c3f33c66d78073ba81bb2d15634c13a52e9615d2d7",
+          "sizeBytes": 94623,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://hermes-agent.nousresearch.com/install.ps1",
+              "region": "global",
+              "operator": "Nous Research",
+              "note": "The exact script the official PowerShell one-liner downloads (iex (irm …)). Daily probe re-downloads and re-hashes (package < 5 MB) — a hash drift means upstream changed the installer script and this profile must be re-verified."
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "Invoke-Expression (Get-Content -Raw \"$env:USERPROFILE\\.aibox\\cache\\downloads\\install.ps1\")"
+            ],
+            "notes": "Runs the hash-verified official installer exactly like `iex (irm https://hermes-agent.nousresearch.com/install.ps1)` (stdin/iex semantics preserved), landing in %LOCALAPPDATA%\\hermes with bundled Python/Node toolchain — zero admin. Interactive prompts may appear (setup wizard offers `hermes setup --portal` afterwards).",
+            "probe": {
+              "cmd": "hermes --version",
+              "expect": "\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "hermes-mac",
+          "name": "Hermes official Unix installer (install.sh)",
+          "version": "0.23.1",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "c73dad4dcf7c9ecadb98578e28cc763d23d7be3fa1b513545319038795493214",
+          "sizeBytes": 68015,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://hermes-agent.nousresearch.com/install.sh",
+              "region": "global",
+              "operator": "Nous Research",
+              "note": "The exact script the official `curl -fsSL … | bash` one-liner downloads. Daily probe re-downloads and re-hashes (package < 5 MB); a hash drift = upstream edited the installer → re-verify and bump."
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; cat \"$HOME/.aibox/cache/downloads/c73dad4dcf7c9ecadb98578e28cc763d23d7be3fa1b513545319038795493214.sh\" | bash"
+            ],
+            "notes": "Feeds the hash-verified official installer into bash exactly like `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`; installs into ~/.hermes (bundled toolchain, no admin). Interactive prompts possible.",
+            "probe": {
+              "cmd": "hermes --version",
+              "expect": "\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "direct-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official installer script (single route, both platforms)",
+          "steps": [
+            "hermes-win",
+            "hermes-mac"
+          ],
+          "note": "Hermes publishes no GitHub release assets (releases/latest v0.23.1 has 0 assets, measured 2026-11-12) — distribution is the official installer script, so there is no GitHub URL for the gateway list to accelerate. CN region uses the same direct route to hermes-agent.nousresearch.com."
+        }
+      }
+    },
+    {
+      "id": "jan",
+      "name": "Jan",
+      "version": "0.8.8",
+      "packages": [
+        {
+          "id": "jan-win-x64",
+          "name": "Jan Windows Installer (x64)",
+          "version": "0.8.8",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "08aca371733b76200e44e95d677cdd15e96609f86f919de57b97a5358ca21e9b",
+          "sizeBytes": 571697752,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/janhq/jan/releases/download/v0.8.8/Jan_0.8.8_x64-setup.exe",
+              "region": "global",
+              "operator": "janhq",
+              "note": "GitHub Releases 直连（探活 CI 每日 HEAD）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/janhq/jan/releases/download/v0.8.8/Jan_0.8.8_x64-setup.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关（2026-11-11 实测 200/同大小）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/janhq/jan/releases/download/v0.8.8/Jan_0.8.8_x64-setup.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关（2026-11-11 实测 200/同大小）"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "Tauri NSIS 安装器（tauri.conf.json bundle.windows 无自定义项 → NSIS 默认 /S）；安装模式默认 CurrentUser，装到 %LOCALAPPDATA%\\Jan（tauri-bundler installer.nsi MULTIUSER_INSTALLMODE 实证），主程序 Jan-Desktop.exe（mainBinaryName 实证）。",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Jan\\Jan-Desktop.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "jan-win-arm64",
+          "name": "Jan Windows Installer (ARM64)",
+          "version": "0.8.8",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "arm64",
+          "sha256": "4df9072f7bc93907c2ae04448120a897a54c0e349cf482adbaecd2f98694c392",
+          "sizeBytes": 335580368,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/janhq/jan/releases/download/v0.8.8/Jan_0.8.8_arm64-setup.exe",
+              "region": "global",
+              "operator": "janhq",
+              "note": "GitHub Releases 直连（探活 CI 每日 HEAD）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/janhq/jan/releases/download/v0.8.8/Jan_0.8.8_arm64-setup.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/janhq/jan/releases/download/v0.8.8/Jan_0.8.8_arm64-setup.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "同 x64（Tauri NSIS 默认 CurrentUser + /S）。",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Jan\\Jan-Desktop.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "jan-mac",
+          "name": "Jan macOS dmg (Universal)",
+          "version": "0.8.8",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "7467b2c06ab1d2e0812b36ca73aebcbe8377c2d89207edaba266a2a0e39f404b",
+          "sizeBytes": 115908917,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/janhq/jan/releases/download/v0.8.8/Jan_0.8.8_universal.dmg",
+              "region": "global",
+              "operator": "janhq",
+              "note": "GitHub Releases 直连（探活 CI 每日 HEAD）。资产名即 universal → arch=any（matchesMachine 不认 universal）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/janhq/jan/releases/download/v0.8.8/Jan_0.8.8_universal.dmg",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关（2026-11-11 实测 200/同大小）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/janhq/jan/releases/download/v0.8.8/Jan_0.8.8_universal.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关（2026-11-11 实测 200/同大小）"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/7467b2c06ab1d2e0812b36ca73aebcbe8377c2d89207edaba266a2a0e39f404b.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "dmg 挂载 + 拷贝 Jan.app + 卸载（hdiutil 惯例，destName=URL 末段）。单一 universal dmg 覆盖 Intel/Apple Silicon → arch=any。",
+            "probe": {
+              "cmd": "/Applications/Jan.app/Contents/MacOS/Jan-Desktop --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "官方直连安装（GitHub Releases）",
+          "steps": [
+            "jan-win-x64",
+            "jan-mac"
+          ],
+          "note": "安装器路线：Windows 走 Tauri NSIS 静默安装，macOS 走 universal dmg 挂载拷贝；步骤含双平台包，按机型过滤，win arm64 机型自动换成 jan-win-arm64。"
+        },
+        "proxy-install": {
+          "label": "国内加速安装（ghfast/gh-proxy 通道）",
+          "steps": [
+            "jan-win-x64",
+            "jan-mac"
+          ],
+          "note": "与 direct-install 同包；下载层按区域优先 proxy 通道，失败自动降级直连。"
+        }
+      }
+    },
+    {
+      "id": "llamafile",
+      "name": "llamafile",
+      "version": "0.10.6",
+      "packages": [
+        {
+          "id": "llamafile-win",
+          "name": "llamafile single-file runner",
+          "version": "0.10.6",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "d579f61dcd3a306f518e6d90e599d77793ed5f09543023d09c96ad35fcfa63f0",
+          "sizeBytes": 368094430,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/mozilla-ai/llamafile/releases/download/0.10.6/llamafile-0.10.6",
+              "region": "global",
+              "operator": "mozilla-ai",
+              "note": "GitHub Releases direct (daily CI HEAD). Single asset shared by all platforms."
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/mozilla-ai/llamafile/releases/download/0.10.6/llamafile-0.10.6",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/mozilla-ai/llamafile/releases/download/0.10.6/llamafile-0.10.6",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "$d=\"$env:LOCALAPPDATA\\Programs\\Llamafile\"; New-Item -ItemType Directory -Force -Path $d | Out-Null; Copy-Item \"$env:USERPROFILE\\.aibox\\cache\\downloads\\llamafile-0.10.6\" \"$d\\llamafile.exe\" -Force"
+            ],
+            "notes": "Copies the hash-verified runner into the user's own directory and renames it to llamafile.exe (Windows requires the .exe extension, official README) — no installer, no admin. Use it with any external GGUF: .\\llamafile.exe -m model.gguf.",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Programs\\Llamafile\\llamafile.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "llamafile-mac",
+          "name": "llamafile single-file runner",
+          "version": "0.10.6",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "universal",
+          "sha256": "d579f61dcd3a306f518e6d90e599d77793ed5f09543023d09c96ad35fcfa63f0",
+          "sizeBytes": 368094430,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/mozilla-ai/llamafile/releases/download/0.10.6/llamafile-0.10.6",
+              "region": "global",
+              "operator": "mozilla-ai",
+              "note": "GitHub Releases direct (daily CI HEAD). Same asset as Windows — one file serves every supported OS/CPU (official docs)."
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/mozilla-ai/llamafile/releases/download/0.10.6/llamafile-0.10.6",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/mozilla-ai/llamafile/releases/download/0.10.6/llamafile-0.10.6",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-12 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; mkdir -p /Applications/Llamafile; cp \"$HOME/.aibox/cache/downloads/d579f61dcd3a306f518e6d90e599d77793ed5f09543023d09c96ad35fcfa63f0.6\" /Applications/Llamafile/llamafile; chmod +x /Applications/Llamafile/llamafile"
+            ],
+            "notes": "Copies the hash-verified runner into /Applications/Llamafile and chmod +x (official README: grant execute permission once). No installer, no admin. Run with external weights: /Applications/Llamafile/llamafile -m model.gguf.",
+            "probe": {
+              "cmd": "/Applications/Llamafile/llamafile --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official direct install (GitHub release asset)",
+          "steps": [
+            "llamafile-win",
+            "llamafile-mac"
+          ],
+          "note": "Downloads the single-file runner and places it in a user directory (Windows) or /Applications/Llamafile (macOS); steps contain both platform packages and are filtered by machine arch."
+        },
+        "proxy-install": {
+          "label": "CN accelerated install (ghfast/gh-proxy channels)",
+          "steps": [
+            "llamafile-win",
+            "llamafile-mac"
+          ],
+          "note": "Same packages; the download layer prefers proxy channels in CN and falls back to direct automatically."
+        }
+      }
+    },
+    {
+      "id": "lobechat",
+      "name": "LobeHub",
+      "version": "2.3.4",
+      "packages": [
+        {
+          "id": "lobechat-win-x64",
+          "name": "LobeHub desktop installer (Windows x64, NSIS)",
+          "version": "2.3.4",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "c9e8477c1d5c45c2748669b36d03cc4f4e156990cba86fb69351ba449cf7eb39",
+          "sizeBytes": 157383568,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/lobehub/lobehub/releases/download/v2.3.4/LobeHub-2.3.4-setup.exe",
+              "region": "global",
+              "operator": "lobehub",
+              "note": "GitHub Releases direct (daily CI HEAD; 2026-11-14 measured 200 / Content-Length = sizeBytes)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/lobehub/lobehub/releases/download/v2.3.4/LobeHub-2.3.4-setup.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-14 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/lobehub/lobehub/releases/download/v2.3.4/LobeHub-2.3.4-setup.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-14 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "electron-builder assisted NSIS (oneClick:false measured in apps/desktop/electron-builder.mjs) — `/S` is electron-builder's official silent flag; default per-user install dir %LOCALAPPDATA%\\Programs\\LobeHub, no admin.",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Programs\\LobeHub\\LobeHub.exe\" --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "lobechat-mac-arm64",
+          "name": "LobeHub desktop (macOS Apple Silicon, DMG)",
+          "version": "2.3.4",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "f36e2b7c34986b49d571e3d7b44824ee71cb5978efcd1c31c80a30e0b8d965c1",
+          "sizeBytes": 169133946,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/lobehub/lobehub/releases/download/v2.3.4/LobeHub-2.3.4-arm64.dmg",
+              "region": "global",
+              "operator": "lobehub",
+              "note": "GitHub Releases direct (daily CI HEAD; asset digest from the GitHub API)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/lobehub/lobehub/releases/download/v2.3.4/LobeHub-2.3.4-arm64.dmg",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-14 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/lobehub/lobehub/releases/download/v2.3.4/LobeHub-2.3.4-arm64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-14 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/f36e2b7c34986b49d571e3d7b44824ee71cb5978efcd1c31c80a30e0b8d965c1.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "dmg mount + copy LobeHub.app + detach (hdiutil convention, destName = URL basename; same shape as Chatbox/Jan). Signed & notarized build (desktop README).",
+            "probe": {
+              "cmd": "/Applications/LobeHub.app/Contents/MacOS/LobeHub --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "lobechat-mac-x64",
+          "name": "LobeHub desktop (macOS Intel, DMG)",
+          "version": "2.3.4",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "95348b5bb452ec4ca7cd540c36bc4f8775a0abf58ea9e907e6fab767bcbfe840",
+          "sizeBytes": 174390884,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/lobehub/lobehub/releases/download/v2.3.4/LobeHub-2.3.4-x64.dmg",
+              "region": "global",
+              "operator": "lobehub",
+              "note": "GitHub Releases direct (daily CI HEAD; asset digest from the GitHub API)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/lobehub/lobehub/releases/download/v2.3.4/LobeHub-2.3.4-x64.dmg",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub acceleration gateway (2026-11-14 measured 200 / same size)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/lobehub/lobehub/releases/download/v2.3.4/LobeHub-2.3.4-x64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub acceleration gateway (2026-11-14 measured 200 / same size)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/95348b5bb452ec4ca7cd540c36bc4f8775a0abf58ea9e907e6fab767bcbfe840.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "Same dmg flow as arm64 (Intel Macs).",
+            "probe": {
+              "cmd": "/Applications/LobeHub.app/Contents/MacOS/LobeHub --version",
+              "expect": "(\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official direct install (GitHub release installer)",
+          "steps": [
+            "lobechat-win-x64",
+            "lobechat-mac-arm64",
+            "lobechat-mac-x64"
+          ],
+          "note": "Downloads the official installer/dmg and installs per-user (NSIS /S on Windows, hdiutil + /Applications on macOS); steps contain all platform packages and are filtered by machine arch."
+        },
+        "proxy-install": {
+          "label": "CN accelerated install (ghfast/gh-proxy channels)",
+          "steps": [
+            "lobechat-win-x64",
+            "lobechat-mac-arm64",
+            "lobechat-mac-x64"
+          ],
+          "note": "Same packages; the download layer prefers proxy channels in CN and falls back to direct automatically."
+        }
+      }
+    },
+    {
+      "id": "moneyprinterturbo",
+      "name": "MoneyPrinterTurbo",
+      "version": "1.3.10",
+      "packages": [
+        {
+          "id": "mpt-win-portable",
+          "name": "MoneyPrinterTurbo portable (7z, win32-x64)",
+          "version": "1.3.10",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "364be23bb4ca3bd9cf72b52101dac1e3f145581602f5dd56f744d39e5138927c",
+          "sizeBytes": 555234896,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/harry0703/MoneyPrinterTurbo/releases/download/v1.3.10/MoneyPrinterTurbo-Portable-Windows-1.3.10.7z",
+              "region": "global",
+              "operator": "github",
+              "note": "Official release asset"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/harry0703/MoneyPrinterTurbo/releases/download/v1.3.10/MoneyPrinterTurbo-Portable-Windows-1.3.10.7z",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/harry0703/MoneyPrinterTurbo/releases/download/v1.3.10/MoneyPrinterTurbo-Portable-Windows-1.3.10.7z",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-Command",
+              "Expand-7zOrFallback(); # see notes: extract MoneyPrinterTurbo-Portable-Windows-1.3.10.7z to %LOCALAPPDATA%\\MoneyPrinterTurbo and run MoneyPrinterTurbo.exe"
+            ],
+            "notes": "Extract the 7z into ~/AppData/Local/MoneyPrinterTurbo (user folder, zero admin) and run the bundled exe.",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"Test-Path $env:LOCALAPPDATA\\MoneyPrinterTurbo\\MoneyPrinterTurbo.exe\"",
+              "expect": "True"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "mpt-win-portable"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "mpt-win-portable"
+          ]
+        }
+      }
+    },
+    {
+      "id": "nanobot",
+      "name": "nanobot",
+      "version": "0.4.2",
+      "packages": [
+        {
+          "id": "nanobot-win-x64",
+          "name": "nanobot Windows wheel (x64)",
+          "version": "0.4.2",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "bfe9488ec0703ea624cbcba9a916e09bdc63b98831e19a912c94a2be652dd3f0",
+          "sizeBytes": 59893537,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/HKUDS/nanobot/releases/download/v0.4.2/nanobot_ai-0.4.2-py3-none-win_amd64.whl",
+              "region": "global",
+              "operator": "HKUDS",
+              "note": "Official release asset (same bytes as the PyPI nanobot-ai wheel). Daily probe HEADs it and compares Content-Length."
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/HKUDS/nanobot/releases/download/v0.4.2/nanobot_ai-0.4.2-py3-none-win_amd64.whl",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 63251352 identical)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/HKUDS/nanobot/releases/download/v0.4.2/nanobot_ai-0.4.2-py3-none-win_amd64.whl",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 63251352 identical)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "$v=\"$env:USERPROFILE\\.nanobot\\venv\"; if (!(Test-Path $v)) { py -3 -m venv $v }; & \"$v\\Scripts\\python\" -m pip install -q --upgrade pip; & \"$v\\Scripts\\python\" -m pip install -q \"$env:USERPROFILE\\.aibox\\cache\\downloads\\nanobot_ai-0.4.2-py3-none-win_amd64.whl\""
+            ],
+            "notes": "Mirrors the official installer's layout: dedicated virtualenv at ~/.nanobot/venv, installed from the hash-verified release wheel — no admin, no system pip (avoids PEP 668 issues). Prerequisite: Python 3.11+ (`py -3`) installed manually first; if absent, use the official one-liner route from the guide. Dependencies resolve from PyPI (pip); on CN networks a pip mirror can be set manually.",
+            "probe": {
+              "cmd": "\"%USERPROFILE%\\.nanobot\\venv\\Scripts\\nanobot.exe\" --version",
+              "expect": "\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "nanobot-mac-arm64",
+          "name": "nanobot macOS wheel (Apple Silicon)",
+          "version": "0.4.2",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "e41ce2bb607485ee37c57716576929f15cf04d455d34b9480be8a30cd347bff9",
+          "sizeBytes": 40803993,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/HKUDS/nanobot/releases/download/v0.4.2/nanobot_ai-0.4.2-py3-none-macosx_13_0_arm64.whl",
+              "region": "global",
+              "operator": "HKUDS",
+              "note": "Official release asset for Apple Silicon (macOS 13+). Daily probe HEADs it and compares Content-Length."
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/HKUDS/nanobot/releases/download/v0.4.2/nanobot_ai-0.4.2-py3-none-macosx_13_0_arm64.whl",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 44161781 identical)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/HKUDS/nanobot/releases/download/v0.4.2/nanobot_ai-0.4.2-py3-none-macosx_13_0_arm64.whl",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 44161781 identical)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; V=\"$HOME/.nanobot/venv\"; python3 -m venv \"$V\"; \"$V/bin/python\" -m pip install -q --upgrade pip; \"$V/bin/python\" -m pip install -q \"$HOME/.aibox/cache/downloads/e41ce2bb607485ee37c57716576929f15cf04d455d34b9480be8a30cd347bff9.whl\""
+            ],
+            "notes": "Same layout as the official installer (~/.nanobot/venv) but installed from the hash-verified release wheel — user directory only, zero admin. Prerequisite: Python 3.11+ (`python3`) on the machine; otherwise use the official one-liner from the guide.",
+            "probe": {
+              "cmd": "~/.nanobot/venv/bin/nanobot --version",
+              "expect": "\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        },
+        {
+          "id": "nanobot-mac-x64",
+          "name": "nanobot macOS wheel (Intel)",
+          "version": "0.4.2",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "2e96e13662c835481387a2521824d53f12c94aded9d5460ea8a0cef7232a34f8",
+          "sizeBytes": 43407693,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/HKUDS/nanobot/releases/download/v0.4.2/nanobot_ai-0.4.2-py3-none-macosx_13_0_x86_64.whl",
+              "region": "global",
+              "operator": "HKUDS",
+              "note": "Official release asset for Intel Macs (macOS 13+). Daily probe HEADs it and compares Content-Length."
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/HKUDS/nanobot/releases/download/v0.4.2/nanobot_ai-0.4.2-py3-none-macosx_13_0_x86_64.whl",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 46765483 identical)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/HKUDS/nanobot/releases/download/v0.4.2/nanobot_ai-0.4.2-py3-none-macosx_13_0_x86_64.whl",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "Community GitHub accelerator (2026-11-12 measured 200, size 46765483 identical)"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; V=\"$HOME/.nanobot/venv\"; python3 -m venv \"$V\"; \"$V/bin/python\" -m pip install -q --upgrade pip; \"$V/bin/python\" -m pip install -q \"$HOME/.aibox/cache/downloads/2e96e13662c835481387a2521824d53f12c94aded9d5460ea8a0cef7232a34f8.whl\""
+            ],
+            "notes": "Intel build of the same release; identical flow to the arm64 package (venv at ~/.nanobot/venv, hash-verified wheel, zero admin).",
+            "probe": {
+              "cmd": "~/.nanobot/venv/bin/nanobot --version",
+              "expect": "\\d+\\.\\d+\\.\\d+"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Official wheel install (GitHub release, direct)",
+          "steps": [
+            "nanobot-win-x64",
+            "nanobot-mac-arm64",
+            "nanobot-mac-x64"
+          ],
+          "note": "Three platform packages; PLAN filters steps by machine (Windows x64 / macOS arm64 / macOS Intel)."
+        },
+        "proxy-install": {
+          "label": "China-accelerated wheel install (gh-proxy / ghfast channels)",
+          "steps": [
+            "nanobot-win-x64",
+            "nanobot-mac-arm64",
+            "nanobot-mac-x64"
+          ],
+          "note": "Same packages; in the CN region the download layer prefers the accelerator channels and falls back to direct automatically (both gateways measured 200 / identical size on 2026-11-12)."
+        }
+      }
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "version": "0.40.17",
+      "packages": [
+        {
+          "id": "ollama-win-x64",
+          "name": "Ollama Windows Installer (x64)",
+          "version": "0.40.17",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "2eeb9ff7ef83902b5d48562dbaf0af5489829c3d52435fb8067ddad23cb33c65",
+          "sizeBytes": 1857946272,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/ollama/ollama/releases/download/v0.40.17/OllamaSetup.exe",
+              "region": "global",
+              "operator": "ollama",
+              "note": "GitHub Releases 直连（探活 CI 每日 HEAD）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/ollama/ollama/releases/download/v0.40.17/OllamaSetup.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关（网关清单热更，每日探活复核）。注：ghfast.top 对 ollama/ollama 仓库全部资产实测 403（2026-11-11），本应用通道未走 ghfast。"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/VERYSILENT",
+              "/SILENT",
+              "/NORESTART",
+              "/SUPPRESSMSGBOXES"
+            ],
+            "notes": "Inno Setup 安装器（官方 install.ps1 实测参数 /VERYSILENT /NORESTART /SUPPRESSMSGBOXES + Find-InnoSetupInstall + 注册表 UninstallString）；显式带官方 /SILENT 以满足执行层静默标记检测、避免追加 NSIS /S。默认安装目录 %LOCALAPPDATA%\\Programs\\Ollama（install.ps1 实证）。",
+            "probe": {
+              "cmd": "\"%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe\" --version",
+              "expect": "version is (\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        },
+        {
+          "id": "ollama-mac",
+          "name": "Ollama macOS dmg (Universal)",
+          "version": "0.40.17",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "cc5eb8fa68f2f15ea6dbc79a705092a1b1e666102c54ed535c91bbbeccab8c78",
+          "sizeBytes": 231575873,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/ollama/ollama/releases/download/v0.40.17/Ollama.dmg",
+              "region": "global",
+              "operator": "ollama",
+              "note": "GitHub Releases 直连（探活 CI 每日 HEAD）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/ollama/ollama/releases/download/v0.40.17/Ollama.dmg",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关（网关清单热更，每日探活复核）。注：ghfast.top 对 ollama/ollama 仓库全部资产实测 403（2026-11-11），本应用通道未走 ghfast。"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "sh",
+              "-c",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/cc5eb8fa68f2f15ea6dbc79a705092a1b1e666102c54ed535c91bbbeccab8c78.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "dmg 挂载 + 拷贝 .app + 卸载（hdiutil 惯例，destName=URL 末段）。单一 dmg 覆盖 Intel/Apple Silicon（上游 scripts/build_darwin.sh lipo universal 二进制）→ arch=any。",
+            "probe": {
+              "cmd": "/Applications/Ollama.app/Contents/MacOS/ollama --version",
+              "expect": "version is (\\d+\\.\\d+\\.\\d+)"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "官方直连安装（GitHub Releases）",
+          "steps": [
+            "ollama-win-x64",
+            "ollama-mac"
+          ],
+          "note": "单安装器路线：Windows 走 OllamaSetup.exe（Inno 静默），macOS 走 dmg 挂载拷贝；步骤含双平台包，按机型过滤。"
+        },
+        "proxy-install": {
+          "label": "国内加速安装（gh-proxy 网关通道）",
+          "steps": [
+            "ollama-win-x64",
+            "ollama-mac"
+          ],
+          "note": "与 direct-install 同包；下载层按区域优先 proxy 通道，失败自动降级直连。ghfast.top 对 ollama/ollama 资产实测 403 → 本应用仅走 gh-proxy。Windows ARM64 上游仅提供便携 zip（无安装器）→ arm64 机型 plan 为空（待上游发布安装器）。"
+        }
+      }
+    },
+    {
+      "id": "openclaw",
+      "name": "OpenClaw",
+      "version": "2026.11.6",
+      "packages": [
+        {
+          "id": "node-win-x64",
+          "name": "Node.js v26.13.0 (Windows x64 MSI)",
+          "version": "v26.13.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "0e5ee99c7cbf922887f04af268e3665990748945336a44956f47cc0df695b6df",
+          "sizeBytes": 36564992,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://nodejs.org/dist/v26.13.0/node-v26.13.0-x64.msi",
+              "region": "global",
+              "operator": "Node.js Foundation",
+              "note": "官方源（5.9.4 矩阵 Node GLOBAL 主）"
+            },
+            {
+              "type": "mirror",
+              "url": "https://npmmirror.com/mirrors/node/v26.13.0/node-v26.13.0-x64.msi",
+              "region": "cn",
+              "operator": "alibaba",
+              "note": "阿里 npmmirror 镜像（5.9.4 矩阵 Node CN 主）"
+            }
+          ],
+          "install": {
+            "type": "msi-silent",
+            "args": [
+              "/qn",
+              "/norestart"
+            ],
+            "probe": {
+              "cmd": "node --version",
+              "expect": "^v26\\."
+            }
+          }
+        },
+        {
+          "id": "node-win-arm64",
+          "name": "Node.js v26.13.0 (Windows ARM64 MSI)",
+          "version": "v26.13.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "arm64",
+          "sha256": "a9d7e34eaeeadd4ecbd9f0795f49f9d2c2625e63fc4e2f77709f039497f57033",
+          "sizeBytes": 32624640,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://nodejs.org/dist/v26.13.0/node-v26.13.0-arm64.msi",
+              "region": "global",
+              "operator": "Node.js Foundation",
+              "note": "官方源"
+            },
+            {
+              "type": "mirror",
+              "url": "https://npmmirror.com/mirrors/node/v26.13.0/node-v26.13.0-arm64.msi",
+              "region": "cn",
+              "operator": "alibaba",
+              "note": "阿里 npmmirror 镜像"
+            }
+          ],
+          "install": {
+            "type": "msi-silent",
+            "args": [
+              "/qn",
+              "/norestart"
+            ],
+            "probe": {
+              "cmd": "node --version",
+              "expect": "^v26\\."
+            }
+          }
+        },
+        {
+          "id": "node-macos",
+          "name": "Node.js v26.13.0 (macOS PKG)",
+          "version": "v26.13.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "universal",
+          "sha256": "445b202997c959dddbd54ad8c82956371b495b03c73d56044a6f82dfb3249c46",
+          "sizeBytes": 105205394,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://nodejs.org/dist/v26.13.0/node-v26.13.0.pkg",
+              "region": "global",
+              "operator": "Node.js Foundation",
+              "note": "官方源（macOS 通用 pkg）"
+            },
+            {
+              "type": "mirror",
+              "url": "https://npmmirror.com/mirrors/node/v26.13.0/node-v26.13.0.pkg",
+              "region": "cn",
+              "operator": "alibaba",
+              "note": "阿里 npmmirror 镜像"
+            }
+          ],
+          "install": {
+            "type": "pkg",
+            "args": [
+              "-target",
+              "CurrentUserHomeDirectory"
+            ],
+            "notes": "安装到用户目录，无需管理员权限。",
+            "probe": {
+              "cmd": "node --version",
+              "expect": "^v26\\."
+            }
+          }
+        },
+        {
+          "id": "openclaw-cli",
+          "name": "OpenClaw CLI (npm package)",
+          "version": "2026.11.6",
+          "platforms": [
+            "windows",
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "0ad54c943c7365ff78cdb0c317c2cd73fd6af9df404da02c7cde9787ea3322ad",
+          "sizeBytes": 118651532,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://registry.npmjs.org/openclaw/-/openclaw-2026.11.6.tgz",
+              "region": "global",
+              "operator": "npm",
+              "note": "npm 官方 registry（5.9.4 矩阵 openclaw CLI GLOBAL 主）"
+            },
+            {
+              "type": "mirror",
+              "url": "https://registry.npmmirror.com/openclaw/-/openclaw-2026.11.6.tgz",
+              "region": "cn",
+              "operator": "alibaba",
+              "note": "阿里 npmmirror（5.9.4 矩阵 CN 主；EXECUTE 经 packageManagerOverrides 注入 --registry，不改用户 npmrc）"
+            }
+          ],
+          "install": {
+            "type": "npm-prefix",
+            "args": [
+              "install",
+              "-g",
+              "openclaw@2026.11.3"
+            ],
+            "notes": "CN 序时 EXECUTE 自动追加 --registry=https://registry.npmmirror.com 与本地 prefix（~/.aibox/prefix），退出即还原，不污染用户全局 npmrc。",
+            "probe": {
+              "cmd": "openclaw --version",
+              "expect": "2026\\.11\\.3"
+            }
+          }
+        },
+        {
+          "id": "openclaw-hub-win-x64",
+          "name": "OpenClaw Windows Hub (x64)",
+          "version": "v2026.11.3",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "42d73eedf62dfe03228c0573f84ac353d21a08e6495e3f3485aaad60a9b123ef",
+          "sizeBytes": 167779288,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/openclaw/openclaw-windows-node/releases/download/v2026.11.3/OpenClawCompanion-Setup-x64.exe",
+              "region": "global",
+              "operator": "openclaw",
+              "note": "GitHub Releases 直连（5.9.4 矩阵 NSIS/Hub GLOBAL 主）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/openclaw/openclaw-windows-node/releases/download/v2026.11.3/OpenClawCompanion-Setup-x64.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关（内容经哈希校验，可整体关闭；2026-11-09 实测 200/同大小）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/openclaw/openclaw-windows-node/releases/download/v2026.11.3/OpenClawCompanion-Setup-x64.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关（2026-11-09 实测 200/同大小）"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "Companion Setup 静默安装参数 /S；无需管理员、已签名。上游 openclaw/openclaw 2026-11 实测无 Windows NSIS 资产，Windows 主线=Windows Hub。",
+            "probe": {
+              "cmd": "openclaw --version",
+              "expect": "2026\\.11"
+            }
+          }
+        },
+        {
+          "id": "openclaw-hub-win-arm64",
+          "name": "OpenClaw Windows Hub (ARM64)",
+          "version": "v2026.11.3",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "arm64",
+          "sha256": "7e780a84cf186ffd4e60ba9868ada9cde1ab3e5534898fd68ce25a7fe381f98a",
+          "sizeBytes": 151877664,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/openclaw/openclaw-windows-node/releases/download/v2026.11.3/OpenClawCompanion-Setup-arm64.exe",
+              "region": "global",
+              "operator": "openclaw",
+              "note": "GitHub Releases 直连"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/openclaw/openclaw-windows-node/releases/download/v2026.11.3/OpenClawCompanion-Setup-arm64.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/openclaw/openclaw-windows-node/releases/download/v2026.11.3/OpenClawCompanion-Setup-arm64.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "同 x64。",
+            "probe": {
+              "cmd": "openclaw --version",
+              "expect": "2026\\.11"
+            }
+          }
+        },
+        {
+          "id": "git-win-x64",
+          "name": "Git for Windows 2.56.1 (x64)",
+          "version": "2.56.1",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "c330c72e10b408cc39994bfefdb63542b0d93d21699325c3e0bd874af8a5a559",
+          "sizeBytes": 66870448,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/Git-2.56.1-64-bit.exe",
+              "region": "global",
+              "operator": "git-for-windows",
+              "note": "GitHub Releases 直连（5.9.4 矩阵 Git GLOBAL 主）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/Git-2.56.1-64-bit.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关（CN 备选；winget 为 PLAN 层降级项）"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/Git-2.56.1-64-bit.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/VERYSILENT",
+              "/NORESTART",
+              "/NOCANCEL"
+            ],
+            "notes": "Git for Windows 官方 Inno Setup 静默参数（/VERYSILENT 系官方文档参数）。",
+            "probe": {
+              "cmd": "git --version",
+              "expect": "^git version 2\\.56"
+            }
+          }
+        },
+        {
+          "id": "git-win-arm64",
+          "name": "Git for Windows 2.56.1 (ARM64)",
+          "version": "2.56.1",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "arm64",
+          "sha256": "6fe770b534a459d1158011e6ec0cd8390a3bcf44e542bee9e9a650310e111234",
+          "sizeBytes": 64405736,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/Git-2.56.1-arm64.exe",
+              "region": "global",
+              "operator": "git-for-windows",
+              "note": "GitHub Releases 直连"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/Git-2.56.1-arm64.exe",
+              "region": "cn",
+              "operator": "ghfast.top",
+              "note": "社区 GitHub 加速网关"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/Git-2.56.1-arm64.exe",
+              "region": "cn",
+              "operator": "gh-proxy.com",
+              "note": "社区 GitHub 加速网关"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/VERYSILENT",
+              "/NORESTART",
+              "/NOCANCEL"
+            ],
+            "probe": {
+              "cmd": "git --version",
+              "expect": "^git version 2\\.56"
+            }
+          }
+        },
+        {
+          "id": "openclaw-mac-x64",
+          "name": "OpenClaw macOS dmg (x86_64)",
+          "version": "v2026.11.3",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "98be9927baab3dd743f3d2b6df7dfe0c5703ba8086e7883977e6248d8f876b20",
+          "sizeBytes": 265981588,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/openclaw/openclaw/releases/download/v2026.11.3/OpenClaw-2026.11.3-x86_64.dmg",
+              "region": "global",
+              "operator": "openclaw",
+              "note": "GitHub Releases 直连。"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "hdiutil",
+              "attach",
+              "-nobrowse"
+            ],
+            "notes": "dmg 挂载 + 拖拽 Applications。",
+            "probe": {
+              "cmd": "openclaw --version",
+              "expect": "2026\\.11"
+            }
+          }
+        },
+        {
+          "id": "openclaw-mac-arm64",
+          "name": "OpenClaw macOS dmg (ARM64)",
+          "version": "v2026.11.3",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "e11a234e9d0f2ee018f20e53e17d03b1cb14639b3a6b4d5a449e1d332dd62fac",
+          "sizeBytes": 248119056,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/openclaw/openclaw/releases/download/v2026.11.3/OpenClaw-2026.11.3-arm64.dmg",
+              "region": "global",
+              "operator": "openclaw",
+              "note": "GitHub Releases 直连。"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "hdiutil",
+              "attach",
+              "-nobrowse"
+            ],
+            "notes": "同 x64。",
+            "probe": {
+              "cmd": "openclaw --version",
+              "expect": "2026\\.11"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "nsis-hub"
+        ],
+        "cn": [
+          "npm-prefix"
+        ]
+      },
+      "routePlans": {
+        "nsis-hub": {
+          "label": "Official Windows Hub (GLOBAL route, 5.9.5)",
+          "steps": [
+            "openclaw-hub-win-x64",
+            "openclaw-cli"
+          ],
+          "note": "GLOBAL 序首选：GitHub 直连快。ARM64 用 openclaw-hub-win-arm64 替换同名步骤；git-win-* 按需（skills 克隆）作为可选依赖。两路线 probe/verify 完全一致（5.9.5）。"
+        },
+        "npm-prefix": {
+          "label": "CN npm-prefix route (全链国内 CDN, 5.9.5)",
+          "steps": [
+            "node-win-x64",
+            "openclaw-cli"
+          ],
+          "note": "CN 序首选：Node 从 npmmirror 装本地前缀（~/.aibox/prefix）+ openclaw CLI 经 --registry=npmmirror 安装，避开 GitHub 大文件。ARM64 用 node-win-arm64；macOS 用 node-macos 替换 node 步骤。"
+        }
+      }
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "version": "1.19.6",
+      "packages": [
+        {
+          "id": "opencode-win-x64",
+          "name": "OpenCode Desktop (NSIS, win32-x64)",
+          "version": "1.19.6",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "13da6af6d1db8b067378b1183c5d2de1433915dd5124482d94e5e348ec667735",
+          "sizeBytes": 126419768,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-win-x64.exe",
+              "region": "global",
+              "operator": "github",
+              "note": "Official electron-builder NSIS (oneClick, perMachine:false)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-win-x64.exe",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-win-x64.exe",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "electron-builder oneClick + perMachine:false → per-user install under %LOCALAPPDATA%\\Programs\\OpenCode, no UAC.",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"Test-Path $env:LOCALAPPDATA\\Programs\\OpenCode\"",
+              "expect": "True"
+            }
+          }
+        },
+        {
+          "id": "opencode-win-arm64",
+          "name": "OpenCode Desktop (NSIS, win32-arm64)",
+          "version": "1.19.6",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "arm64",
+          "sha256": "c63e539602960d0535aa2897417861da1094e5ee26c346a0a6c7173ad2127f1e",
+          "sizeBytes": 118940968,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-win-arm64.exe",
+              "region": "global",
+              "operator": "github",
+              "note": "Official electron-builder NSIS (oneClick, perMachine:false)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-win-arm64.exe",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-win-arm64.exe",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "electron-builder oneClick + perMachine:false → per-user install under %LOCALAPPDATA%\\Programs\\OpenCode, no UAC.",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"Test-Path $env:LOCALAPPDATA\\Programs\\OpenCode\"",
+              "expect": "True"
+            }
+          }
+        },
+        {
+          "id": "opencode-mac-arm64",
+          "name": "OpenCode Desktop (dmg, arm64)",
+          "version": "1.19.6",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "c7fd0a1967be6d4520a75e404dd77b2fa54e7580c59b6ee890dcf1aa7d98cca3",
+          "sizeBytes": 151458609,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-mac-arm64.dmg",
+              "region": "global",
+              "operator": "github",
+              "note": "electron-builder dmg (contains OpenCode.app)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-mac-arm64.dmg",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-mac-arm64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/c7fd0a1967be6d4520a75e404dd77b2fa54e7580c59b6ee890dcf1aa7d98cca3.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "electron-builder dmg ships OpenCode.app (productName from upstream config); copy into /Applications.",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/OpenCode.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        },
+        {
+          "id": "opencode-mac-x64",
+          "name": "OpenCode Desktop (dmg, x64)",
+          "version": "1.19.6",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "ebda6005febab9be52c732b7bf11ae40cd563de825a85f209ec6ff161d7169db",
+          "sizeBytes": 156337751,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-mac-x64.dmg",
+              "region": "global",
+              "operator": "github",
+              "note": "electron-builder dmg (contains OpenCode.app)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-mac-x64.dmg",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/sst/opencode/releases/download/v1.19.6/opencode-desktop-mac-x64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/ebda6005febab9be52c732b7bf11ae40cd563de825a85f209ec6ff161d7169db.dmg\"; cp -R \"$M\"/*.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "electron-builder dmg ships OpenCode.app (productName from upstream config); copy into /Applications.",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/OpenCode.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "opencode-win-x64",
+            "opencode-mac-x64"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "opencode-win-x64",
+            "opencode-mac-x64"
+          ]
+        }
+      }
+    },
+    {
+      "id": "openhands",
+      "name": "OpenHands",
+      "version": "1.43.0",
+      "packages": [
+        {
+          "id": "openhands-win-x64",
+          "name": "OpenHands Agent Canvas (NSIS, win32-x64)",
+          "version": "1.43.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "97f765bb92bfd33d84348715b94102a07566c575b5bc37243bf1921a6f463098",
+          "sizeBytes": 168416050,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/All-Hands-AI/OpenHands/releases/download/v1.43.0/OpenHands-Agent-Canvas-Setup-1.43.0.exe",
+              "region": "global",
+              "operator": "github",
+              "note": "Official NSIS installer"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/All-Hands-AI/OpenHands/releases/download/v1.43.0/OpenHands-Agent-Canvas-Setup-1.43.0.exe",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/All-Hands-AI/OpenHands/releases/download/v1.43.0/OpenHands-Agent-Canvas-Setup-1.43.0.exe",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/S"
+            ],
+            "notes": "Per-user NSIS install (%LOCALAPPDATA%Programs/OpenHands); zero admin.",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"Test-Path $env:LOCALAPPDATA\\Programs\\OpenHands\\OpenHands.exe\"",
+              "expect": "True"
+            }
+          }
+        },
+        {
+          "id": "openhands-mac-universal",
+          "name": "OpenHands Agent Canvas (dmg, universal)",
+          "version": "1.43.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "8c5597bea138018e0b8474faa90693225c260d8d42da5a6e4453410aa0937660",
+          "sizeBytes": 349634061,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/All-Hands-AI/OpenHands/releases/download/v1.43.0/OpenHands-Agent-Canvas-1.43.0-universal.dmg",
+              "region": "global",
+              "operator": "github",
+              "note": "Universal dmg"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/All-Hands-AI/OpenHands/releases/download/v1.43.0/OpenHands-Agent-Canvas-1.43.0-universal.dmg",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/All-Hands-AI/OpenHands/releases/download/v1.43.0/OpenHands-Agent-Canvas-1.43.0-universal.dmg",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "hdiutil attach -nobrowse -quiet \"$HOME/.aibox/cache/downloads/8c5597bea138018e0b8474faa90693225c260d8d42da5a6e4453410aa0937660.dmg\" && cp -R \"/Volumes/OpenHands*/OpenHands.app\" /Applications/ && hdiutil detach -quiet \"/Volumes/OpenHands*\""
+            ],
+            "notes": "Mount dmg, copy .app to /Applications (user-writable).",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/OpenHands.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "openhands-win-x64",
+            "openhands-mac-universal"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "openhands-win-x64",
+            "openhands-mac-universal"
+          ]
+        }
+      }
+    },
+    {
+      "id": "pi",
+      "name": "Pi",
+      "version": "1.6.0",
+      "packages": [
+        {
+          "id": "pi-win-x64",
+          "name": "Pi coding agent (zip, win32-x64)",
+          "version": "1.6.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "f5defb6c403ee698f5b3f8886db473e55b78aac670a8ce03620a47f5f0aec57c",
+          "sizeBytes": 61995847,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-windows-x64.zip",
+              "region": "global",
+              "operator": "github",
+              "note": "Self-contained pi.exe (verified via zip central directory)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-windows-x64.zip",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-windows-x64.zip",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "$d=\"$env:LOCALAPPDATA\\Programs\\Pi\"; New-Item -ItemType Directory -Force -Path $d | Out-Null; Expand-Archive -Force \"$env:USERPROFILE\\.aibox\\cache\\downloads\\f5defb6c403ee698f5b3f8886db473e55b78aac670a8ce03620a47f5f0aec57c.zip\" \"$env:TEMP\\aibox-pi\"; Copy-Item \"$env:TEMP\\aibox-pi\\pi.exe\" \"$d\\pi.exe\" -Force; Remove-Item -Recurse -Force \"$env:TEMP\\aibox-pi\""
+            ],
+            "notes": "Expand the zip and copy the self-contained pi.exe into %LOCALAPPDATA%\\Programs\\Pi (no Node required). Launch from any terminal.",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"& \\\"$env:LOCALAPPDATA\\Programs\\Pi\\pi.exe\\\" --version\"",
+              "expect": "[0-9]+\\.[0-9]+"
+            }
+          }
+        },
+        {
+          "id": "pi-win-arm64",
+          "name": "Pi coding agent (zip, win32-arm64)",
+          "version": "1.6.0",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "arm64",
+          "sha256": "56433d392e1baecf9f1692785a3bf171c125b415a29dd36097d02baca98bc9eb",
+          "sizeBytes": 56672454,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-windows-arm64.zip",
+              "region": "global",
+              "operator": "github",
+              "note": "Self-contained pi.exe (verified via zip central directory)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-windows-arm64.zip",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-windows-arm64.zip",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "powershell",
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-Command",
+              "$d=\"$env:LOCALAPPDATA\\Programs\\Pi\"; New-Item -ItemType Directory -Force -Path $d | Out-Null; Expand-Archive -Force \"$env:USERPROFILE\\.aibox\\cache\\downloads\\56433d392e1baecf9f1692785a3bf171c125b415a29dd36097d02baca98bc9eb.zip\" \"$env:TEMP\\aibox-pi\"; Copy-Item \"$env:TEMP\\aibox-pi\\pi.exe\" \"$d\\pi.exe\" -Force; Remove-Item -Recurse -Force \"$env:TEMP\\aibox-pi\""
+            ],
+            "notes": "Expand the zip and copy the self-contained pi.exe into %LOCALAPPDATA%\\Programs\\Pi (no Node required). Launch from any terminal.",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"& \\\"$env:LOCALAPPDATA\\Programs\\Pi\\pi.exe\\\" --version\"",
+              "expect": "[0-9]+\\.[0-9]+"
+            }
+          }
+        },
+        {
+          "id": "pi-mac-arm64",
+          "name": "Pi coding agent (tar.gz, arm64)",
+          "version": "1.6.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "6429287b7ae98d726ec577815d14fd680e7c587e89ecc5153b4a145dc4adba33",
+          "sizeBytes": 48128107,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-darwin-arm64.tar.gz",
+              "region": "global",
+              "operator": "github",
+              "note": "pi/ directory with self-contained executable"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-darwin-arm64.tar.gz",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-darwin-arm64.tar.gz",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; M=$(mktemp -d); tar -xzf \"$HOME/.aibox/cache/downloads/6429287b7ae98d726ec577815d14fd680e7c587e89ecc5153b4a145dc4adba33.gz\" -C \"$M\"; rm -rf /Applications/Pi; mkdir -p /Applications/Pi; cp -R \"$M/pi/.\" /Applications/Pi/; chmod +x /Applications/Pi/pi; rm -rf \"$M\""
+            ],
+            "notes": "Extract pi/ and copy into /Applications/Pi (executable at Pi/pi; no Node required).",
+            "probe": {
+              "cmd": "bash -lc \"/Applications/Pi/pi --version\"",
+              "expect": "[0-9]+\\.[0-9]+"
+            }
+          }
+        },
+        {
+          "id": "pi-mac-x64",
+          "name": "Pi coding agent (tar.gz, x64)",
+          "version": "1.6.0",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "5b69cd87c3b00e74cce2d1499df3b7a1ec73632f11abf64696d110f0f4dc4192",
+          "sizeBytes": 50640053,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-darwin-x64.tar.gz",
+              "region": "global",
+              "operator": "github",
+              "note": "pi/ directory with self-contained executable"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-darwin-x64.tar.gz",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-darwin-x64.tar.gz",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; M=$(mktemp -d); tar -xzf \"$HOME/.aibox/cache/downloads/5b69cd87c3b00e74cce2d1499df3b7a1ec73632f11abf64696d110f0f4dc4192.gz\" -C \"$M\"; rm -rf /Applications/Pi; mkdir -p /Applications/Pi; cp -R \"$M/pi/.\" /Applications/Pi/; chmod +x /Applications/Pi/pi; rm -rf \"$M\""
+            ],
+            "notes": "Extract pi/ and copy into /Applications/Pi (executable at Pi/pi; no Node required).",
+            "probe": {
+              "cmd": "bash -lc \"/Applications/Pi/pi --version\"",
+              "expect": "[0-9]+\\.[0-9]+"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "pi-win-x64",
+            "pi-mac-x64"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "pi-win-x64",
+            "pi-mac-x64"
+          ]
+        }
+      }
+    },
+    {
+      "id": "sillytavern",
+      "name": "SillyTavern",
+      "version": "1.19.0",
+      "packages": [
+        {
+          "id": "sillytavern-src",
+          "name": "SillyTavern (source, tag 1.19.0)",
+          "version": "1.19.0",
+          "platforms": [
+            "windows",
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "80fcf77ff76c064cff950582fea70dd38c9acb0ef253fcba552676593edcbfee",
+          "sizeBytes": 38080517,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/SillyTavern/SillyTavern/archive/refs/tags/1.19.0.tar.gz",
+              "region": "global",
+              "note": "",
+              "operator": "github"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/SillyTavern/SillyTavern/archive/refs/tags/1.19.0.tar.gz",
+              "region": "cn",
+              "note": "",
+              "operator": "github"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/SillyTavern/SillyTavern/archive/refs/tags/1.19.0.tar.gz",
+              "region": "cn",
+              "note": "",
+              "operator": "github"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "git clone --depth 1 -b 1.19.0 https://github.com/SillyTavern/SillyTavern.git \"$HOME/SillyTavern\" && cd \"$HOME/SillyTavern\" && ./start.sh"
+            ],
+            "probe": {
+              "cmd": "bash -lc \"cat $HOME/SillyTavern/package.json\"",
+              "expect": "\"version\":\\s*\"1\\.19\\.0\""
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "sillytavern-src"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "sillytavern-src"
+          ]
+        }
+      }
+    },
+    {
+      "id": "stable-diffusion-webui",
+      "name": "Stable Diffusion WebUI",
+      "version": "1.10.1",
+      "packages": [
+        {
+          "id": "sdwebui-src",
+          "name": "Stable Diffusion WebUI (source, tag 1.10.1)",
+          "version": "1.10.1",
+          "platforms": [
+            "windows",
+            "macos"
+          ],
+          "arch": "any",
+          "sha256": "8c8584a5566098f64e92b4e42061dfe0fb2fb4746aa7a47fce6cf569acda84b8",
+          "sizeBytes": 1841263,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/AUTOMATIC1111/stable-diffusion-webui/archive/refs/tags/v1.10.1.tar.gz",
+              "region": "global",
+              "operator": "github",
+              "note": "Tag source archive"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/AUTOMATIC1111/stable-diffusion-webui/archive/refs/tags/v1.10.1.tar.gz",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/AUTOMATIC1111/stable-diffusion-webui/archive/refs/tags/v1.10.1.tar.gz",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "git clone --depth 1 -b v1.10.1 https://github.com/AUTOMATIC1111/stable-diffusion-webui.git \"$HOME/sd-webui\" && cd \"$HOME/sd-webui\" && python -m venv venv && ./venv/bin/pip install -r requirements.txt"
+            ],
+            "notes": "Clones into the user home, builds a user-level venv (zero admin). Prerequisites: git + Python 3.10+. First run fetches large ML deps — set PIP_INDEX_URL to a CN mirror if slow.",
+            "probe": {
+              "cmd": "bash -lc \"cd $HOME/sd-webui && . venv/bin/activate 2>/dev/null; python launch.py --version 2>/dev/null || grep -m1 version launch.py\"",
+              "expect": "version"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "sdwebui-src"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "sdwebui-src"
+          ]
+        }
+      }
+    },
+    {
+      "id": "zed",
+      "name": "Zed",
+      "version": "1.29.3",
+      "packages": [
+        {
+          "id": "zed-win-x64",
+          "name": "Zed (Inno Setup installer, win32-x64)",
+          "version": "1.29.3",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "x64",
+          "sha256": "f857495c6cdc4d74fb9bcda9ff5a23aebe1cc88e7aa10af13cfde5f45232b554",
+          "sizeBytes": 65418432,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-x86_64.exe",
+              "region": "global",
+              "operator": "github",
+              "note": "Official Inno Setup installer — installs per-user into %LOCALAPPDATA%\\Programs\\Zed, no admin rights needed"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-x86_64.exe",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-x86_64.exe",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/VERYSILENT",
+              "/SUPPRESSMSGBOXES",
+              "/NORESTART",
+              "/TASKS=\"!associatewithfiles,!addcontextmenufiles,!addtopath\""
+            ],
+            "notes": "Inno Setup installer (upstream zed.iss: PrivilegesRequired=lowest → per-user, no admin). /VERYSILENT is the Inno silent switch; /TASKS with !prefix deselects the default file-associations / context-menu / PATH tasks so a fresh install does not modify the system (upstream defaults associatewithfiles + addcontextmenufiles + addtopath to ON). Verified on a real Windows machine 2026-11-19: exit code 0, %LOCALAPPDATA%\\Programs\\Zed\\Zed.exe present, app starts and the extension host loads.",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"Test-Path $env:LOCALAPPDATA\\Programs\\Zed\\Zed.exe\"",
+              "expect": "True"
+            }
+          }
+        },
+        {
+          "id": "zed-win-arm64",
+          "name": "Zed (Inno Setup installer, win32-arm64)",
+          "version": "1.29.3",
+          "platforms": [
+            "windows"
+          ],
+          "arch": "arm64",
+          "sha256": "6b1d9953d73743562260e68127e154e1c77ad71d2f64bc8b3f883ff00309d67e",
+          "sizeBytes": 58278984,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-aarch64.exe",
+              "region": "global",
+              "operator": "github",
+              "note": "Official Inno Setup installer (ARM64 build — for Qualcomm/Windows on ARM)"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-aarch64.exe",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-aarch64.exe",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "nsis-silent",
+            "args": [
+              "/VERYSILENT",
+              "/SUPPRESSMSGBOXES",
+              "/NORESTART",
+              "/TASKS=\"!associatewithfiles,!addcontextmenufiles,!addtopath\""
+            ],
+            "notes": "Inno Setup installer (per-user, no admin). Same silent switches as the x64 package; the ARM64 build also runs on x64 Windows (ArchitecturesAllowed=x64compatible).",
+            "probe": {
+              "cmd": "powershell -NoProfile -Command \"Test-Path $env:LOCALAPPDATA\\Programs\\Zed\\Zed.exe\"",
+              "expect": "True"
+            }
+          }
+        },
+        {
+          "id": "zed-mac-x64",
+          "name": "Zed (dmg, x64)",
+          "version": "1.29.3",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "x64",
+          "sha256": "b4779577003b79cb05ab6be18205babdebf81b45d96acdf21fce43dd4a6d6083",
+          "sizeBytes": 97366853,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-x86_64.dmg",
+              "region": "global",
+              "operator": "github",
+              "note": "Official dmg (contains Zed.app) — Intel Mac build"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-x86_64.dmg",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-x86_64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/b4779577003b79cb05ab6be18205babdebf81b45d96acdf21fce43dd4a6d6083.dmg\"; cp -R \"$M\"/Zed.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "Official dmg ships Zed.app at the root (upstream bundle-mac moves Zed.app into the dmg); copy into /Applications.",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/Zed.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        },
+        {
+          "id": "zed-mac-arm64",
+          "name": "Zed (dmg, arm64)",
+          "version": "1.29.3",
+          "platforms": [
+            "macos"
+          ],
+          "arch": "arm64",
+          "sha256": "b692c9effdfcec874c47f56c3b27df069a63c6b3d23ecd070ffec9238a708bb8",
+          "sizeBytes": 88779557,
+          "channels": [
+            {
+              "type": "direct",
+              "url": "https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-aarch64.dmg",
+              "region": "global",
+              "operator": "github",
+              "note": "Official dmg (contains Zed.app) — Apple silicon build"
+            },
+            {
+              "type": "proxy",
+              "url": "https://ghfast.top/https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-aarch64.dmg",
+              "region": "cn",
+              "operator": "ghfast",
+              "note": "CN gateway"
+            },
+            {
+              "type": "proxy",
+              "url": "https://gh-proxy.com/https://github.com/zed-industries/zed/releases/download/v1.29.3/Zed-aarch64.dmg",
+              "region": "cn",
+              "operator": "gh-proxy",
+              "note": "CN gateway"
+            }
+          ],
+          "install": {
+            "type": "script",
+            "args": [
+              "bash",
+              "-lc",
+              "set -e; M=$(mktemp -d); hdiutil attach -nobrowse -mountpoint \"$M\" \"$HOME/.aibox/cache/downloads/b692c9effdfcec874c47f56c3b27df069a63c6b3d23ecd070ffec9238a708bb8.dmg\"; cp -R \"$M\"/Zed.app /Applications/; hdiutil detach \"$M\"; rmdir \"$M\""
+            ],
+            "notes": "Official dmg ships Zed.app at the root (upstream bundle-mac moves Zed.app into the dmg); copy into /Applications.",
+            "probe": {
+              "cmd": "bash -lc \"ls -d /Applications/Zed.app >/dev/null 2>&1 && echo installed\"",
+              "expect": "installed"
+            }
+          }
+        }
+      ],
+      "routes": {
+        "global": [
+          "direct-install"
+        ],
+        "cn": [
+          "proxy-install"
+        ]
+      },
+      "routePlans": {
+        "direct-install": {
+          "label": "Direct install",
+          "steps": [
+            "zed-win-x64",
+            "zed-win-arm64",
+            "zed-mac-x64",
+            "zed-mac-arm64"
+          ]
+        },
+        "proxy-install": {
+          "label": "Proxy install (CN)",
+          "steps": [
+            "zed-win-x64",
+            "zed-win-arm64",
+            "zed-mac-x64",
+            "zed-mac-arm64"
+          ]
+        }
+      }
+    }
+  ]
+}

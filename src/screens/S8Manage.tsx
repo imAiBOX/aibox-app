@@ -145,11 +145,11 @@ export default function S8Manage({ onClose, onGotoInstall, focus, onUpgradeAll, 
               <div className="min-w-0">
                 <p className="font-display font-semibold text-aibox-cream">{entry.appId}</p>
                 <p className="font-mono text-xs text-aibox-text2">
-                  {t("s8.installed")}: {entry.version ?? "?"}
+                  {t("s8.installed")}: {entry.version ?? t("s7.versionUnavailable")}
                   {update?.hasUpdate && update.latest && (
                     <span className="ml-2 text-aibox-info">{t("s8.updatable", { version: update.latest })}</span>
                   )}
-                  {!update?.hasUpdate && update && <span className="ml-2 text-aibox-text2">{t("s8.noUpdate")}</span>}
+                  {!update?.hasUpdate && update?.installed && update.latest && <span className="ml-2 text-aibox-text2">{t("s8.noUpdate")}</span>}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -169,7 +169,7 @@ export default function S8Manage({ onClose, onGotoInstall, focus, onUpgradeAll, 
                   {t("s8.upgrade")}
                 </button>
               </div>
-              {!update?.hasUpdate && <span className="w-full text-right font-mono text-[10px] text-aibox-text2">{t("s8.noUpdateHint")}</span>}
+              {!update?.hasUpdate && update?.installed && update.latest && <span className="w-full text-right font-mono text-[10px] text-aibox-text2">{t("s8.noUpdateHint")}</span>}
             </div>
             <details className="border-t border-aibox-line pt-2 text-xs leading-relaxed text-aibox-text2">
               <summary className="cursor-pointer text-aibox-cream">{t("s8.manualGuideTitle")}</summary>
@@ -187,6 +187,7 @@ export default function S8Manage({ onClose, onGotoInstall, focus, onUpgradeAll, 
                 <p className="mt-2">{t("s8.manualNoSteps")}</p>
               )}
               <p className="mt-2">{t("s8.manualReinstall")}</p>
+              <p className="mt-2">{t("s8.manualRecord")}</p>
             </details>
           </li>
         ))}

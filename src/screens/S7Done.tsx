@@ -26,9 +26,14 @@ export default function S7Done({
   /** 跳过的组件（之前会静默消失 → 用户以为全装上了） */
   const skipped = state.tasks.filter((tk) => tk.status === "skipped");
   /** 标题按「有没有没装上的」分开说，不无脑报喜 */
-  const title = skipped.length > 0 ? t("s7.titlePartial", { count: skipped.length }) : t("s7.title");
-  const subtitle =
-    skipped.length > 0
+  const target = installed.find((tk) => tk.role === "target");
+  const unverified = target?.probeStatus !== "version" && target?.probeStatus !== "mock";
+  const title = unverified
+    ? t(target?.probeStatus === "present" ? "s7.presentUnverified" : "s7.installUnverified")
+    : skipped.length > 0 ? t("s7.titlePartial", { count: skipped.length }) : t("s7.title");
+  const subtitle = unverified
+    ? t("s7.verifyManually")
+    : skipped.length > 0
       ? t("s7.subtitlePartial")
       : t("s7.subtitleCount", { count: installed.length });
 
@@ -45,7 +50,7 @@ export default function S7Done({
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h1 className="font-display text-2xl font-bold text-aibox-ok">{title}</h1>
+        <h1 className={`font-display text-2xl font-bold ${unverified ? "text-aibox-info" : "text-aibox-ok"}`}>{title}</h1>
         <p className="text-sm text-aibox-text2">{subtitle}</p>
       </div>
 
@@ -96,10 +101,10 @@ export default function S7Done({
           {installed.map((tk) => (
             <li key={tk.id} className="flex items-center justify-between font-mono text-xs">
               <span className="text-aibox-text1">
-                <span className="text-aibox-ok">√ </span>
+                <span>{tk.actualVersion || tk.probeStatus === "mock" ? "√ " : "? "}</span>
                 {tk.name}
               </span>
-              <span className="text-aibox-text2">{tk.version}</span>
+              <span className="text-aibox-text2">{tk.actualVersion ?? (tk.probeStatus === "mock" ? tk.version : t("s7.versionUnavailable"))}</span>
             </li>
           ))}
           {/* 没装上的也要列出来（否则用户以为全装上了） */}
@@ -124,7 +129,7 @@ export default function S7Done({
         <h2 className="mb-1.5 font-display text-sm font-semibold text-aibox-green">
           {t("s7.nextTitle")}
         </h2>
-        <p className="mb-3 text-sm leading-relaxed text-aibox-text2">{t("s7.nextDesc")}</p>
+        {!unverified && <p className="mb-3 text-sm leading-relaxed text-aibox-text2">{t("s7.nextDesc")}</p>}
         {/* 教程指向**这个应用自己的**教程页（落地页内含完整教程）；
             原先指向 /docs —— 该路径在站点上是 404（装完点一下就弹错误页）。 */}
         <a

@@ -196,6 +196,10 @@
     "techDetail": "技术细节"
   },
   "s7": {
+    "presentUnverified": "已检测到应用，版本待核实",
+    "installUnverified": "安装程序已结束，应用待核实",
+    "verifyManually": "请先打开应用检查版本，再进行配置。",
+    "versionUnavailable": "版本待核实",
     "title": "装好了。它真的能用。",
     "subtitlePartial": "装好的在下面；标 ⊘ 的那几项没装上。",
     "listTitle": "已装清单",
@@ -262,7 +266,10 @@
     "netDead": "所有下载源都超时了。检查网络后重试。",
     "hashMismatch": "下载文件校验对不上，可能被篡改了。换个下载源再试。",
     "execFailed": "安装程序无法运行或返回错误。请导出诊断后重试。",
-    "probeFailed": "已安装，但版本核对未通过。可重试或跳过此组件。",
+    "probeFailed": "应用版本核对未通过。",
+    "wrongVersion": "实测版本与目标版本不一致。",
+    "versionUnconfirmed": "目标版本待核实，更新仍待处理。",
+    "targetMissing": "所选应用或必要组件未完成。",
     "downloadFailed": "下载没有完成。请检查网络后重试。",
     "generic": "出了点问题。可以重试，或导出诊断。",
     "configParse": "这个应用原来的配置文件读不懂，AiBOX 没有动它。文件可能坏了——修好或删掉那个文件再试。",
@@ -455,6 +462,7 @@
     "manualPublishedSteps": "以下已发布步骤仅供参考。只按你所用系统对应的步骤操作；除非确定要删除，否则请保留数据。",
     "manualNoSteps": "目前没有已发布步骤，请查看该应用针对你所用系统的官方文档。",
     "manualReinstall": "卸载完成后，可从 AiBOX 应用目录或应用官方来源重新安装。",
+    "manualRecord": "手动卸载后 AiBOX 仍会保留这条记录，请在系统设置中确认卸载结果。",
     "errRemovePaused": "自动卸载已暂停，请查看手动卸载指引。",
 
     "empty": "还没有装过应用——先去目录装一个。",

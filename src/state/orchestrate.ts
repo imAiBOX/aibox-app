@@ -57,6 +57,9 @@ const EXACT_CODES: Record<string, string> = {
   VERIFY_STALLED: "err.verifyStalled",
   INSTALL_STALLED: "err.installStalled",
   PROBE_STALLED: "err.probeStalled",
+  PROBE_WRONG_VERSION: "err.wrongVersion",
+  PROBE_VERSION_UNCONFIRMED: "err.versionUnconfirmed",
+  TASK_TARGET_MISSING: "err.targetMissing",
 };
 
 /**
@@ -142,7 +145,7 @@ export interface ExecuteApi {
   execInstall(task: ExecTask): Promise<{ code: number; out: string; cancelled?: boolean }>;
   /** 取消正在运行的安装进程（后端杀掉子进程并回报「已取消」） */
   execCancel?(taskId: string): Promise<void>;
-  probeRun(spec: ProbeSpec): Promise<{ version: string }>;
+  probeRun(spec: ProbeSpec): Promise<{ version: string | null }>;
   /** 安装上报（best-effort：fire-and-forget，reject/同步抛都不影响编排；可选） */
   trackInstall?(appId: string): Promise<void>;
 }
@@ -168,6 +171,7 @@ export interface ExecuteDeps {
 
 export interface ExecuteContext {
   appId: string | null;
+  upgradeMode?: boolean;
   /** 进入 EXECUTE 时的任务快照（done/skipped 跳过 = 断点续装语义） */
   tasks: Task[];
 }
@@ -179,6 +183,12 @@ export interface ExecuteHandle {
 }
 
 type RunResult = "done" | "stopped" | "error";
+
+/** GitHub tags may have a release prefix. Compare full versions, including suffixes. */
+function normalizeVersion(value?: string): string | undefined {
+  const version = value?.trim().replace(/^(?:rust-)?v/, "");
+  return version && /^[0-9]+(?:\.[0-9]+)+(?:[-+][0-9A-Za-z.+-]+)?$/.test(version) ? version : undefined;
+}
 
 /** 安装产物路径：内容寻址（`<sha256><ext>`，与 Rust download 落盘同构） */
 function downloadPath(destName: string, sha256: string): string {
@@ -270,11 +280,13 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     return "error";
   };
 
-  const snapshot = async (doneIds: string[]) => {
+  const snapshot = async (doneIds: string[], installedIds: string[] = []) => {
     await deps
       .saveSnapshot({
         appId: ctx.appId ?? "",
         doneTaskIds: doneIds,
+        ...(installedIds.length ? { installedTaskIds: installedIds } : {}),
+        ...(ctx.upgradeMode ? { upgradeMode: true } : {}),
         savedAt: deps.now(),
       })
       .catch(() => undefined);
@@ -296,7 +308,51 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
       await deps.sleep(180);
     }
     if (state.stopped) return "stopped";
-    deps.dispatch({ type: "TASK_DONE", taskId: task.id });
+    deps.dispatch({ type: "TASK_DONE", taskId: task.id, probeStatus: "mock" });
+    doneIds.push(task.id);
+    await snapshot(doneIds);
+    return "done";
+  };
+
+  const verifyTask = async (task: Task, doneIds: string[], installedIds: string[] = []): Promise<RunResult> => {
+    void installedIds;
+    if (state.stopped) return "stopped";
+    deps.dispatch({ type: "TASK_PHASE", taskId: task.id, phase: "probe" });
+    let actualVersion: string | undefined;
+    let probeStatus: Task["probeStatus"] = "unconfirmed";
+    if (task.role === "target" && !task.spec?.probe) {
+      return fail("PROBE_VERSION_UNCONFIRMED", task.id);
+    }
+    if (task.spec?.probe) {
+      try {
+        const probe = await watchPhase(
+          deps.api.probeRun(task.spec.probe),
+          deps.phaseTimeouts?.probe ?? PHASE_TIMEOUTS.probe,
+          () => { if (!state.stopped) deps.onPhaseSlow?.(task.id, "probe"); },
+        );
+        if (probe.version === null) probeStatus = "present";
+        else if (normalizeVersion(probe.version)) {
+          actualVersion = probe.version.trim();
+          probeStatus = "version";
+        }
+      } catch (e) {
+        return fail(errCode(e, "PROBE_MISMATCH"), task.id, errorHumanOf(e));
+      }
+    }
+    if (state.stopped) return "stopped";
+    if (task.role === "target") {
+      const actual = normalizeVersion(actualVersion);
+      const expected = normalizeVersion(task.version);
+      const catalog = normalizeVersion(task.catalogVersion);
+      const mismatch = actual && (!expected || actual !== expected || (ctx.upgradeMode && actual !== catalog));
+      if (!actual || mismatch || (ctx.upgradeMode && !actual)) {
+        deps.dispatch({ type: "TASK_PROBED", taskId: task.id, actualVersion, probeStatus });
+        return fail(mismatch ? "PROBE_WRONG_VERSION" : "PROBE_VERSION_UNCONFIRMED", task.id, mismatch
+          ? `${task.name}: ${actualVersion} → ${ctx.upgradeMode ? task.catalogVersion ?? task.version : task.version}`
+          : undefined);
+      }
+    }
+    deps.dispatch({ type: "TASK_DONE", taskId: task.id, actualVersion, probeStatus });
     doneIds.push(task.id);
     await snapshot(doneIds);
     return "done";
@@ -306,6 +362,7 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
   const runTaskReal = async (task: Task, doneIds: string[]): Promise<RunResult> => {
     const spec = task.spec;
     if (!spec) return fail("TASK_NO_SPEC", task.id);
+    if (task.installerSucceeded) return verifyTask(task, doneIds, [task.id]);
 
     // 1) download（「换个下载源」→ 一次性 skipChannels 重发）
     deps.dispatch({ type: "TASK_PHASE", taskId: task.id, phase: "download" });
@@ -368,37 +425,39 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     if (exit.cancelled) return "stopped";
     if (exit.code !== 0) return fail(`EXEC_EXIT_${exit.code}`, task.id);
 
-    // 4) probe（拿到真实版本号才算装上；无 probe 定义则通过）
-    if (state.stopped) return "stopped";
-    deps.dispatch({ type: "TASK_PHASE", taskId: task.id, phase: "probe" });
-    if (spec.probe) {
-      try {
-        await watchPhase(
-          deps.api.probeRun(spec.probe),
-          deps.phaseTimeouts?.probe ?? PHASE_TIMEOUTS.probe,
-          () => { if (!state.stopped) deps.onPhaseSlow?.(task.id, "probe"); },
-        );
-      } catch (e) {
-        return fail(errCode(e, "PROBE_MISMATCH"), task.id, errorHumanOf(e));
-      }
-    }
-
-    if (state.stopped) return "stopped";
-    deps.dispatch({ type: "TASK_DONE", taskId: task.id });
-    doneIds.push(task.id);
-    await snapshot(doneIds);
-    return "done";
+    // Durable boundary: installer succeeded. Persist before probing so probe-only retry
+    // survives both an error transition and application restart without repeating exec.
+    task = { ...task, installerSucceeded: true };
+    deps.dispatch({ type: "TASK_INSTALLER_SUCCEEDED", taskId: task.id });
+    await snapshot(doneIds, [...new Set([...ctx.tasks.filter((t) => t.installerSucceeded).map((t) => t.id), task.id])]);
+    return verifyTask(task, doneIds, [task.id]);
   };
 
   const promise = (async (): Promise<void> => {
+    const mustReprobe = (task: Task) => task.installerSucceeded || (task.role === "target" && task.status === "done" && !task.probeStatus);
+    if (ctx.tasks.length === 0 || (ctx.tasks.some((t) => t.role) && ctx.tasks.filter((t) => t.role === "target").length !== 1)) {
+      fail("TASK_TARGET_MISSING");
+      return;
+    }
+    if (deps.mode === "real") {
+      const target = ctx.tasks.find((t) => t.role === "target");
+      if (target && !target.spec?.probe) {
+        fail("PROBE_VERSION_UNCONFIRMED", target.id);
+        return;
+      }
+    }
     const doneIds = ctx.tasks
-      .filter((t) => t.status === "done" || t.status === "skipped")
+      .filter((t) => t.status === "done" && !mustReprobe(t))
       .map((t) => t.id);
     // 安装上报：任务队列真正启动（首个待执行任务）时点一次；
     // 同轮幂等（tracked 门控），失败静默绝不阻塞主流程。
     let tracked = false;
     for (const task of ctx.tasks) {
       if (state.stopped) return;
+      if (mustReprobe(task) && deps.mode === "real") {
+        if (await verifyTask(task, doneIds, task.installerSucceeded ? [task.id] : []) !== "done") return;
+        continue;
+      }
       if (task.status === "done" || task.status === "skipped") continue;
       if (!tracked && ctx.appId) {
         tracked = true;

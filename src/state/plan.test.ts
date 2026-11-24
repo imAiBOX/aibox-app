@@ -30,15 +30,15 @@ function manifest(packages: RegistryPackage[], extra: Partial<AppManifest> = {})
     packages,
     routes: { global: ["nsis-hub"], cn: ["npm-prefix"] },
     routePlans: {
-      "nsis-hub": { steps: ["hub", "cli"] },
-      "npm-prefix": { steps: ["node-win-x64", "cli"] },
+      "nsis-hub": { steps: ["hub", "openclaw-cli"] },
+      "npm-prefix": { steps: ["node-win-x64", "openclaw-cli"] },
     },
     ...extra,
   };
 }
 
 const cli = pkg({
-  id: "cli",
+  id: "openclaw-cli",
   name: "OpenClaw CLI",
   platforms: ["windows", "macos"],
   arch: "any",
@@ -134,7 +134,7 @@ describe("buildPlan", () => {
     ...over,
   });
 
-  it("global 路线 nsis-hub 步骤序 → 任务序 + DAG 链 + target=末位", () => {
+  it("global 路线 nsis-hub 步骤序 → 任务序 + DAG 链 + 主应用为 CLI", () => {
     const p = buildPlan(manifest([hub, cli]), {
       platform: "windows",
       arch: "x64",
@@ -142,8 +142,10 @@ describe("buildPlan", () => {
       home: "/h",
     });
     expect(p.route).toBe("nsis-hub");
-    expect(p.tasks.map((t) => t.id)).toEqual(["hub", "cli"]);
-    expect(p.nodes[0].children).toEqual(["cli"]);
+    expect(p.tasks.map((t) => t.id)).toEqual(["hub", "openclaw-cli"]);
+    expect(p.tasks[1].role).toBe("target");
+    expect(p.tasks[0].role).toBe("required");
+    expect(p.nodes[0].children).toEqual(["openclaw-cli"]);
     expect(p.nodes[1].kind).toBe("target");
     expect(p.channel).toBe("ghfast.top"); // 首任务首通道 host
     expect(p.diskMb).toBeGreaterThan(0);
@@ -160,7 +162,7 @@ describe("buildPlan", () => {
     });
     expect(p.route).toBe("npm-prefix");
     // node-win-x64 步骤在 arm64 上解析为 arm64 包
-    expect(p.tasks.map((t) => t.id)).toEqual(["node-win-arm64", "cli"]);
+    expect(p.tasks.map((t) => t.id)).toEqual(["node-win-arm64", "openclaw-cli"]);
   });
 
   it("ScanReport 差集：node 已满足 → reuse 入 DAG 不入任务队列", () => {
@@ -172,7 +174,7 @@ describe("buildPlan", () => {
       scan: win({ node: { installed: true, version: "v26.13.0", ok: true } }),
     });
     expect(p.nodes.find((n) => n.id === "node-win-x64")?.kind).toBe("reuse");
-    expect(p.tasks.map((t) => t.id)).toEqual(["cli"]);
+    expect(p.tasks.map((t) => t.id)).toEqual(["openclaw-cli"]);
   });
 
   it("路线步骤全被平台过滤 → 回落全部匹配包", () => {
@@ -184,16 +186,16 @@ describe("buildPlan", () => {
       home: "/h",
     });
     // 步骤 mac-only 不匹配 windows → 回落：windows 可用包 = cli
-    expect(p.tasks.map((t) => t.id)).toEqual(["cli"]);
+    expect(p.tasks.map((t) => t.id)).toEqual(["openclaw-cli"]);
   });
 
   it("mock 同构 manifest（mock-full 4 步）→ 4 任务 + spec 齐全", () => {
     const pkgs = [pkg(), pkg({ id: "git", install: { type: "nsis-silent", args: ["/S"] } }), cli, hub];
     const p = buildPlan(
-      manifest(pkgs, { routes: { global: ["mock-full"], cn: ["mock-full"] }, routePlans: { "mock-full": { steps: ["node-win-x64", "git", "cli", "hub"] } } }),
+      manifest(pkgs, { routes: { global: ["mock-full"], cn: ["mock-full"] }, routePlans: { "mock-full": { steps: ["node-win-x64", "git", "openclaw-cli", "hub"], optionalSteps: ["git"] } } }),
       { platform: "windows", arch: "x64", region: "cn", home: "/h" },
     );
-    expect(p.tasks).toHaveLength(4);
+    expect(p.tasks.map((t) => t.role)).toEqual(["required", "optional", "target", "required"]);
     expect(p.tasks.every((t) => t.spec?.download && t.spec.exec)).toBe(true);
   });
 });
@@ -229,7 +231,7 @@ describe("plan 携带诊断与任务扩展字段", () => {
     const p = buildPlan(
       manifest([hub, cli, nosize], {
         routes: { global: ["all"], cn: ["all"] },
-        routePlans: { all: { steps: ["hub", "cli", "nosize"] } },
+        routePlans: { all: { steps: ["hub", "openclaw-cli", "nosize"] } },
       }),
       {
         platform: "windows",

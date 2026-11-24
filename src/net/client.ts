@@ -156,6 +156,9 @@ export interface RegistryPackage {
 }
 export interface RoutePlan {
   label?: string;
+  /** 明确主应用包，避免将依赖链末尾误判为用户目标。 */
+  target?: string;
+  optionalSteps?: string[];
   steps: string[];
   note?: string;
 }
@@ -595,7 +598,7 @@ export const api = {
   execCancel: (taskId: string) => invoke<void>("exec_cancel", { taskId }),
   execInstall: (task: ExecTask) =>
     invoke<{ code: number; out: string; cancelled?: boolean }>("exec_install", task),
-  probeRun: (spec: ProbeSpec) => invoke<{ version: string }>("probe_run", spec),
+  probeRun: (spec: ProbeSpec) => invoke<{ version: string | null }>("probe_run", spec),
   configWrite: (input: ConfigWriteInput) =>
     invoke<ConfigWriteResult>("config_write", input),
   verifySend: (input: VerifyInput) =>

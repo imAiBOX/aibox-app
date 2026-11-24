@@ -156,7 +156,7 @@ describe("VERIFY 流转与弱判定拒绝", () => {
       plan: {
         appId: "openclaw",
         nodes: [],
-        tasks: [{ id: "t1", name: "x", version: "1", phase: "download", status: "done" }],
+        tasks: [{ id: "t1", name: "x", version: "1", role: "target", phase: "download", status: "done" }],
         route: "global",
         channel: "ghfast.top",
         diskMb: 10,
@@ -165,7 +165,7 @@ describe("VERIFY 流转与弱判定拒绝", () => {
     });
     s = reduce(s, { type: "CONFIRM" });
     s = reduce(s, { type: "BEGIN" });
-    s = reduce(s, { type: "TASK_DONE", taskId: "t1" });
+    s = reduce(s, { type: "TASK_DONE", taskId: "t1", actualVersion: "1.0", probeStatus: "version" });
     s = reduce(s, { type: "ALL_DONE" });
     expect(s.status).toBe("CONFIG");
 

@@ -165,7 +165,8 @@ export function buildPlan(manifest: AppManifest, opts: BuildPlanOptions): Plan {
   if (steps && steps.length > 0) {
     selected = steps
       .map((id) => byId.get(resolveStepId(id, arch, byId)))
-      .filter((p): p is RegistryPackage => !!p && matchesMachine(p, platform, arch));
+      .filter((p): p is RegistryPackage => !!p && matchesMachine(p, platform, arch))
+      .filter((p, i, all) => all.findIndex((candidate) => candidate.id === p.id) === i);
   }
   if (selected.length === 0) {
     // 回落：全部匹配机型的包
@@ -173,16 +174,26 @@ export function buildPlan(manifest: AppManifest, opts: BuildPlanOptions): Plan {
   }
 
   const tasks: Task[] = [];
+  const routePlan = routeName ? manifest.routePlans?.[routeName] : undefined;
+  // Both legacy OpenClaw routes deliver the CLI. The Hub/Node steps are prerequisites.
+  const declared = routePlan?.target ?? (manifest.id === "openclaw" ? "openclaw-cli" : undefined);
+  // Registry route steps commonly list mutually exclusive platform/arch installers.
+  // After machine filtering, the final selected step is the delivered application;
+  // OpenClaw explicitly declares its target because its final step already is the CLI.
+  const targetId = declared
+    ? resolveStepId(declared, arch, byId)
+    : selected[selected.length - 1]?.id ?? (manifest.id === "openclaw" ? "openclaw-cli" : undefined);
+  const optionalIds = new Set((routePlan?.optionalSteps ?? []).map((id) => resolveStepId(id, arch, byId)));
   const nodes: PlanNode[] = [];
   let sizeSum = 0;
   for (const pkg of selected) {
-    const kind = reuseKind(pkg, scan);
-    const isLast = pkg.id === selected[selected.length - 1]?.id;
+    const role = pkg.id === targetId ? "target" : optionalIds.has(pkg.id) ? "optional" : "required";
+    const kind = role === "target" ? "install" : reuseKind(pkg, scan);
     nodes.push({
       id: pkg.id,
       name: pkg.name,
       versionRange: pkg.version,
-      kind: isLast && kind === "install" ? "target" : kind,
+      kind: role === "target" ? "target" : kind,
       children: [],
     });
     for (let i = 0; i < nodes.length - 1; i++) {
@@ -190,9 +201,8 @@ export function buildPlan(manifest: AppManifest, opts: BuildPlanOptions): Plan {
     }
     if (kind === "reuse") continue;
     const built = specOf(pkg, home);
-    if (!built) continue;
-    // 任务日志子目录（appId）与截断检测（sizeBytes）随任务下发
-    const spec: TaskSpec = {
+    // Keep an unsupported required/target step visible and block execution at it.
+    const spec: TaskSpec | undefined = built ? {
       ...built.spec,
       download: {
         ...built.spec.download,
@@ -200,11 +210,13 @@ export function buildPlan(manifest: AppManifest, opts: BuildPlanOptions): Plan {
         ...(pkg.sizeBytes != null ? { sizeBytes: pkg.sizeBytes } : {}),
       },
       exec: { ...built.spec.exec, appId: manifest.id },
-    };
+    } : undefined;
     tasks.push({
       id: pkg.id,
       name: pkg.name,
       version: pkg.version,
+      role,
+      ...(role === "target" && manifest.version ? { catalogVersion: manifest.version } : {}),
       phase: "download",
       status: "pending",
       spec,

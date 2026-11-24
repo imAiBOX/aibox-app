@@ -19,6 +19,7 @@ import {
   startExecute,
   errorCodeOf,
   messageKeyForCode,
+  errorActions,
   type ExecuteHandle,
 } from "./state";
 import {
@@ -118,8 +119,6 @@ export default function App() {
   const lastChannelRef = useRef<string | null>(null);
   // 断点续装：真 Tauri → SQLite（sessions/kv），mock/浏览器 → memory（persistence-sqlite 工厂）
   const persistence = useRef(createPersistence()).current;
-  /** 本次安装的 registry 版本（install-manifest 登记用）；记录去重 */
-  const installVersionRef = useRef<string | undefined>(undefined);
   const recordedRef = useRef<string | null>(null);
   // E1 内嵌诊断面板（同一任务连败 2 次触发；纯 reducer 可测）
   const [e1, rawE1] = useReducer(e1Reduce, createE1State());
@@ -372,7 +371,8 @@ export default function App() {
    */
   const afterInstallRef = useRef(false);
   useEffect(() => {
-    if (state.status !== "DONE") {
+    const target = state.tasks.find((task) => task.role === "target");
+    if (state.status !== "DONE" || (target?.probeStatus !== "version" && target?.probeStatus !== "mock")) {
       afterInstallRef.current = false;
       return;
     }
@@ -401,7 +401,7 @@ export default function App() {
     window.addEventListener("pointerdown", cancel);
     window.addEventListener("keydown", cancel);
     return cancel;
-  }, [state.status, notifyPrefs.minimizeAfterInstall, notifyPrefsLoaded]);
+  }, [state.status, state.tasks, notifyPrefs.minimizeAfterInstall, notifyPrefsLoaded]);
 
   /**
    * 最近安装的应用（托盘右键直接装，不用进主界面）。
@@ -571,20 +571,15 @@ export default function App() {
   useEffect(() => {
     const appId = state.appId;
     if (state.status === "IDLE") recordedRef.current = null;
-    const ready = state.status === "CONFIG" || (state.status === "DONE" && state.upgradeMode);
-    if (!ready || !appId || !state.tasks.length || state.tasks.some((task) => task.status !== "done")) return;
+    const ready = state.status === "CONFIG" || state.status === "DONE";
+    const target = state.tasks.find((task) => task.role === "target" && task.status === "done");
+    if (!ready || !appId || !target || (target.probeStatus !== "version" && target.probeStatus !== "present")) return;
     if (recordedRef.current === appId) return;
     recordedRef.current = appId;
-    void (async () => {
-      const version =
-        installVersionRef.current ??
-        (await api
-          .registryApp(appId)
-          .then((m) => m.version)
-          .catch(() => undefined));
-      await api.installRecord(appId, version).catch(() => undefined);
-    })();
-  }, [state.status, state.appId, state.upgradeMode, state.tasks]);
+    void api.installRecord(appId, target.actualVersion)
+      .then(() => recheckAppUpdates({ force: true }))
+      .catch(() => undefined);
+  }, [state.status, state.appId, state.tasks, recheckAppUpdates]);
 
   // 断点续装写入时机：状态机关键转移（每任务完成在下方 runTask 内单独写）
   useEffect(() => {
@@ -594,9 +589,11 @@ export default function App() {
     void persistence.saveSnapshot({
       appId: state.appId,
       doneTaskIds: state.tasks.filter((x) => x.status === "done").map((x) => x.id),
+      installedTaskIds: state.tasks.filter((x) => x.installerSucceeded && x.status !== "done").map((x) => x.id),
+      upgradeMode: state.upgradeMode,
       savedAt: Date.now(),
     });
-  }, [state.status, state.tasks, state.appId, persistence]);
+  }, [state.status, state.tasks, state.appId, state.upgradeMode, persistence]);
 
   // 完成安装 → 清会话（下次启动不再问「继续上次安装？」）
   useEffect(() => {
@@ -641,7 +638,6 @@ export default function App() {
     );
     void Promise.all([scanP, api.registryApp(appId)])
       .then(async ([report, manifest]) => {
-        installVersionRef.current = manifest.version;
         setManifest(manifest);
         // 路线按 net.effective 首条可行；region 取不到 → 前端静态判定兑底（不再硬编 global）
         const region = await api.netRegion().catch((e: unknown) => {
@@ -738,12 +734,10 @@ export default function App() {
 
   // 批量升级接力：本次升级完成（DONE）→ 自动开始队列里的下一个
   useEffect(() => {
-    if (state.status === "DONE" && state.tasks.some((task) => task.status === "skipped")) {
-      upgradeQueue.replace([]);
-    }
+    if (state.status === "ERROR" && state.upgradeMode && !errorActions(state).skip) upgradeQueue.replace([]);
     const next = upgradeQueue.next(state.status === "DONE" && state.upgradeMode);
     if (next) void runUpgrade(next);
-  }, [state.status, state.upgradeMode, state.tasks, runUpgrade, upgradeQueue]);
+  }, [state, runUpgrade, upgradeQueue]);
 
   const execHandle = useRef<ExecuteHandle | null>(null);
   useEffect(() => {
@@ -766,7 +760,7 @@ export default function App() {
           return skip;
         },
       },
-      { appId: state.appId, tasks: state.tasks },
+      { appId: state.appId, tasks: state.tasks, upgradeMode: state.upgradeMode },
     );
     execHandle.current = handle;
     void handle.promise;
@@ -1204,12 +1198,10 @@ export default function App() {
             rawE1({ type: "ACK" });
             dispatch({ type: "RETRY" });
           }}
-          onSkip={() => {
-            // 「跳过这个组件」：E1 打开时 ErrorOverlay 是隐藏的 → 这里必须给出口，
-            // 否则用户被困在「只能一直重试」的循环里。
+          onSkip={errorActions(state).skip ? () => {
             rawE1({ type: "ACK" });
             dispatch({ type: "SKIP" });
-          }}
+          } : undefined}
           errorCode={state.error?.code}
           regionEffective={netRegion?.effective ?? null}
           onClose={() => {
