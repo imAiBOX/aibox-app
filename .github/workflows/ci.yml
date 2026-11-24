@@ -207,6 +207,9 @@ jobs:
       - name: Refresh registry catalog snapshot
         run: node scripts/gen-registry-snapshot.mjs
 
+      - name: Test configuration writes on macOS
+        run: cargo test --locked -p aibox-core --lib config
+
       # Tauri v2 官方 Universal 方式：一次构建 lipo 合并 arm64+x86_64
       - name: Build universal dmg
         run: pnpm exec tauri build --target universal-apple-darwin --bundles dmg
