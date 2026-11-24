@@ -22,7 +22,6 @@ import {
   mockScanSystem,
   mockUpdateCheck,
   mockCheckAppUpdates,
-  mockStatsFetch,
   mockAutostartGet,
   mockAutostartSet,
   mockPrefetchGet,
@@ -420,12 +419,12 @@ export interface TraySync {
   recent?: { id: string; label: string }[];
 }
 
-/** 单应用计数（`GET /api/stats` 条目） */
+/** 旧版 IPC 计数条目，仅保留类型兼容。 */
 export interface AppStat {
   views: number;
   installs: number;
 }
-/** `stats_fetch` 返回（`{apps: {"<id>": {views, installs}}, updatedAt}`） */
+/** 旧版 `stats_fetch` 返回类型。统计停用后固定返回 `{ apps: {} }`。 */
 export interface StatsPayload {
   apps: Record<string, AppStat>;
   updatedAt?: string;
@@ -526,7 +525,7 @@ function mockDispatch<T>(cmd: string, a?: unknown): T {
     case "check_app_updates":
       return mockCheckAppUpdates() as T;
     case "stats_fetch":
-      return mockStatsFetch() as T;
+      return { apps: {} } satisfies StatsPayload as T;
     case "track_install":
       return undefined as T;
     case "install_record":
@@ -540,6 +539,10 @@ function mockDispatch<T>(cmd: string, a?: unknown): T {
       return mockManageRemove();
     case "manage_backup_list":
       return mockManageBackupList() as T;
+    case "manage_preserved_list":
+      return [] as T;
+    case "manage_preserved_reveal":
+      throw { code: "PRESERVED_REVEAL_FAILED", human: "The browser cannot open the system file manager" };
     case "manage_restore_preview":
       return mockManageRestorePreview(
         String((a as { backupDir?: string })?.backupDir ?? ""),
@@ -611,9 +614,9 @@ export const api = {
   updateCheck: () => invoke<UpdateInfo>("update_check"),
   /** 已装应用更新检查（Rust 读 install-manifest + 拉 registry 比对；4h 缓存门控在 TS） */
   checkAppUpdates: () => invoke<AppUpdateRow[]>("check_app_updates"),
-  /** 应用计数拉取（10min Rust 内存缓存；失败 reject → S1 不显示零阻塞） */
+  /** @deprecated 旧版统计 IPC 兼容，返回空表。 */
   statsFetch: () => invoke<StatsPayload>("stats_fetch"),
-  /** 安装上报（EXECUTE 首任务前一次；失败 reject 由调用方静默吞） */
+  /** @deprecated 旧版统计 IPC 兼容，无操作。 */
   trackInstall: (appId: string) => invoke<void>("track_install", { appId }),
   /** 安装完成登记 install-manifest（任务全部完成后调用） */
   installRecord: (appId: string, version?: string) =>
@@ -635,6 +638,8 @@ export const api = {
     invoke<ManageRestoreResult>("manage_restore", { backupDir, appId, planDigest }),
   /** MANAGE：本机备份库列表（Rust manage_backup_list；含旧格式标记） */
   manageBackupList: () => invoke<BackupRecord[]>("manage_backup_list"),
+  managePreservedList: () => invoke<string[]>("manage_preserved_list"),
+  managePreservedReveal: (dirName: string) => invoke<void>("manage_preserved_reveal", { dirName }),
   /** MANAGE：还原预览（**不写任何东西**；Rust manage_restore_preview） */
   manageRestorePreview: (backupDir: string, appId: string) =>
     invoke<RestorePreview>("manage_restore_preview", { backupDir, appId }),

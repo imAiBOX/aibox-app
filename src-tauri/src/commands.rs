@@ -761,31 +761,16 @@ pub async fn locales_load(lang: String) -> Cmd<std::collections::BTreeMap<String
     .await
 }
 
-// ── 应用统计（site 边缘 API；两条链路均 best-effort）──────────
+// ── 旧版统计 IPC 兼容（无 I/O）───────────────────────────────
 
-/// S1 卡片计数拉取（10min 内存缓存；失败 → Err，前端不显示零阻塞）。
 #[tauri::command]
-pub async fn stats_fetch() -> Cmd<aibox_core::stats::StatsData> {
-    {
-        let cache = state::stats_cache();
-        if let Some((at, data)) = cache.as_ref() {
-            if at.elapsed() < Duration::from_secs(10 * 60) {
-                return Ok(data.clone());
-            }
-        }
-    }
-    let data = blocking(aibox_core::stats::fetch_stats).await?;
-    // 成功才缓存（失败不缓存 → 下次重试）
-    let mut cache = state::stats_cache();
-    *cache = Some((Instant::now(), data.clone()));
-    Ok(data)
+pub fn stats_fetch() -> Cmd<aibox_core::stats::StatsData> {
+    Ok(aibox_core::stats::fetch_stats()?)
 }
 
-/// 安装上报：EXECUTE 任务队列启动（首个任务 download_start 前）调一次。
-/// 5s 超时；失败 → Err 由前端静默吞，绝不阻塞安装流。
 #[tauri::command]
-pub async fn track_install(app_id: String) -> Cmd<()> {
-    blocking(move || aibox_core::stats::track_install(&app_id)).await
+pub fn track_install(app_id: String) -> Cmd<()> {
+    Ok(aibox_core::stats::track_install(&app_id)?)
 }
 
 // ── 保留：壳 ↔ net 最小链路 ──────────────────────────────────
@@ -893,8 +878,9 @@ pub async fn manage_restore_preview(backup_dir: String, app_id: String) -> Cmd<R
 
 fn automatic_restore_paused<T>(app_id: &str) -> Cmd<T> {
     registry::validate_id(app_id)?;
+    aibox_core::restore_diagnostics::record_paused();
     Err(CoreError::new(
-        "RESTORE_AUTOMATIC_PAUSED",
+        aibox_core::restore_diagnostics::PAUSED_CODE,
         "Automatic restore is paused. Open the backup folder to recover files manually",
     ).into())
 }
@@ -926,6 +912,24 @@ pub async fn manage_restore(
     automatic_restore_paused(&app_id)
 }
 
+/// Read-only list of preserved-data folder names from the local backup root.
+#[tauri::command]
+pub async fn manage_preserved_list() -> Cmd<Vec<String>> {
+    blocking(|| aibox_core::preserved::list_in_home(&paths::home_dir())).await
+}
+
+/// Select one preserved-data folder in the OS file manager for manual review.
+#[tauri::command]
+pub async fn manage_preserved_reveal(dir_name: String) -> Cmd<()> {
+    blocking(move || {
+        let folder = aibox_core::preserved::folder_to_reveal(&paths::home_dir(), &dir_name)?;
+        tauri_plugin_opener::reveal_item_in_dir(folder).map_err(|_| {
+            CoreError::new("PRESERVED_REVEAL_FAILED", "Could not reveal the preserved-data folder")
+        })
+    })
+    .await
+}
+
 /// Destructive uninstall is paused for the protection release, independent of registry policy.
 #[tauri::command]
 pub async fn manage_remove(
@@ -946,7 +950,33 @@ pub async fn manage_remove(
 
 #[cfg(test)]
 mod maintenance_pause_tests {
-    use super::manage_remove;
+    use super::{manage_preserved_reveal, manage_remove, manage_restore, manage_restore_preview};
+
+    #[test]
+    fn restore_preview_and_execution_stay_paused() {
+        let preview = tauri::async_runtime::block_on(manage_restore_preview(
+            "not-a-backup".into(),
+            "openclaw".into(),
+        ))
+        .unwrap_err();
+        let execute = tauri::async_runtime::block_on(manage_restore(
+            "not-a-backup".into(),
+            "openclaw".into(),
+            "not-a-plan".into(),
+        ))
+        .unwrap_err();
+        assert_eq!(preview.code, aibox_core::restore_diagnostics::PAUSED_CODE);
+        assert_eq!(execute.code, aibox_core::restore_diagnostics::PAUSED_CODE);
+    }
+
+    #[test]
+    fn preserved_reveal_rejects_path_arguments_before_launch() {
+        let err = tauri::async_runtime::block_on(manage_preserved_reveal(
+            "../pre-restore-20261123000000".into(),
+        ))
+        .unwrap_err();
+        assert_eq!(err.code, "PRESERVED_NOT_FOUND");
+    }
 
     #[test]
     fn remove_is_paused_for_all_backup_values_and_manifest_inputs() {

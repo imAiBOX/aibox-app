@@ -1,6 +1,7 @@
 /** S8: installed app updates, backup access, and read-only uninstall/reinstall guidance. */
 import { KeyBatchPanel } from "../components/KeyBatchPanel";
 import { RestorePanel } from "../components/RestorePanel";
+import { PreservedPanel } from "../components/PreservedPanel";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type AppUpdateRow, type ManifestEntry } from "../net/client";
@@ -137,6 +138,7 @@ export default function S8Manage({ onClose, onGotoInstall, focus, onUpgradeAll, 
         <KeyBatchPanel installed={rows.map((r) => ({ appId: r.entry.appId }))} />
       )}
       <RestorePanel />
+      <PreservedPanel />
 
       <ul className="space-y-3">
         {orderedRows.map(({ entry, uninstallSteps, update }) => (

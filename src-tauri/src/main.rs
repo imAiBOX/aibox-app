@@ -77,7 +77,7 @@ fn main() {
             commands::diag_export,
             commands::update_check,
             commands::locales_load,
-            // 应用统计（卡片计数 + 安装上报）
+            // 旧版统计 IPC 兼容（无 I/O）
             commands::stats_fetch,
             commands::track_install,
             // 托盘 / 自启 / 应用更新
@@ -86,6 +86,8 @@ fn main() {
             // MANAGE 维护模式
             commands::manage_backup,
             commands::manage_backup_list,
+            commands::manage_preserved_list,
+            commands::manage_preserved_reveal,
             commands::manage_remove,
             commands::manage_restore,
             commands::manage_restore_preview,

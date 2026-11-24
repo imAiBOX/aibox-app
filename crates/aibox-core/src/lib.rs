@@ -23,7 +23,7 @@
 //! | [`matrix`] | 资源-通道矩阵展开（registry 数据优先，内置 v1.1 基线兜底） |
 //! | [`verify_send`] | VERIFY：经 provider 发真实 "Say OK"（max_tokens=8） |
 //! | [`update`] | update_check：GitHub releases/latest（调用方做 5min 缓存） |
-//! | [`stats`] | 应用统计：aibox.im/api/stats 拉取（卡片计数）+ 安装上报（best-effort） |
+//! | [`stats`] | 旧版统计 IPC 兼容（无 I/O） |
 
 pub mod config;
 pub mod config_tpl;
@@ -39,12 +39,14 @@ pub mod manage_policy;
 pub mod matrix;
 pub mod paths;
 pub mod prefetch;
+pub mod preserved;
 pub mod proxy_sys;
 pub mod probe;
 pub mod redact;
 pub mod region;
 pub mod registry;
 pub mod restore;
+pub mod restore_diagnostics;
 pub mod scan;
 pub mod stats;
 pub mod tasklog;

@@ -238,6 +238,17 @@ describe("事件总线", () => {
   });
 });
 
+it("旧版统计 IPC 的浏览器兼容分支返回空表和成功", async () => {
+  vi.stubEnv("VITE_AIBOX_MOCK", "1");
+  try {
+    await expect(api.statsFetch()).resolves.toEqual({ apps: {} });
+    await expect(api.trackInstall("openclaw")).resolves.toBeUndefined();
+    await expect(api.trackInstall("")).resolves.toBeUndefined();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 // v0.1.20：**走 api.* 的 dispatch 分支**（mock 模式下前端不依赖 Rust 也能跑通还原 UI）
 describe("mock dispatch：维护命令", () => {
   it("卸载 mock 在保护版本中失败关闭", async () => {
@@ -249,6 +260,13 @@ describe("mock dispatch：维护命令", () => {
       steps: ["manual step"],
       backup: true,
     })).rejects.toMatchObject({ code: "MANAGE_REMOVE_PAUSED" });
+  });
+
+  it("浏览器只提供空保全列表，打开文件管理器失败时给出明确错误", async () => {
+    vi.stubEnv("VITE_AIBOX_MOCK", "1");
+    await expect(api.managePreservedList()).resolves.toEqual([]);
+    await expect(api.managePreservedReveal("pre-restore-20261123000000"))
+      .rejects.toMatchObject({ code: "PRESERVED_REVEAL_FAILED" });
   });
 
   it("manage_backup_list / manage_restore_preview / manage_restore 都能派发", async () => {

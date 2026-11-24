@@ -252,11 +252,17 @@ pub fn build_diag_zip(inputs: &DiagInputs) -> CoreResult<DiagOutcome> {
     })
 }
 
+fn restore_diagnostics_entry() -> (String, String) {
+    (
+        "restore-diagnostics.json".to_string(),
+        crate::restore_diagnostics::snapshot().to_string(),
+    )
+}
+
 /// 默认输入（壳侧 `diag_export` 直接用）：日志 + ScanReport + 计划 + 版本 + 系统信息。
 pub fn default_inputs(date: &str) -> DiagInputs {
     let mut extra: Vec<(String, PathBuf)> = Vec::new();
     for (name, p) in [
-        ("settings.json", paths::settings_file()),
         ("install-manifest.json", paths::install_manifest_file()),
         (
             "last-plan.json",
@@ -304,6 +310,7 @@ pub fn default_inputs(date: &str) -> DiagInputs {
     });
 
     let mut generated = vec![
+        restore_diagnostics_entry(),
         (
             "scan-report.json".to_string(),
             serde_json::to_string_pretty(&scan).unwrap_or_default(),
@@ -365,6 +372,28 @@ pub fn zip_entry_names(zip_path: &Path) -> CoreResult<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exports_only_session_restore_counts_in_diagnostics_entry() {
+        let dir = std::env::temp_dir().join(format!("aibox-diag-restore-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let inputs = DiagInputs {
+            out_path: dir.join("diagnostics.zip"),
+            logs_dir: dir.join("no-logs"),
+            extra_files: vec![],
+            generated: vec![restore_diagnostics_entry()],
+        };
+        build_diag_zip(&inputs).unwrap();
+        let text = read_zip_entry(&inputs.out_path, "restore-diagnostics.json").unwrap();
+        let value: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["scope"], "current-session");
+        assert_eq!(value["schema"], "aibox-restore-diagnostics/v1");
+        assert_eq!(value.as_object().unwrap().len(), 3);
+        let counts = value["counts"].as_object().unwrap();
+        assert_eq!(counts.len(), 1);
+        assert!(counts["RESTORE_AUTOMATIC_PAUSED"].is_u64());
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn zip_name_format() {

@@ -147,8 +147,6 @@ export interface ExecuteApi {
   /** 取消正在运行的安装进程（后端杀掉子进程并回报「已取消」） */
   execCancel?(taskId: string): Promise<void>;
   probeRun(spec: ProbeSpec): Promise<{ version: string | null }>;
-  /** 安装上报（best-effort：fire-and-forget，reject/同步抛都不影响编排；可选） */
-  trackInstall?(appId: string): Promise<void>;
 }
 
 export interface ExecuteDeps {
@@ -450,9 +448,6 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
     const doneIds = ctx.tasks
       .filter((t) => t.status === "done" && !mustReprobe(t))
       .map((t) => t.id);
-    // 安装上报：任务队列真正启动（首个待执行任务）时点一次；
-    // 同轮幂等（tracked 门控），失败静默绝不阻塞主流程。
-    let tracked = false;
     for (const task of ctx.tasks) {
       if (state.stopped) return;
       if (mustReprobe(task) && deps.mode === "real") {
@@ -460,14 +455,6 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
         continue;
       }
       if (task.status === "done" || task.status === "skipped") continue;
-      if (!tracked && ctx.appId) {
-        tracked = true;
-        try {
-          void deps.api.trackInstall?.(ctx.appId)?.catch(() => undefined);
-        } catch {
-          /* 同步抛也吞（best-effort） */
-        }
-      }
       const result =
         deps.mode === "mock" ? await runTaskMock(task, doneIds) : await runTaskReal(task, doneIds);
       if (result !== "done") return;
