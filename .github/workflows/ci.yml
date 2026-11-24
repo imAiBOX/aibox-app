@@ -260,9 +260,20 @@ jobs:
           test -s "$mac"
           test "$(find . -maxdepth 1 -type f | wc -l)" -eq 2
           repo="$GITHUB_REPOSITORY"
-          # A failed upload or digest check leaves only a private draft.
-          gh release create "$tag" "$win" "$mac" --repo "$repo" --verify-tag --draft --generate-notes
-          gh api --paginate --slurp "repos/$repo/releases?per_page=50" > /tmp/aibox-releases.json
+          # Resume failed uploads only when the matching release is still a draft.
+          release_api="repos/$repo/releases?per_page=50"
+          gh api --paginate --slurp "$release_api" > /tmp/aibox-releases.json
+          state=$(jq -er --arg tag "$tag" '
+            [ .[][] | select(.tag_name == $tag) ] |
+            if length == 0 then "missing"
+            elif length == 1 and .[0].draft then "draft"
+            else error("expected at most one unpublished release for this tag") end
+          ' /tmp/aibox-releases.json)
+          if [[ "$state" == missing ]]; then
+            gh release create "$tag" --repo "$repo" --verify-tag --draft --generate-notes
+          fi
+          gh release upload "$tag" "$win" "$mac" --repo "$repo" --clobber
+          gh api --paginate --slurp "$release_api" > /tmp/aibox-releases.json
           python3 - "$win" "$mac" <<'PY'
           import hashlib, json, os, pathlib, sys
           pages = json.loads(pathlib.Path('/tmp/aibox-releases.json').read_text())

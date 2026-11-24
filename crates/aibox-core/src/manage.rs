@@ -269,7 +269,12 @@ fn expand_maintenance_path(raw: &str, home: &Path) -> PathBuf {
     if let Some(rest) = raw.strip_prefix("~/").or_else(|| raw.strip_prefix("~\\")) {
         return home.join(rest);
     }
-    paths::expand(raw)
+    let path = paths::expand(raw);
+    if path.is_absolute() {
+        path
+    } else {
+        home.join(path)
+    }
 }
 
 /// 备份到指定目录（内部实现；测试可注入目录 → 覆盖 manifest 写失败等分支）。

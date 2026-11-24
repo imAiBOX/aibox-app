@@ -41,7 +41,7 @@ pub(crate) fn checked_path(path: &Path) -> CoreResult<PathBuf> {
                 .trim_end()
                 .to_ascii_uppercase();
             s.ends_with(['.', ' '])
-                || s.contains([':', '*', '?', '%', '<', '>', '|', '"'])
+                || s.contains([':', '*', '?', '<', '>', '|', '"'])
                 || s.chars().any(char::is_control)
                 || matches!(
                     stem.as_str(),
