@@ -2,14 +2,15 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
-import zhTW from "./locales/zh-TW.json";
 
 const STORAGE_KEY = "aibox.lang";
 
-export const SUPPORTED_LANGS = ["en", "zh-CN", "zh-TW"] as const;
+// 2026-11-27 语言面收敛：只保留英文 + 简体中文（与官网两语一致；繁体内容只有
+// UI 翻译、应用介绍/教程仍是英文，混搭体验比不提供更差 → 下线 zh-TW）。
+export const SUPPORTED_LANGS = ["en", "zh-CN"] as const;
 export type Lang = (typeof SUPPORTED_LANGS)[number];
 
-/** 首屏语言：localStorage 保存值（用户手动切换）> 默认 en（国际版产品：面向英文与中文用户，默认英文，可选简体/繁体中文） */
+/** 首屏语言：localStorage 保存值（用户手动切换）> 默认 en（国际版产品：面向英文与中文用户，默认英文，可选简体中文） */
 function detect(): Lang {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -24,7 +25,6 @@ i18n.use(initReactI18next).init({
   resources: {
     en: { translation: en },
     "zh-CN": { translation: zhCN },
-    "zh-TW": { translation: zhTW },
   },
   lng: detect(),
   fallbackLng: "en",

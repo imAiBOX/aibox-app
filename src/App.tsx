@@ -1219,7 +1219,7 @@ export default function App() {
         />
       </AppShell>
 
-      {/* 语言切换（右下角常驻）：en → zh-CN → zh-TW → en 循环，按钮显示下一个语言 */}
+      {/* 语言切换（右下角常驻）：en ↔ zh-CN 循环，按钮显示下一个语言 */}
       <button
         type="button"
         onClick={() => {
