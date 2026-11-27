@@ -625,7 +625,10 @@ export default function App() {
   currentStatus.current = state.status;
 
   const startInstall = useCallback((appIdOverride?: string) => {
-    const appId = appIdOverride ?? selectedId;
+    // 防事件泄漏：底栏 `onClick: startInstall` 直传时，React 会把事件对象当第一参
+    // 传进来（`??` 挡不住非 null 值）→ 曾把 Event 传给 registry_app → IPC
+    // JSON.stringify 撞循环结构 → TypeError 被兑底成 REGISTRY_FETCH（2026-11-27 真机验收根因）。
+    const appId = typeof appIdOverride === "string" && appIdOverride ? appIdOverride : selectedId;
     if (!appId) return;
     dispatch({ type: "START_INSTALL" });
     // scan 与 manifest 并行拉取；PLAN 构建需两者（platform/arch 差集 + 路线），Promise.all 保证新鲜
@@ -833,7 +836,7 @@ export default function App() {
             labelArgs: selectedName ? { name: selectedName } : undefined,
             primary: true,
             disabled: !selectedId,
-            onClick: startInstall,
+            onClick: () => startInstall(),
           },
         ];
       case "SCAN":
