@@ -128,7 +128,7 @@ export function BottomBar({ actions }: { actions: BarAction[] }) {
             : "border border-aibox-line text-aibox-text1 hover:border-aibox-green hover:text-aibox-green",
       ].join(" ")}
     >
-      {t(a.labelKey)}
+      {t(a.labelKey, a.labelArgs)}
     </button>
   );
   return (

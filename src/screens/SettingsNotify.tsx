@@ -167,13 +167,13 @@ export default function SettingsNotify({ prefs, onChange, trayHint }: Props) {
 
       <Row
         title={t("notify.startMinimized")}
-        desc={t("notify.startMinimizedDesc")}
+        desc={t("notify.startMinimizedDesc", { where: trayHint })}
         checked={p.startMinimized}
         onToggle={set("startMinimized")}
       />
       <Row
         title={t("notify.minimizeAfterInstall")}
-        desc={t("notify.minimizeAfterInstallDesc")}
+        desc={t("notify.minimizeAfterInstallDesc", { where: trayHint })}
         checked={p.minimizeAfterInstall}
         onToggle={set("minimizeAfterInstall")}
       />
