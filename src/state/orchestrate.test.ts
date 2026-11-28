@@ -169,6 +169,20 @@ describe("真分支四阶段推进（注入 fake api）", () => {
     expect(last(h.events)).toEqual({ type: "ALL_DONE" });
   });
 
+  // 存在性探测（expect=installed/True 的结构检查）不产版本号——常规安装必须放行，
+  // 否则 zed/goose 这类 .app 应用装成功也永远 PROBE_VERSION_UNCONFIRMED（2026-11-28 真机实锤）。
+  it("fresh install with a presence probe completes without a version", async () => {
+    const h = harness({ api: { probeRun: vi.fn(async () => ({ version: null })) } });
+    h.api.downloadStart = vi.fn(async () => {
+      setTimeout(() => h.emit(ok("download ok: 10 bytes")), 0);
+      return "t1";
+    });
+    const target: Task = { ...task(), role: "target", version: "1.30.2", catalogVersion: "1.30.2" };
+    await startExecute(h.deps, { appId: "zed", tasks: [target] }).promise;
+    expect(h.events).toContainEqual({ type: "TASK_DONE", taskId: target.id, probeStatus: "present" });
+    expect(last(h.events)).toEqual({ type: "ALL_DONE" });
+  });
+
   it("re-probes a resumed target before accepting the snapshot as an upgrade", async () => {
     const h = harness({ api: { probeRun: vi.fn(async () => ({ version: "1.24.3" })) } });
     const target: Task = { ...task("target", "done"), role: "target", version: "1.24.4", catalogVersion: "1.24.4" };

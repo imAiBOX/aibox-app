@@ -344,7 +344,11 @@ export function startExecute(deps: ExecuteDeps, ctx: ExecuteContext): ExecuteHan
       const expected = normalizeVersion(task.version);
       const catalog = normalizeVersion(task.catalogVersion);
       const mismatch = actual && (!expected || actual !== expected || (ctx.upgradeMode && actual !== catalog));
-      if (!actual || mismatch || (ctx.upgradeMode && !actual)) {
+      // 存在性探测（probeStatus="present"：expect 为 installed/True 的结构检查，不产版本号）
+      // 在**常规安装**里就是这类应用（macOS .app 等）能给出的全部证据 → 放行；
+      // 升级模式仍必须拿到真实版本（证明换成了新版，见 upgrade 测试锁定的行为）。
+      const presenceAccepted = probeStatus === "present" && !ctx.upgradeMode;
+      if ((!actual && !presenceAccepted) || mismatch || (ctx.upgradeMode && !actual)) {
         deps.dispatch({ type: "TASK_PROBED", taskId: task.id, actualVersion, probeStatus });
         return fail(mismatch ? "PROBE_WRONG_VERSION" : "PROBE_VERSION_UNCONFIRMED", task.id, mismatch
           ? `${task.name}: ${actualVersion} → ${ctx.upgradeMode ? task.catalogVersion ?? task.version : task.version}`
